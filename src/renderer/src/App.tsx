@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import TabBar, { ProjectTab } from './components/TabBar'
-import Dashboard    from './pages/Dashboard'
-import BeadsViewer  from './pages/BeadsViewer'
-import LogViewer    from './pages/LogViewer'
-import ConfigEditor from './pages/ConfigEditor'
-import TerminalPage from './pages/TerminalPage'
-import SetupWizard  from './pages/SetupWizard'
+import Dashboard      from './pages/Dashboard'
+import BeadsViewer    from './pages/BeadsViewer'
+import LogViewer      from './pages/LogViewer'
+import ConfigEditor   from './pages/ConfigEditor'
+import TerminalPage   from './pages/TerminalPage'
+import SetupWizard    from './pages/SetupWizard'
+import SwarmDashboard from './pages/SwarmDashboard'
 
-type Page = 'dashboard' | 'beads' | 'logs' | 'config' | 'terminal' | 'setup'
+type Page = 'dashboard' | 'swarm' | 'beads' | 'logs' | 'config' | 'terminal' | 'setup'
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: 'dashboard', icon: '◉', label: 'Dashboard' },
+  { id: 'swarm',     icon: '⬡', label: 'Swarm' },
   { id: 'beads',     icon: '◎', label: 'Beads Tasks' },
   { id: 'logs',      icon: '≡',  label: 'Logs' },
   { id: 'config',    icon: '⚙',  label: 'Config' },
@@ -181,12 +183,13 @@ export default function App(): JSX.Element {
                   </div>
                 )}
 
-                {page === 'setup'     && <SetupWizard  projectPath={tab.path} onComplete={handleSetupDone} />}
-                {page === 'dashboard' && <Dashboard    projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
-                {page === 'beads'     && <BeadsViewer  projectPath={tab.path} />}
-                {page === 'logs'      && <LogViewer    projectPath={tab.path} />}
-                {page === 'config'    && <ConfigEditor projectPath={tab.path} />}
-                {page === 'terminal'  && <TerminalPage projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
+                {page === 'setup'     && <SetupWizard     projectPath={tab.path} onComplete={handleSetupDone} />}
+                {page === 'dashboard' && <Dashboard       projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
+                {page === 'swarm'     && <SwarmDashboard  projectPath={tab.path} />}
+                {page === 'beads'     && <BeadsViewer     projectPath={tab.path} />}
+                {page === 'logs'      && <LogViewer       projectPath={tab.path} />}
+                {page === 'config'    && <ConfigEditor    projectPath={tab.path} />}
+                {page === 'terminal'  && <TerminalPage    projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
               </div>
             ))
           )}

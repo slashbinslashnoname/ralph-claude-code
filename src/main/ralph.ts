@@ -20,6 +20,8 @@ import {
   checkEnabled, detectProjectContext, enableRalph,
   EnableOptions
 } from './loop/RalphEnabler'
+import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
+import { AgentState }        from './loop/AgentCoordinator'
 
 const execAsync = promisify(exec)
 
@@ -27,6 +29,7 @@ const execAsync = promisify(exec)
 
 const watchers = new Map<string, FSWatcher>()
 const loops    = new Map<string, RalphLoop>()
+const swarms   = new Map<string, SwarmOrchestrator>()
 
 // ── Recent projects (userData JSON) ────────────────────────────────────────
 
@@ -291,16 +294,109 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
 
+  // ── Swarm orchestrator ────────────────────────────────────────────────────
+
+  function getOrCreateSwarm(projectPath: string): SwarmOrchestrator {
+    if (swarms.has(projectPath)) return swarms.get(projectPath)!
+    const swarm = new SwarmOrchestrator(projectPath)
+
+    swarm.on('log', (level, msg, agentId) => {
+      broadcast('logs:lines', projectPath, [`[${new Date().toISOString()}] [${level}] ${msg}`])
+      broadcast('swarm:log', projectPath, level, msg, agentId ?? null)
+    })
+    swarm.on('output', (agentId, chunk) => {
+      broadcast('pty:data',   projectPath, chunk)   // legacy single-terminal channel
+      broadcast('swarm:output', projectPath, agentId, chunk)
+    })
+    swarm.on('graph', (stats, graph) => {
+      broadcast('swarm:graph', projectPath, stats, graph)
+    })
+    swarm.on('agents', (agents: AgentState[]) => {
+      broadcast('swarm:agents', projectPath, agents)
+    })
+    swarm.on('mail', msg => {
+      broadcast('swarm:mail', projectPath, msg)
+    })
+    swarm.on('planPhase', phase => {
+      broadcast('swarm:planPhase', projectPath, phase)
+    })
+    swarm.on('stopped', () => {
+      swarms.delete(projectPath)
+      broadcast('swarm:stopped', projectPath)
+    })
+
+    swarms.set(projectPath, swarm)
+    return swarm
+  }
+
+  // Inject new tasks → Step 1 (Plan) + Step 2 (Encode)
+  ipcMain.handle('swarm:inject', async (_e, projectPath: string, request: string) => {
+    try {
+      const swarm = getOrCreateSwarm(projectPath)
+      // Don't await — runs async and broadcasts events
+      swarm.injectTasks(request).catch((err: unknown) => {
+        broadcast('swarm:log', projectPath, 'ERROR', err instanceof Error ? err.message : String(err), 'planner')
+      })
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // Start N workers → Steps 3–5 loop
+  ipcMain.handle('swarm:start', (_e, projectPath: string, workerCount: number = 2) => {
+    try {
+      const swarm = getOrCreateSwarm(projectPath)
+      swarm.startWorkers(workerCount)
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // Stop all workers
+  ipcMain.handle('swarm:stop', (_e, projectPath: string) => {
+    const swarm = swarms.get(projectPath)
+    if (swarm) { swarm.stopAll(); swarms.delete(projectPath) }
+    return { ok: true }
+  })
+
+  // Status snapshot
+  ipcMain.handle('swarm:status', (_e, projectPath: string) => {
+    const swarm = swarms.get(projectPath)
+    if (!swarm) return { running: false, planning: false, workerCount: 0, agents: [], stats: null }
+    return {
+      running:     swarm.workerCount() > 0,
+      planning:    swarm.isPlanning(),
+      workerCount: swarm.workerCount(),
+      agents:      swarm.getAgents(),
+      stats:       swarm.getStats()
+    }
+  })
+
+  // Graph + mail snapshots
+  ipcMain.handle('swarm:graph', (_e, projectPath: string) => {
+    const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)
+    return swarm.getGraph()
+  })
+
+  ipcMain.handle('swarm:mail', (_e, projectPath: string, limit: number = 50) => {
+    const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)
+    return swarm.getMail(limit)
+  })
+
   // ── Cleanup ───────────────────────────────────────────────────────────────
 
   ipcMain.handle('window:cleanup', (_e, projectPath?: string) => {
     if (projectPath) {
       watchers.get(projectPath)?.close(); watchers.delete(projectPath)
       loops.get(projectPath)?.stop();    loops.delete(projectPath)
+      swarms.get(projectPath)?.stopAll(); swarms.delete(projectPath)
     } else {
       // Clean everything (window close)
       watchers.forEach(w => w.close()); watchers.clear()
       loops.forEach(l => l.stop());    loops.clear()
+      swarms.forEach(s => s.stopAll()); swarms.clear()
     }
   })
 }

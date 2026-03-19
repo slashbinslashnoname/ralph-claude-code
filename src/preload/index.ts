@@ -75,6 +75,34 @@ contextBridge.exposeInMainWorld('ralph', {
       ipcRenderer.invoke('beads:fetch', projectPath, filter ?? 'open')
   },
 
+  // ── Swarm orchestrator ────────────────────────────────────────────────────
+  swarm: {
+    inject:  (projectPath: string, request: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('swarm:inject', projectPath, request),
+    start:   (projectPath: string, workerCount?: number): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('swarm:start', projectPath, workerCount ?? 2),
+    stop:    (projectPath: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('swarm:stop', projectPath),
+    status:  (projectPath: string) => ipcRenderer.invoke('swarm:status', projectPath),
+    graph:   (projectPath: string) => ipcRenderer.invoke('swarm:graph', projectPath),
+    mail:    (projectPath: string, limit?: number) =>
+      ipcRenderer.invoke('swarm:mail', projectPath, limit ?? 50),
+    onLog:       (cb: (p: string, level: string, msg: string, agentId: string | null) => void) =>
+      listen('swarm:log', cb),
+    onOutput:    (cb: (p: string, agentId: string, chunk: string) => void) =>
+      listen('swarm:output', cb),
+    onGraph:     (cb: (p: string, stats: unknown, graph: unknown) => void) =>
+      listen('swarm:graph', cb),
+    onAgents:    (cb: (p: string, agents: unknown[]) => void) =>
+      listen('swarm:agents', cb),
+    onMail:      (cb: (p: string, msg: unknown) => void) =>
+      listen('swarm:mail', cb),
+    onPlanPhase: (cb: (p: string, phase: string) => void) =>
+      listen('swarm:planPhase', cb),
+    onStopped:   (cb: (p: string) => void) =>
+      listen('swarm:stopped', cb),
+  },
+
   // ── Shell ────────────────────────────────────────────────────────────────
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url)

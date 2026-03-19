@@ -88,3 +88,73 @@ export interface LoopEvents {
   circuit: (s: CircuitSnapshot) => void
   exit:    (reason: ExitReason, detail?: string) => void
 }
+
+// ── Swarm types ────────────────────────────────────────────────────────────
+
+export type AgentPhase =
+  | 'idle' | 'routing' | 'claiming' | 'executing'
+  | 'reviewing' | 'closing' | 'planning' | 'encoding' | 'waiting'
+
+export interface AgentInfo {
+  id:            string
+  index:         number
+  phase:         AgentPhase
+  currentBeadId: string | null
+  loopCount:     number
+  lastActivity:  string
+}
+
+export interface BeadInfo {
+  id:           string
+  title:        string
+  description:  string
+  type:         'epic' | 'task' | 'subtask'
+  status:       'pending' | 'ready' | 'claimed' | 'done' | 'failed'
+  deps:         string[]
+  files:        string[]
+  priority:     number
+  epicId?:      string
+  taskId?:      string
+  tags:         string[]
+  claimedBy?:   string
+  claimedAt?:   string
+  completedAt?: string
+  unblockCount?: number
+  score?:        number
+}
+
+export interface BeadGraphInfo {
+  version:   number
+  createdAt: string
+  updatedAt: string
+  planMd:    string
+  beads:     BeadInfo[]
+}
+
+export interface SwarmStats {
+  total:   number
+  pending: number
+  ready:   number
+  claimed: number
+  done:    number
+  failed:  number
+  pct:     number
+}
+
+export interface MailMessageInfo {
+  ts:      string
+  from:    string
+  type:    string
+  beadId?: string
+  files?:  string[]
+  text?:   string
+}
+
+export interface SwarmStatus {
+  running:     boolean
+  planning:    boolean
+  workerCount: number
+  agents:      AgentInfo[]
+  stats:       SwarmStats | null
+  planPhase?:  string
+}
