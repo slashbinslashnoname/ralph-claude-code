@@ -89,6 +89,10 @@ contextBridge.exposeInMainWorld('ralph', {
       ipcRenderer.invoke('swarm:activity', projectPath, limit ?? 50),
     agentOutput: (projectPath: string, agentId: string) =>
       ipcRenderer.invoke('swarm:agent-output', projectPath, agentId),
+    agentLogs: (projectPath: string) =>
+      ipcRenderer.invoke('swarm:agent-logs', projectPath),
+    agentLogContent: (projectPath: string, filename: string) =>
+      ipcRenderer.invoke('swarm:agent-log-content', projectPath, filename),
     onLog: (cb: (...a: unknown[]) => void) => listen('swarm:log', cb),
     onOutput: (cb: (...a: unknown[]) => void) => listen('swarm:output', cb),
     onGraph: (cb: (...a: unknown[]) => void) => listen('swarm:graph', cb),

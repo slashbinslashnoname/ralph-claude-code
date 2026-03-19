@@ -51,6 +51,8 @@ interface RalphAPI {
     beadStats: (p: string) => Promise<any>
     activity: (p: string, limit?: number) => Promise<any[]>
     agentOutput: (p: string, agentId: string) => Promise<string>
+    agentLogs: (p: string) => Promise<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>
+    agentLogContent: (p: string, filename: string) => Promise<string>
     onLog: (cb: (...a: any[]) => void) => () => void
     onOutput: (cb: (...a: any[]) => void) => () => void
     onGraph: (cb: (...a: any[]) => void) => () => void

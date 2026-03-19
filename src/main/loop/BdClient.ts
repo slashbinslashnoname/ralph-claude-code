@@ -246,6 +246,18 @@ export class BdClient {
     }
   }
 
+  /** Assign a bead to a specific agent by name */
+  assignTo(id: string, assignee: string): boolean {
+    try {
+      // Unclaim first if already assigned
+      try { this.run(`update ${id} --assignee "" --json`) } catch { /* ignore */ }
+      this.run(`update ${id} --assignee ${assignee} --json`)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   // ── Close / Reopen ─────────────────────────────────────────────────────
 
   close(id: string, reason = 'Done'): void {

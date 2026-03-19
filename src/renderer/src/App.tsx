@@ -256,9 +256,9 @@ export default function App() {
       {/* Sidebar */}
       {current && (
         <nav className="sidebar">
-          <div className="sidebar-header" title={current.path}>
-            <SlashbotLogo size={18} className="project-icon" />
-            <span className="project-name">{current.path.split('/').pop()}</span>
+          <div className="sidebar-brand">
+            <SlashbotLogo size={22} className="brand-logo" />
+            <span className="brand-name">Slashbot</span>
           </div>
           <div className="nav-items">
             {NAV_ITEMS.map(item => (

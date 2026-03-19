@@ -33,37 +33,13 @@ function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
   return cmd
 }
 
-/** System prompt that teaches Claude how to use bd for bead management */
+/** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
-## Beads Task Management (bd CLI)
-
-You have access to the \`bd\` CLI for managing work items (beads). Use these commands:
-
-\`\`\`bash
-# View your current bead
-bd show <bead-id> --json
-
-# List open beads
-bd list --status open --json
-
-# Find ready (unblocked) work
-bd ready --json
-
-# Close a bead when done
-bd close <bead-id> --reason "Implemented and tested" --json
-
-# Create a new bead if you discover missing work
-bd create "title" -t task -p 2 -d "description" --json
-
-# Add a dependency
-bd dep add <child-id> <parent-id> --type discovered-from
-
-# Add labels
-bd label add <bead-id> needs-review --json
-\`\`\`
-
-IMPORTANT: Always close your assigned bead when you finish. If you discover new issues,
-create new beads for them instead of trying to fix everything in one pass.
+## Important
+- Do NOT run \`bd\` commands — the orchestrator manages bead lifecycle.
+- Focus only on implementing the assigned bead.
+- Commit your changes with a descriptive message when done.
+- If you discover new issues, note them in your output — do not try to fix everything.
 `
 
 export class WorkerLoop extends EventEmitter {
@@ -392,7 +368,7 @@ DO NOT write any implementation code. Analysis only.`
       `\n---\n## Task`,
       `Implement this bead completely, following your analysis above.`,
       `Write tests. Commit all changes when done with a descriptive commit message.`,
-      `Then close your bead: \`bd close ${bead.id} --reason "Implemented and tested" --json\``,
+      `Do NOT run \`bd close\` — the orchestrator handles bead lifecycle automatically.`,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
   }
@@ -406,8 +382,7 @@ DO NOT write any implementation code. Analysis only.`
       `- Is the code idiomatic and consistent with the rest of the codebase?`,
       `\nIf issues are found, fix them now. If good, say so briefly.`,
       `Commit any fixes. Do NOT re-implement from scratch.`,
-      BD_SYSTEM_PROMPT,
-      `\nIf you discover new issues, create beads for them:\n\`bd create "Fix discovered issue" -t bug -p 2 -d "description" --json\``
+      `Do NOT run any \`bd\` commands — the orchestrator handles bead lifecycle.`,
     ].join('\n')
   }
 

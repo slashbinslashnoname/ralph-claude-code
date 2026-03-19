@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 
 const ralph = window.ralph
@@ -33,6 +33,10 @@ export default function BeadsPage({ projectPath }: Props) {
   const [isPlanning, setIsPlanning] = useState(false)
   const [planPhase, setPlanPhase] = useState('')
   const [planQueue, setPlanQueue] = useState<any[]>([])
+  const [expandedBead, setExpandedBead] = useState<string | null>(null)
+  const [beadLogs, setBeadLogs] = useState<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>([])
+  const [beadLogContent, setBeadLogContent] = useState<string | null>(null)
+  const [beadLogFile, setBeadLogFile] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -52,7 +56,11 @@ export default function BeadsPage({ projectPath }: Props) {
     ralph.swarm.status(projectPath).then(s => setIsPlanning(s.planning ?? false))
     ralph.swarm.queue(projectPath).then(setPlanQueue)
     const unsubs = [
-      ralph.swarm.onPlanPhase((_p: string, phase: string) => setPlanPhase(phase)),
+      ralph.swarm.onPlanPhase((_p: string, phase: string) => {
+        setPlanPhase(phase)
+        setIsPlanning(phase !== '' && phase !== 'done')
+        if (phase === 'done') setTimeout(refresh, 1000)
+      }),
       ralph.swarm.onPlanQueue((_p: string, q: any[]) => setPlanQueue(q)),
       ralph.swarm.onStopped(() => { setIsPlanning(false); refresh() }),
     ]
@@ -61,12 +69,10 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const injectPlan = useCallback(async () => {
     if (!planPrompt.trim()) return
-    setIsPlanning(true)
     await ralph.swarm.inject(projectPath, planPrompt)
     setPlanPrompt('')
-    // Refresh beads after a delay to pick up newly created beads
-    setTimeout(refresh, 3000)
-  }, [projectPath, planPrompt, refresh])
+    // Status updates come via onPlanPhase/onPlanQueue listeners
+  }, [projectPath, planPrompt])
 
   const createBead = useCallback(async () => {
     if (!newTitle.trim()) return
@@ -120,6 +126,56 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const cancelEdit = useCallback(() => setEditing(null), [])
 
+  const toggleBeadLogs = useCallback(async (beadId: string) => {
+    if (expandedBead === beadId) {
+      setExpandedBead(null)
+      setBeadLogs([])
+      setBeadLogContent(null)
+      setBeadLogFile(null)
+      return
+    }
+    setExpandedBead(beadId)
+    setBeadLogContent(null)
+    setBeadLogFile(null)
+    // Get activity events for this bead to find timestamps
+    const activity = await ralph.swarm.activity(projectPath, 500)
+    const beadEvents = activity.filter((e: any) =>
+      e.beadId === beadId && ['thinking', 'executing'].includes(e.type)
+    )
+    // Get all logs and match by agent+timestamp proximity
+    const allLogs = await ralph.swarm.agentLogs(projectPath)
+    const matched: typeof allLogs = []
+    for (const evt of beadEvents) {
+      const evtTime = new Date(evt.ts).getTime()
+      const phase = evt.type === 'thinking' ? 'think' : 'execute'
+      // Find log file for this agent+phase closest to the event time
+      const candidates = allLogs.filter(l =>
+        l.agentId === evt.agentId && l.phase === phase
+      )
+      // Pick the one with the closest timestamp
+      let best: typeof allLogs[0] | null = null
+      let bestDiff = Infinity
+      for (const c of candidates) {
+        const logTime = new Date(c.timestamp.replace(/-/g, (_, i) => i < 10 ? '-' : i < 13 ? 'T' : ':')).getTime()
+        const diff = Math.abs(logTime - evtTime)
+        if (diff < bestDiff) { bestDiff = diff; best = c }
+      }
+      if (best && !matched.some(m => m.file === best!.file)) matched.push(best)
+    }
+    // Also find review logs near execute events
+    for (const evt of beadEvents.filter((e: any) => e.type === 'executing')) {
+      const evtTime = new Date(evt.ts).getTime()
+      const reviews = allLogs.filter(l => l.agentId === evt.agentId && l.phase === 'review')
+      for (const r of reviews) {
+        const logTime = new Date(r.timestamp.replace(/-/g, (_, i) => i < 10 ? '-' : i < 13 ? 'T' : ':')).getTime()
+        if (logTime > evtTime && logTime - evtTime < 30 * 60_000 && !matched.some(m => m.file === r.file)) {
+          matched.push(r)
+        }
+      }
+    }
+    setBeadLogs(matched)
+  }, [expandedBead, projectPath])
+
   const toggleSort = useCallback((field: SortField) => {
     if (sortBy === field) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -130,6 +186,53 @@ export default function BeadsPage({ projectPath }: Props) {
   }, [sortBy])
 
   const sortedBeads = useMemo(() => sortBeads(beads, sortBy, sortDir), [beads, sortBy, sortDir])
+
+  // ── Drag-and-drop reordering ──────────────────────────────────────────
+  const dragItem = useRef<number | null>(null)
+  const dragOverItem = useRef<number | null>(null)
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [dropIdx, setDropIdx] = useState<number | null>(null)
+
+  const handleDragStart = useCallback((idx: number) => {
+    dragItem.current = idx
+    setDragIdx(idx)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    dragOverItem.current = idx
+    setDropIdx(idx)
+  }, [])
+
+  const handleDragEnd = useCallback(async () => {
+    const from = dragItem.current
+    const to = dragOverItem.current
+    dragItem.current = null
+    dragOverItem.current = null
+    setDragIdx(null)
+    setDropIdx(null)
+
+    if (from === null || to === null || from === to) return
+
+    // Reorder the list and assign priorities based on new position
+    const reordered = [...sortedBeads]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved)
+
+    // Assign priorities 0..N based on new order
+    const updates: Promise<void>[] = []
+    for (let i = 0; i < reordered.length; i++) {
+      const bead = reordered[i]
+      const newPriority = Math.min(i, 4)
+      if (bead.priority !== newPriority) {
+        updates.push(ralph.beads.update(projectPath, bead.id, { priority: newPriority }))
+      }
+    }
+    if (updates.length > 0) {
+      await Promise.all(updates)
+      refresh()
+    }
+  }, [sortedBeads, projectPath, refresh])
 
   // Count beads per status for tab badges
   const counts = {
@@ -198,16 +301,22 @@ export default function BeadsPage({ projectPath }: Props) {
             onChange={e => setPlanPrompt(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) injectPlan() }}
           />
-          <button className="btn btn-primary" onClick={injectPlan} disabled={!planPrompt.trim() || isPlanning}>
-            {isPlanning ? 'Planning...' : 'Inject Plan'}
+          <button className="btn btn-primary" onClick={injectPlan} disabled={!planPrompt.trim()}>
+            {isPlanning ? `+ Queue Plan (${planQueue.length + 1})` : 'Inject Plan'}
           </button>
         </div>
-        {planQueue.length > 0 && (
+        {(isPlanning || planQueue.length > 0) && (
           <div className="queue-list">
-            <span className="queue-label">Queue:</span>
-            {planQueue.map(q => (
+            {isPlanning && (
+              <div className="queue-item queue-item-active">
+                <span className="badge badge-warning animate-pulse">{planPhase || 'planning'}</span>
+                <span>Running...</span>
+              </div>
+            )}
+            {planQueue.map((q, i) => (
               <div key={q.id} className="queue-item">
-                <span>{q.request.slice(0, 60)}...</span>
+                <span className="badge badge-idle">#{i + 1}</span>
+                <span>{q.request.slice(0, 80)}{q.request.length > 80 ? '...' : ''}</span>
                 <button className="btn btn-sm btn-ghost" onClick={() => ralph.swarm.queueRemove(projectPath, q.id)}>
                   {'\u2715'}
                 </button>
@@ -311,8 +420,13 @@ export default function BeadsPage({ projectPath }: Props) {
             <p>Create a bead or inject a plan via the Swarm page.</p>
           </div>
         )}
-        {sortedBeads.map(bead => (
-          <div key={bead.id} className="bead-card">
+        {sortedBeads.map((bead, idx) => (
+          <div key={bead.id}
+            className={`bead-card${dragIdx === idx ? ' bead-dragging' : ''}${dropIdx === idx ? ' bead-drop-target' : ''}`}
+            draggable
+            onDragStart={() => handleDragStart(idx)}
+            onDragOver={(e) => handleDragOver(e, idx)}
+            onDragEnd={handleDragEnd}>
             <div className="bead-card-header">
               <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
               <span className="bead-id">{bead.id}</span>
@@ -364,8 +478,48 @@ export default function BeadsPage({ projectPath }: Props) {
 
               <span className="bead-action-spacer" />
               <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)}>Edit</button>
+              {(bead.status === 'done' || bead.status === 'failed') && (
+                <button className="btn btn-xs btn-ghost" onClick={() => toggleBeadLogs(bead.id)}>
+                  {expandedBead === bead.id ? 'Hide Logs' : 'Logs'}
+                </button>
+              )}
               {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
             </div>
+
+            {/* Bead log viewer */}
+            {expandedBead === bead.id && (
+              <div className="bead-logs">
+                {beadLogContent && beadLogFile ? (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <button className="btn btn-xs btn-ghost" onClick={() => { setBeadLogContent(null); setBeadLogFile(null) }}>
+                        {'\u2190'} Back
+                      </button>
+                      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{beadLogFile}</span>
+                    </div>
+                    <pre className="bead-log-content">{beadLogContent.slice(-10000)}</pre>
+                  </div>
+                ) : beadLogs.length > 0 ? (
+                  <div className="bead-log-list">
+                    {beadLogs.map(log => (
+                      <div key={log.file} className="bead-log-item" onClick={() => {
+                        setBeadLogFile(log.file)
+                        ralph.swarm.agentLogContent(projectPath, log.file).then(setBeadLogContent)
+                      }}>
+                        <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
+                        <span>{log.agentId}</span>
+                        <span className={`badge badge-${log.phase === 'execute' ? 'success' : log.phase === 'think' ? 'accent' : 'warning'}`}>
+                          {log.phase}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{(log.size / 1024).toFixed(0)}KB</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 0' }}>No logs found for this bead.</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -289,13 +289,11 @@ export class AgentCoordinator {
       for (const bead of candidates) {
         if (bead.files.some(f => lockedFiles.has(f))) continue
 
-        // If claimed by a non-agent, unclaim first so agent can take it
-        if (bead.claimedBy && !bead.claimedBy.startsWith('agent-')) {
-          try { this.bd.update(bead.id, { unclaim: true }) } catch { /* ignore */ }
-        }
+        // Skip if already claimed by another agent
+        if (bead.claimedBy && bead.claimedBy.startsWith('agent-') && bead.claimedBy !== agentId) continue
 
-        // Atomic claim — skip if another agent got it first
-        if (!this.bd.claim(bead.id)) continue
+        // Assign directly to this agent
+        if (!this.bd.assignTo(bead.id, agentId)) continue
 
         this.reserveFiles(agentId, bead.id, bead.files)
         this.postActivity({ agentId, type: 'claimed', beadId: bead.id, beadTitle: bead.title, summary: `Claimed bead [${bead.id}] ${bead.title}` })

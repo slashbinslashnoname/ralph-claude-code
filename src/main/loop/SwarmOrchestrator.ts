@@ -18,6 +18,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private ralphDir: string
   private logDir: string
   private agentOutputBuffers = new Map<string, string>()
+  sessionStartedAt: string | null = null
 
   constructor(private projectPath: string) {
     super()
@@ -83,6 +84,7 @@ export class SwarmOrchestrator extends EventEmitter {
 
   startWorkers(n = 2): void {
     const config = loadConfig(this.projectPath)
+    if (!this.sessionStartedAt) this.sessionStartedAt = new Date().toISOString()
 
     // Stop excess workers if reducing count
     const currentIds = [...this.workers.keys()].sort()
@@ -130,16 +132,22 @@ export class SwarmOrchestrator extends EventEmitter {
     this._log('INFO', `Workers adjusted to ${n} (${this.workers.size} running)`)
   }
 
-  stopAll(): void {
-    this.planner?.stop()
-    this.planner = null
-    this.planning = false
+  stopWorkers(): void {
     for (const worker of this.workers.values()) worker.stop()
     this.workers.clear()
     this._stopActivityPoll()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'All workers stopped')
     this.emit('stopped')
+  }
+
+  stopAll(): void {
+    this.planner?.stop()
+    this.planner = null
+    this.planning = false
+    this.planQueue = []
+    this._broadcastQueue()
+    this.stopWorkers()
   }
 
   workerCount(): number { return this.workers.size }

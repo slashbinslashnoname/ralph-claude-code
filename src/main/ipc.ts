@@ -403,19 +403,20 @@ export function registerIpc(
 
   ipcMain.handle('swarm:stop', (_e, projectPath: string) => {
     const swarm = swarms.get(projectPath)
-    if (swarm) { swarm.stopAll(); swarms.delete(projectPath) }
+    if (swarm) swarm.stopWorkers()
     return { ok: true }
   })
 
   ipcMain.handle('swarm:status', (_e, projectPath: string) => {
     const swarm = swarms.get(projectPath)
-    if (!swarm) return { running: false, planning: false, workerCount: 0, agents: [], stats: null }
+    if (!swarm) return { running: false, planning: false, workerCount: 0, agents: [], stats: null, sessionStartedAt: null }
     return {
       running: swarm.workerCount() > 0,
       planning: swarm.isPlanning(),
       workerCount: swarm.workerCount(),
       agents: swarm.getAgents(),
-      stats: swarm.getStats()
+      stats: swarm.getStats(),
+      sessionStartedAt: swarm.sessionStartedAt
     }
   })
 
@@ -433,6 +434,33 @@ export function registerIpc(
   ipcMain.handle('swarm:activity', (_e, projectPath: string, limit = 50) => {
     const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)
     return swarm.getActivity(limit)
+  })
+
+  // ── Agent log history (for closed beads) ───────────────────────────────
+
+  ipcMain.handle('swarm:agent-logs', (_e, projectPath: string) => {
+    const logsDir = path.join(ralphDir(projectPath), 'logs')
+    if (!fs.existsSync(logsDir)) return []
+    return fs.readdirSync(logsDir)
+      .filter(f => f.match(/^agent-\d+_\w+_.*\.log$/))
+      .sort().reverse()
+      .map(f => {
+        const m = f.match(/^(agent-\d+)_(think|execute|review)_(.+)\.log$/)
+        return {
+          file: f,
+          agentId: m?.[1] ?? 'unknown',
+          phase: m?.[2] ?? 'unknown',
+          timestamp: (m?.[3] ?? '').replace(/-/g, (_, i) => i < 10 ? '-' : i < 13 ? 'T' : ':'),
+          size: fs.statSync(path.join(logsDir, f)).size,
+        }
+      })
+  })
+
+  ipcMain.handle('swarm:agent-log-content', (_e, projectPath: string, filename: string) => {
+    // Sanitize filename to prevent path traversal
+    if (filename.includes('/') || filename.includes('..')) return ''
+    const filePath = path.join(ralphDir(projectPath), 'logs', filename)
+    return readText(filePath) ?? ''
   })
 
   ipcMain.handle('swarm:agent-output', (_e, projectPath: string, agentId: string) => {

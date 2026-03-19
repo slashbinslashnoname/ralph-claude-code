@@ -269,6 +269,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [activeTab, setActiveTab] = useState<string>('overview')
   const outputRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const activityRef = useRef<HTMLDivElement | null>(null)
+  const [historyLogs, setHistoryLogs] = useState<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>([])
+  const [historyContent, setHistoryContent] = useState<string | null>(null)
+  const [historyFile, setHistoryFile] = useState<string | null>(null)
 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
@@ -318,7 +321,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   // Fetch full historical output when switching to an agent tab
   const fetchedTabs = useRef<Set<string>>(new Set())
   useEffect(() => {
-    if (activeTab === 'overview' || activeTab === 'activity') return
+    if (activeTab === 'overview' || activeTab === 'activity' || activeTab === 'history') return
     if (fetchedTabs.current.has(activeTab)) return
     fetchedTabs.current.add(activeTab)
     ralph.swarm.agentOutput(projectPath, activeTab).then(output => {
@@ -427,6 +430,22 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
             onClick={() => setActiveTab('activity')}>
             Activity ({activity.length})
           </button>
+          <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('history')
+              ralph.swarm.agentLogs(projectPath).then(logs => {
+                // Filter to current session only
+                const sessionStart = swarmStatus?.sessionStartedAt
+                if (sessionStart) {
+                  const startTs = sessionStart.replace(/[:.]/g, '-').slice(0, 19)
+                  setHistoryLogs(logs.filter(l => l.file >= `agent-0_a_${startTs}`))
+                } else {
+                  setHistoryLogs(logs)
+                }
+              })
+            }}>
+            History
+          </button>
           {agents.map(a => (
             <button key={a.id} className={`tab ${activeTab === a.id ? 'active' : ''}`}
               onClick={() => setActiveTab(a.id)}>
@@ -505,6 +524,45 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
               {activity.length === 0 && (
                 <div className="empty-state-sm">
                   <p>No activity yet. Start the swarm to see agent work here.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'history' && (
+            <div>
+              {historyContent && historyFile ? (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <button className="btn btn-xs btn-ghost" onClick={() => { setHistoryContent(null); setHistoryFile(null) }}>
+                      {'\u2190'} Back
+                    </button>
+                    <span style={{ fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--font)' }}>{historyFile}</span>
+                  </div>
+                  <div className="agent-output">
+                    <AgentOutputRenderer output={historyContent} />
+                  </div>
+                </div>
+              ) : (
+                <div className="activity-list">
+                  {historyLogs.length === 0 && (
+                    <div className="empty-state-sm"><p>No agent logs yet.</p></div>
+                  )}
+                  {historyLogs.map(log => (
+                    <div key={log.file} className="activity-item" style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        setHistoryFile(log.file)
+                        ralph.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
+                      }}>
+                      <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
+                      <span className="activity-agent">{log.agentId}</span>
+                      <span className={`badge badge-${log.phase === 'execute' ? 'success' : log.phase === 'think' ? 'accent' : 'warning'}`}>
+                        {log.phase}
+                      </span>
+                      <span className="activity-summary">{log.timestamp}</span>
+                      <span className="activity-files">{(log.size / 1024).toFixed(0)}KB</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

@@ -96,7 +96,7 @@ export class PlanLoop extends EventEmitter {
   private _runClaude(prompt: string, label: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = ['-p', prompt, '--output-format', 'text',
-        '--allowedTools', '*']
+        '--allowedTools', 'Write,Read,Edit,Bash(git *),Bash(bd *),Bash(find *),Bash(ls *),Bash(cat *),Bash(head *),Bash(wc *)']
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `planner_${label}_${ts}.log`)
 
