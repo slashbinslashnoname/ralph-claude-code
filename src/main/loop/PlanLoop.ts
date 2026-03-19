@@ -184,7 +184,6 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
         '-p', prompt,
         '--output-format', 'text',
         '--allowedTools', 'Read,Bash(find *),Bash(ls *),Bash(cat *),Bash(grep *)',
-        '--ultrathink',
       ]
       const ts      = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = join(this.logDir, `planner_${label}_${ts}.log`)
@@ -203,6 +202,7 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
 
       this.childProc = proc
       let raw = ''
+      let errOut = ''
 
       const timer = setTimeout(() => {
         try { proc.kill('SIGTERM') } catch { /* ignore */ }
@@ -218,7 +218,9 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
       })
 
       proc.stderr!.on('data', (chunk: Buffer) => {
-        appendFileSync(outFile, chunk.toString())
+        const s = chunk.toString()
+        errOut += s
+        appendFileSync(outFile, s)
       })
 
       proc.on('close', (exitCode) => {
@@ -226,7 +228,8 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
         this.childProc = null
         if (this.stopped) { resolve(raw); return }
         if (exitCode !== 0 && !raw.trim()) {
-          reject(new Error(`PlanLoop: Claude exited ${exitCode} with no output`))
+          const detail = errOut.trim().slice(0, 300)
+          reject(new Error(`PlanLoop: Claude exited ${exitCode} with no output${detail ? ` — stderr: ${detail}` : ''}`))
           return
         }
         resolve(raw)
