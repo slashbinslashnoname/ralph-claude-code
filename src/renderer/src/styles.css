@@ -798,6 +798,37 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 
 .tab.active .tab-count { background: var(--accent-glow); color: var(--accent); }
 
+/* ── Sort Bar ────────────────────────────────────────────────────────────── */
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.sort-label {
+  font-size: 11px;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 2px;
+}
+
+.btn-sort-active {
+  background: var(--accent-glow);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: var(--accent);
+}
+
+.btn-sort-active:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.sort-arrow {
+  font-size: 12px;
+  line-height: 1;
+}
+
 .badge-accent { color: var(--accent); background: var(--accent-glow); }
 
 /* ── Dashboard extras ─────────────────────────────────────────────────────── */

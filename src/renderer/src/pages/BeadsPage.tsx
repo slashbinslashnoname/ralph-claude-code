@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 
 const ralph = window.ralph
 
@@ -23,6 +24,8 @@ export default function BeadsPage({ projectPath }: Props) {
   const [newDesc, setNewDesc] = useState('')
   const [newType, setNewType] = useState('task')
   const [newPriority, setNewPriority] = useState(2)
+  const [sortBy, setSortBy] = useState<SortField>('priority')
+  const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [editing, setEditing] = useState<any>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -116,6 +119,17 @@ export default function BeadsPage({ projectPath }: Props) {
   }, [projectPath, editing, editTitle, editDesc, refresh])
 
   const cancelEdit = useCallback(() => setEditing(null), [])
+
+  const toggleSort = useCallback((field: SortField) => {
+    if (sortBy === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(field)
+      setSortDir('asc')
+    }
+  }, [sortBy])
+
+  const sortedBeads = useMemo(() => sortBeads(beads, sortBy, sortDir), [beads, sortBy, sortDir])
 
   // Count beads per status for tab badges
   const counts = {
@@ -271,16 +285,33 @@ export default function BeadsPage({ projectPath }: Props) {
         </div>
       )}
 
+      {/* Sort bar */}
+      <div className="sort-bar">
+        <span className="sort-label">Sort by:</span>
+        {SORT_OPTIONS.map(opt => (
+          <button
+            key={opt.id}
+            className={`btn btn-xs ${sortBy === opt.id ? 'btn-sort-active' : 'btn-ghost'}`}
+            onClick={() => toggleSort(opt.id)}
+          >
+            {opt.label}
+            {sortBy === opt.id && (
+              <span className="sort-arrow">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* Bead list */}
       <div className="bead-list">
-        {beads.length === 0 && !loading && (
+        {sortedBeads.length === 0 && !loading && (
           <div className="empty-state">
             <span className="empty-icon">{'\u29BE'}</span>
             <h3>No beads</h3>
             <p>Create a bead or inject a plan via the Swarm page.</p>
           </div>
         )}
-        {beads.map(bead => (
+        {sortedBeads.map(bead => (
           <div key={bead.id} className="bead-card">
             <div className="bead-card-header">
               <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
