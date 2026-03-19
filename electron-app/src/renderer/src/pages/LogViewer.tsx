@@ -20,7 +20,7 @@ function parseLine(raw: string): Line {
   return { raw, level, ts, msg }
 }
 
-export default function LogViewer({ projectPath }: { projectPath: string | null }): JSX.Element {
+export default function LogViewer({ projectPath }: { projectPath: string }): JSX.Element {
   const [lines, setLines] = useState<Line[]>([])
   const [filter, setFilter] = useState('')
   const [levelFilter, setLevelFilter] = useState<string>('ALL')
@@ -41,10 +41,10 @@ export default function LogViewer({ projectPath }: { projectPath: string | null 
     if (!projectPath) return
 
     window.ralph.subscribeStatus(projectPath)
-    const unsub = window.ralph.onLogLines(newLines => {
-      setLines(prev => [...prev, ...newLines.map(parseLine)].slice(-2000))
+    const unsub = window.ralph.onLogLines((p, newLines) => {
+      if (p === projectPath) setLines(prev => [...prev, ...newLines.map(parseLine)].slice(-2000))
     })
-    return () => { unsub(); window.ralph.unsubscribeStatus() }
+    return () => { unsub(); window.ralph.unsubscribeStatus(projectPath) }
   }, [projectPath, load])
 
   // Auto-scroll
@@ -57,15 +57,6 @@ export default function LogViewer({ projectPath }: { projectPath: string | null 
     if (filter && !l.raw.toLowerCase().includes(filter.toLowerCase())) return false
     return true
   })
-
-  if (!projectPath) {
-    return (
-      <div className="state-box" style={{ flex: 1 }}>
-        <div className="state-icon">≡</div>
-        <div className="state-title">No project open</div>
-      </div>
-    )
-  }
 
   return (
     <>

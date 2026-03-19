@@ -66,7 +66,7 @@ function FixPlanViewer({ content, onChange }: { content: string; onChange: (c: s
   )
 }
 
-export default function ConfigEditor({ projectPath }: { projectPath: string | null }): JSX.Element {
+export default function ConfigEditor({ projectPath }: { projectPath: string }): JSX.Element {
   const [activeTab, setActiveTab] = useState<string>('ralphrc')
   const [contents, setContents]   = useState<Record<string, string>>({})
   const [dirty, setDirty]         = useState<Record<string, boolean>>({})
@@ -100,10 +100,10 @@ export default function ConfigEditor({ projectPath }: { projectPath: string | nu
   useEffect(() => {
     if (!projectPath) return
     window.ralph.subscribeStatus(projectPath)
-    const unsub = window.ralph.onFixplanUpdate(content => {
-      if (!dirty['fixplan']) setContents(prev => ({ ...prev, fixplan: content }))
+    const unsub = window.ralph.onFixplanUpdate((p, content) => {
+      if (p === projectPath && !dirty['fixplan']) setContents(prev => ({ ...prev, fixplan: content }))
     })
-    return () => { unsub(); window.ralph.unsubscribeStatus() }
+    return () => { unsub(); window.ralph.unsubscribeStatus(projectPath) }
   }, [projectPath, dirty])
 
   const handleChange = (id: string, value: string): void => {
@@ -123,15 +123,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string | nu
     } else {
       flash(`Error: ${r.error}`)
     }
-  }
-
-  if (!projectPath) {
-    return (
-      <div className="state-box" style={{ flex: 1 }}>
-        <div className="state-icon">⚙</div>
-        <div className="state-title">No project open</div>
-      </div>
-    )
   }
 
   const content = contents[activeTab]

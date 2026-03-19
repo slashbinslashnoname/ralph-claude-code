@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import BeadsViewer  from './pages/BeadsViewer'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import TabBar, { ProjectTab } from './components/TabBar'
 import Dashboard    from './pages/Dashboard'
+import BeadsViewer  from './pages/BeadsViewer'
 import LogViewer    from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
 import TerminalPage from './pages/TerminalPage'
@@ -15,38 +16,87 @@ const NAV: { id: Page; icon: string; label: string }[] = [
   { id: 'terminal',  icon: '⌨',  label: 'Terminal' }
 ]
 
-export default function App(): JSX.Element {
-  const [page, setPage]               = useState<Page>('dashboard')
-  const [projectPath, setProjectPath] = useState<string | null>(null)
-  const [recents, setRecents]         = useState<string[]>([])
+function genId(): string { return Math.random().toString(36).slice(2) }
 
-  const loadRecents = useCallback(async () => {
-    const list = await window.ralph.recentProjects()
-    setRecents(list)
+export default function App(): JSX.Element {
+  const [tabs,     setTabs]     = useState<ProjectTab[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [page,     setPage]     = useState<Page>('dashboard')
+  // Track which projects are running (updated by ralph:exit / ralph:start)
+  const runningRef = useRef<Set<string>>(new Set())
+
+  const activeTab = tabs.find(t => t.id === activeId) ?? null
+
+  // ── Load recent projects into tabs on startup ────────────────────────────
+  useEffect(() => {
+    window.ralph.recentProjects().then(recents => {
+      if (recents.length === 0) return
+      const initialTabs: ProjectTab[] = recents.slice(0, 5).map(p => ({
+        id: genId(), path: p, name: p.split('/').pop() ?? p, running: false
+      }))
+      setTabs(initialTabs)
+      setActiveId(initialTabs[0].id)
+      initialTabs.forEach(t => window.ralph.subscribeStatus(t.path))
+    })
   }, [])
 
-  useEffect(() => { loadRecents() }, [loadRecents])
+  // ── Global IPC listeners ─────────────────────────────────────────────────
+  useEffect(() => {
+    const unsubs = [
+      window.ralph.onRalphExit((projectPath, _reason) => {
+        runningRef.current.delete(projectPath)
+        setTabs(ts => ts.map(t => t.path === projectPath ? { ...t, running: false } : t))
+      }),
+      // No onRalphStart event from main — we update running state in openProject / tabStart
+    ]
+    return () => unsubs.forEach(f => f())
+  }, [])
 
-  const openProject = useCallback(async () => {
-    const p = await window.ralph.selectProject()
-    if (p) { setProjectPath(p); loadRecents() }
-  }, [loadRecents])
-
-  const switchProject = (p: string): void => setProjectPath(p)
-
-  // Clean up watchers/PTY on unmount
+  // ── Cleanup on unmount ───────────────────────────────────────────────────
   useEffect(() => () => { window.ralph.cleanup() }, [])
 
-  const projectName = projectPath ? projectPath.split('/').pop() ?? projectPath : null
+  // ── Tab management ───────────────────────────────────────────────────────
+
+  const openProject = useCallback(async () => {
+    const path = await window.ralph.selectProject()
+    if (!path) return
+
+    // Reuse existing tab if already open
+    const existing = tabs.find(t => t.path === path)
+    if (existing) { setActiveId(existing.id); return }
+
+    const tab: ProjectTab = { id: genId(), path, name: path.split('/').pop() ?? path, running: false }
+    setTabs(ts => [...ts, tab])
+    setActiveId(tab.id)
+    window.ralph.subscribeStatus(path)
+  }, [tabs])
+
+  const closeTab = useCallback((id: string) => {
+    const tab = tabs.find(t => t.id === id)
+    if (tab) {
+      window.ralph.stopRalph(tab.path)
+      window.ralph.unsubscribeStatus(tab.path)
+      window.ralph.cleanup(tab.path)
+    }
+    setTabs(ts => {
+      const remaining = ts.filter(t => t.id !== id)
+      if (activeId === id) setActiveId(remaining[remaining.length - 1]?.id ?? null)
+      return remaining
+    })
+  }, [tabs, activeId])
+
+  const markRunning = useCallback((projectPath: string, running: boolean) => {
+    setTabs(ts => ts.map(t => t.path === projectPath ? { ...t, running } : t))
+  }, [])
 
   return (
     <div className="layout">
+      {/* ── Sidebar ── */}
       <aside className="sidebar">
         <div className="sidebar-logo">
           Ralph<br />
           <span>for Claude Code</span>
         </div>
-
         <nav className="sidebar-nav">
           {NAV.map(n => (
             <button
@@ -60,38 +110,54 @@ export default function App(): JSX.Element {
           ))}
         </nav>
 
-        {/* Project picker */}
-        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border)', padding: '8px 0' }}>
-          <div style={{ padding: '6px 16px', fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Project
-          </div>
-          {projectPath && (
-            <div style={{ padding: '4px 16px 6px', fontSize: 12, color: 'var(--accent)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {projectName}
-            </div>
-          )}
-          <div className="project-list">
-            {recents.filter(r => r !== projectPath).slice(0, 5).map(r => (
-              <button key={r} className="project-item" title={r} onClick={() => switchProject(r)}>
-                {r.split('/').pop()}
-              </button>
-            ))}
-          </div>
-          <div style={{ padding: '4px 8px' }}>
-            <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={openProject}>
-              ⊕ Open project…
-            </button>
-          </div>
+        <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border)', padding: '8px' }}>
+          <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={openProject}>
+            ⊕ Open project…
+          </button>
         </div>
       </aside>
 
-      <main className="main" style={{ display: 'flex', flexDirection: 'column' }}>
-        {page === 'dashboard' && <Dashboard    projectPath={projectPath} />}
-        {page === 'beads'     && <BeadsViewer  projectPath={projectPath} />}
-        {page === 'logs'      && <LogViewer    projectPath={projectPath} />}
-        {page === 'config'    && <ConfigEditor projectPath={projectPath} />}
-        {page === 'terminal'  && <TerminalPage projectPath={projectPath} />}
-      </main>
+      {/* ── Main content ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Tab bar */}
+        <TabBar
+          tabs={tabs}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onClose={closeTab}
+          onAdd={openProject}
+        />
+
+        {/* Page content */}
+        <main className="main" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {tabs.length === 0 ? (
+            <div className="state-box" style={{ flex: 1 }}>
+              <div className="state-icon">📂</div>
+              <div className="state-title">No projects open</div>
+              <div className="state-desc">Click <strong>Open project…</strong> or the + tab to get started.</div>
+              <button className="btn btn-primary" onClick={openProject}>⊕ Open project</button>
+            </div>
+          ) : !activeTab ? (
+            <div className="state-box" style={{ flex: 1 }}>
+              <div className="state-desc">Select a tab above.</div>
+            </div>
+          ) : (
+            // Render all tabs but only show the active one (preserves state)
+            tabs.map(tab => (
+              <div
+                key={tab.id}
+                style={{ display: tab.id === activeId ? 'contents' : 'none' }}
+              >
+                {page === 'dashboard' && <Dashboard    projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
+                {page === 'beads'     && <BeadsViewer  projectPath={tab.path} />}
+                {page === 'logs'      && <LogViewer    projectPath={tab.path} />}
+                {page === 'config'    && <ConfigEditor projectPath={tab.path} />}
+                {page === 'terminal'  && <TerminalPage projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
+              </div>
+            ))
+          )}
+        </main>
+      </div>
     </div>
   )
 }

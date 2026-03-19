@@ -5,27 +5,19 @@ type Status = {
   max_calls_per_hour: number; last_action: string; status: string
   exit_reason: string; next_reset?: string
 }
-type Progress = {
-  status: string; indicator?: string; elapsed_seconds?: number
-  last_output?: string; timestamp: string
-}
-type Circuit = {
+type Progress = { status: string; indicator?: string; elapsed_seconds?: number; last_output?: string }
+type Circuit  = {
   state: 'CLOSED' | 'HALF_OPEN' | 'OPEN'
   consecutive_no_progress: number; consecutive_same_error: number
   total_opens: number; reason: string; opened_at?: string
 }
 
 const CIRCUIT_COLOR: Record<string, string> = {
-  CLOSED:    'var(--green)',
-  HALF_OPEN: 'var(--yellow)',
-  OPEN:      'var(--red)'
+  CLOSED:    'var(--green)', HALF_OPEN: 'var(--yellow)', OPEN: 'var(--red)'
 }
 const STATUS_COLOR: Record<string, string> = {
-  running:        'var(--green)',
-  waiting:        'var(--yellow)',
-  error_detected: 'var(--red)',
-  completed:      'var(--blue)',
-  halted:         'var(--red)'
+  running: 'var(--green)', waiting: 'var(--yellow)', rate_limited: 'var(--yellow)',
+  error_detected: 'var(--red)', completed: 'var(--blue)', halted: 'var(--red)'
 }
 
 function fmtElapsed(s?: number): string {
@@ -35,12 +27,12 @@ function fmtElapsed(s?: number): string {
 }
 
 function QuotaBar({ used, max }: { used: number; max: number }): JSX.Element {
-  const pct = max > 0 ? Math.min(100, (used / max) * 100) : 0
+  const pct   = max > 0 ? Math.min(100, (used / max) * 100) : 0
   const color = pct > 80 ? 'var(--red)' : pct > 60 ? 'var(--yellow)' : 'var(--green)'
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-        <span>API quota</span><span>{used} / {max} calls</span>
+        <span>API quota</span><span>{used} / {max} calls/hr</span>
       </div>
       <div style={{ height: 6, background: 'var(--surface2)', borderRadius: 99 }}>
         <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 99, transition: 'width 0.4s' }} />
@@ -49,7 +41,12 @@ function QuotaBar({ used, max }: { used: number; max: number }): JSX.Element {
   )
 }
 
-export default function Dashboard({ projectPath }: { projectPath: string | null }): JSX.Element {
+interface Props {
+  projectPath: string
+  onRunningChange: (running: boolean) => void
+}
+
+export default function Dashboard({ projectPath, onRunningChange }: Props): JSX.Element {
   const [status,   setStatus]   = useState<Status | null>(null)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [circuit,  setCircuit]  = useState<Circuit | null>(null)
@@ -57,67 +54,52 @@ export default function Dashboard({ projectPath }: { projectPath: string | null 
   const [starting, setStarting] = useState(false)
   const [msg,      setMsg]      = useState<string | null>(null)
 
-  // Load initial snapshot + subscribe to changes
+  const flash = (m: string): void => { setMsg(m); setTimeout(() => setMsg(null), 3500) }
+
+  const setRunningState = useCallback((r: boolean) => {
+    setRunning(r)
+    onRunningChange(r)
+  }, [onRunningChange])
+
   const load = useCallback(async () => {
-    if (!projectPath) return
     const snap = await window.ralph.readStatus(projectPath)
     if (snap.status)   setStatus(snap.status as Status)
     if (snap.progress) setProgress(snap.progress as Progress)
     if (snap.circuit)  setCircuit(snap.circuit as Circuit)
-    setRunning(await window.ralph.ralphRunning())
-  }, [projectPath])
+    const r = await window.ralph.ralphRunning(projectPath)
+    setRunningState(r)
+  }, [projectPath, setRunningState])
 
   useEffect(() => {
-    if (!projectPath) return
     load()
-
     window.ralph.subscribeStatus(projectPath)
-    const unsubs = [
-      window.ralph.onStatusUpdate(d   => setStatus(d as Status)),
-      window.ralph.onProgressUpdate(d => setProgress(d as Progress)),
-      window.ralph.onCircuitUpdate(d  => setCircuit(d as Circuit)),
-      window.ralph.onRalphExit(() => { setRunning(false); load() })
-    ]
-    return () => { unsubs.forEach(f => f()); window.ralph.unsubscribeStatus() }
-  }, [projectPath, load])
 
-  const flash = (m: string): void => { setMsg(m); setTimeout(() => setMsg(null), 3000) }
+    const unsubs = [
+      window.ralph.onStatusUpdate((p, d) => { if (p === projectPath) setStatus(d as Status) }),
+      window.ralph.onProgressUpdate((p, d) => { if (p === projectPath) setProgress(d as Progress) }),
+      window.ralph.onCircuitUpdate((p, d) => { if (p === projectPath) setCircuit(d as Circuit) }),
+      window.ralph.onRalphExit((p) => { if (p === projectPath) { setRunningState(false); load() } })
+    ]
+    return () => { unsubs.forEach(f => f()); window.ralph.unsubscribeStatus(projectPath) }
+  }, [projectPath, load, setRunningState])
 
   const handleStart = async (): Promise<void> => {
-    if (!projectPath) return
     setStarting(true)
     const r = await window.ralph.startRalph(projectPath)
     setStarting(false)
-    if (r.ok) setRunning(true)
+    if (r.ok) setRunningState(true)
     else flash(`Failed: ${r.error}`)
   }
 
   const handleStop = async (): Promise<void> => {
-    await window.ralph.stopRalph()
-    setRunning(false)
+    await window.ralph.stopRalph(projectPath)
+    setRunningState(false)
   }
 
   const handleResetCircuit = async (): Promise<void> => {
-    if (!projectPath) return
     const r = await window.ralph.resetCircuit(projectPath)
-    if (r.ok) { flash('Circuit reset to CLOSED'); load() }
+    if (r.ok) { flash('Circuit reset → CLOSED'); load() }
     else flash(`Error: ${r.error}`)
-  }
-
-  const handleResetSession = async (): Promise<void> => {
-    if (!projectPath) return
-    const r = await window.ralph.resetSession(projectPath)
-    flash(r.ok ? 'Session reset' : `Error: ${r.error}`)
-  }
-
-  if (!projectPath) {
-    return (
-      <div className="state-box" style={{ flex: 1 }}>
-        <div className="state-icon">◉</div>
-        <div className="state-title">No project open</div>
-        <div className="state-desc">Select a Ralph-managed project from the sidebar.</div>
-      </div>
-    )
   }
 
   return (
@@ -128,7 +110,9 @@ export default function Dashboard({ projectPath }: { projectPath: string | null 
           <div className="page-sub" style={{ fontFamily: 'monospace' }}>{projectPath}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-ghost btn-sm" onClick={handleResetSession}>Reset session</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.ralph.resetSession(projectPath).then(() => flash('Session reset'))}>
+            Reset session
+          </button>
           {circuit?.state === 'OPEN' && (
             <button className="btn btn-ghost btn-sm" style={{ color: 'var(--yellow)' }} onClick={handleResetCircuit}>
               Reset circuit
@@ -143,24 +127,15 @@ export default function Dashboard({ projectPath }: { projectPath: string | null 
         </div>
       </div>
 
-      {msg && (
-        <div style={{ padding: '8px 24px', background: 'var(--surface2)', fontSize: 12, color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}>
-          {msg}
-        </div>
-      )}
+      {msg && <div style={{ padding: '8px 24px', background: 'var(--surface2)', fontSize: 12, color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}>{msg}</div>}
 
-      <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-
-        {/* Loop status */}
+      <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, overflowY: 'auto' }}>
         <div className="stat-card">
           <div className="stat-label">Loop</div>
           <div className="stat-value">{status?.loop_count ?? '—'}</div>
-          <div className="stat-sub" style={{ color: STATUS_COLOR[status?.status ?? ''] ?? 'var(--muted)' }}>
-            {status?.status ?? 'unknown'}
-          </div>
+          <div className="stat-sub" style={{ color: STATUS_COLOR[status?.status ?? ''] ?? 'var(--muted)' }}>{status?.status ?? 'unknown'}</div>
         </div>
 
-        {/* Running indicator */}
         <div className="stat-card">
           <div className="stat-label">Process</div>
           <div className="stat-value" style={{ fontSize: 20 }}>
@@ -168,41 +143,31 @@ export default function Dashboard({ projectPath }: { projectPath: string | null 
               ? <span style={{ color: 'var(--green)' }}>● Running</span>
               : <span style={{ color: 'var(--muted)' }}>○ Idle</span>}
           </div>
-          {progress?.elapsed_seconds !== undefined && running && (
-            <div className="stat-sub">{fmtElapsed(progress.elapsed_seconds)} elapsed</div>
+          {running && progress?.elapsed_seconds !== undefined && (
+            <div className="stat-sub">{fmtElapsed(progress.elapsed_seconds)} in current call</div>
           )}
         </div>
 
-        {/* Quota bar — full width */}
         <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
-          <QuotaBar
-            used={status?.calls_made_this_hour ?? 0}
-            max={status?.max_calls_per_hour ?? 100}
-          />
+          <QuotaBar used={status?.calls_made_this_hour ?? 0} max={status?.max_calls_per_hour ?? 100} />
           {status?.next_reset && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-              Resets in {status.next_reset}
-            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>Resets in {status.next_reset}</div>
           )}
         </div>
 
-        {/* Circuit breaker */}
         <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
           <div className="stat-label">Circuit breaker</div>
           {circuit ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-                <span style={{
-                  fontWeight: 700, fontSize: 16,
-                  color: CIRCUIT_COLOR[circuit.state] ?? 'var(--muted)'
-                }}>
+                <span style={{ fontWeight: 700, fontSize: 16, color: CIRCUIT_COLOR[circuit.state] ?? 'var(--muted)' }}>
                   {circuit.state}
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>{circuit.reason}</span>
               </div>
               <div style={{ display: 'flex', gap: 24, marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
                 <span>No progress: <b style={{ color: 'var(--text)' }}>{circuit.consecutive_no_progress}</b></span>
-                <span>Same error: <b style={{ color: 'var(--text)' }}>{circuit.consecutive_same_error}</b></span>
+                <span>Same error:  <b style={{ color: 'var(--text)' }}>{circuit.consecutive_same_error}</b></span>
                 <span>Total opens: <b style={{ color: 'var(--text)' }}>{circuit.total_opens}</b></span>
               </div>
               {circuit.state === 'OPEN' && circuit.opened_at && (
@@ -212,11 +177,10 @@ export default function Dashboard({ projectPath }: { projectPath: string | null 
               )}
             </>
           ) : (
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>No state file found</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>No state file — loop not started yet</div>
           )}
         </div>
 
-        {/* Last output */}
         {progress?.last_output && (
           <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
             <div className="stat-label">Last Claude output</div>
@@ -226,7 +190,6 @@ export default function Dashboard({ projectPath }: { projectPath: string | null 
           </div>
         )}
 
-        {/* Exit reason */}
         {status?.exit_reason && (
           <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
             <div className="stat-label">Exit reason</div>

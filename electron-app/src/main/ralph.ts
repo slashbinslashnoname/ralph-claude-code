@@ -1,92 +1,48 @@
 /**
- * ralph.ts — Ralph process manager, file watchers, and all IPC handlers.
+ * ralph.ts — all IPC handlers.
  *
- * Registers every ipcMain.handle() channel so index.ts stays clean.
+ * Multi-project: watchers and loops are keyed by projectPath, not winId.
+ * The RalphLoop TS engine replaces ralph_loop.sh entirely.
  */
 
-import {
-  ipcMain,
-  BrowserWindow,
-  dialog,
-  app,
-  shell
-} from 'electron'
-import { join } from 'path'
-import { execFile, exec } from 'child_process'
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  mkdirSync
-} from 'fs'
-import { promisify } from 'util'
-import chokidar, { FSWatcher } from 'chokidar'
-import * as pty from 'node-pty'
+import { ipcMain, BrowserWindow, dialog, app, shell } from 'electron'
+import { join }                                         from 'path'
+import { exec }                                         from 'child_process'
+import { existsSync, readFileSync, writeFileSync,
+         readdirSync, mkdirSync }                       from 'fs'
+import { promisify }                                    from 'util'
+import chokidar, { FSWatcher }                          from 'chokidar'
 
-const execAsync   = promisify(exec)
-const execFileAsync = promisify(execFile)
+import { RalphLoop }    from './loop/RalphLoop'
+import { loadConfig }   from './loop/RcParser'
+import { CircuitBreaker } from './loop/CircuitBreaker'
 
-// ── Recent projects store (plain JSON in userData) ─────────────────────────
+const execAsync = promisify(exec)
 
-const STORE_PATH = join(app.getPath('userData'), 'projects.json')
+// ── Stores (keyed by projectPath) ──────────────────────────────────────────
 
-function readStore(): string[] {
-  try { return JSON.parse(readFileSync(STORE_PATH, 'utf8')) } catch { return [] }
-}
-function addToStore(p: string): void {
-  const list = [p, ...readStore().filter(x => x !== p)].slice(0, 20)
-  writeFileSync(STORE_PATH, JSON.stringify(list))
+const watchers = new Map<string, FSWatcher>()
+const loops    = new Map<string, RalphLoop>()
+
+// ── Recent projects (userData JSON) ────────────────────────────────────────
+
+const STORE = join(app.getPath('userData'), 'projects.json')
+const readStore  = (): string[] => { try { return JSON.parse(readFileSync(STORE, 'utf8')) as string[] } catch { return [] } }
+const addToStore = (p: string): void => writeFileSync(STORE, JSON.stringify([p, ...readStore().filter(x => x !== p)].slice(0, 20)))
+
+// ── Broadcast to all windows ───────────────────────────────────────────────
+
+function broadcast(channel: string, ...args: unknown[]): void {
+  BrowserWindow.getAllWindows().forEach(w => w.webContents.send(channel, ...args))
 }
 
-// ── Per-window watcher registry ─────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-const watchers = new Map<number, FSWatcher>()
+const readJson = (path: string): unknown => { try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return null } }
+const readText = (path: string): string | null => { try { return readFileSync(path, 'utf8') } catch { return null } }
+const ralphDir = (p: string): string => join(p, '.ralph')
 
-function stopWatchers(winId: number): void {
-  watchers.get(winId)?.close()
-  watchers.delete(winId)
-}
-
-// ── PTY registry ────────────────────────────────────────────────────────────
-
-type PtyEntry = { pty: pty.IPty; projectPath: string }
-const ptys = new Map<number, PtyEntry>()
-
-function stopPty(winId: number): void {
-  ptys.get(winId)?.pty.kill()
-  ptys.delete(winId)
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-function readJson(path: string): unknown {
-  try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return null }
-}
-
-function readText(path: string): string | null {
-  try { return readFileSync(path, 'utf8') } catch { return null }
-}
-
-function getRalphDir(projectPath: string): string {
-  return join(projectPath, '.ralph')
-}
-
-/** Find the ralph_loop.sh script (bundled resources or global install) */
-function findRalphScript(): string {
-  // 1. Bundled in extraResources (production)
-  const bundled = join(process.resourcesPath, 'ralph', 'ralph_loop.sh')
-  if (existsSync(bundled)) return bundled
-  // 2. Global install
-  const global_ = join(process.env.HOME ?? '', '.ralph', 'ralph_loop.sh')
-  if (existsSync(global_)) return global_
-  // 3. Dev: sibling directory
-  const dev = join(__dirname, '../../../../ralph_loop.sh')
-  if (existsSync(dev)) return dev
-  throw new Error('ralph_loop.sh not found. Run install.sh to install Ralph globally.')
-}
-
-// ── IPC registration ─────────────────────────────────────────────────────────
+// ── IPC registration ────────────────────────────────────────────────────────
 
 export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
@@ -94,207 +50,176 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle('project:select', async () => {
     const win = getMainWindow()
-    const result = await dialog.showOpenDialog(win!, {
-      properties: ['openDirectory'],
-      title: 'Select Ralph project folder'
-    })
-    if (result.canceled) return null
-    const p = result.filePaths[0]
-    addToStore(p)
-    return p
+    const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'], title: 'Open Ralph project' })
+    if (r.canceled) return null
+    addToStore(r.filePaths[0])
+    return r.filePaths[0]
   })
 
   ipcMain.handle('project:recent', () => readStore())
-
   ipcMain.handle('project:add', (_e, p: string) => { addToStore(p); return true })
 
-  // ── Status ───────────────────────────────────────────────────────────────
+  // ── Status snapshot ───────────────────────────────────────────────────────
 
   ipcMain.handle('status:read', (_e, projectPath: string) => {
-    const ralph = getRalphDir(projectPath)
+    const rd = ralphDir(projectPath)
     return {
-      status:   readJson(join(ralph, 'status.json')),
-      progress: readJson(join(ralph, 'progress.json')),
-      circuit:  readJson(join(ralph, '.circuit_breaker_state')),
-      analysis: readJson(join(ralph, '.response_analysis'))
+      status:   readJson(join(rd, 'status.json')),
+      progress: readJson(join(rd, 'progress.json')),
+      circuit:  readJson(join(rd, '.circuit_breaker_state')),
+      analysis: readJson(join(rd, '.response_analysis'))
     }
   })
 
-  /** Subscribe to file-change events for a project. Replaces any prior watcher. */
+  // ── File watchers ─────────────────────────────────────────────────────────
+
+  /**
+   * Subscribe to live file changes for a project.
+   * Events are prefixed with the projectPath so the renderer can route them
+   * to the correct tab: e.g. `status:update:<projectPath>`
+   */
   ipcMain.handle('status:subscribe', (_e, projectPath: string) => {
-    const win = getMainWindow()
-    if (!win) return
+    if (watchers.has(projectPath)) return  // already watching
 
-    stopWatchers(win.id)
+    const rd = ralphDir(projectPath)
+    if (!existsSync(rd)) return
 
-    const ralph = getRalphDir(projectPath)
-    if (!existsSync(ralph)) return
-
-    const watcher = chokidar.watch(ralph, {
-      ignoreInitial: true,
-      depth: 1,
-      ignored: ['**/*.log', '**/live.log', '**/.claude_session_id', '**/.ralph_session_history']
+    const watcher = chokidar.watch(rd, {
+      ignoreInitial: true, depth: 1,
+      ignored: ['**/.claude_session_id', '**/.ralph_session_history']
     })
 
     const push = (channel: string, file: string): void => {
-      const data = readJson(join(ralph, file))
-      if (data) win.webContents.send(channel, data)
+      const data = readJson(join(rd, file))
+      if (data) broadcast(channel, projectPath, data)
     }
 
     watcher.on('change', path => {
       const name = path.split('/').pop() ?? ''
-      if (name === 'status.json')             push('status:update', 'status.json')
-      if (name === 'progress.json')            push('progress:update', 'progress.json')
-      if (name === '.circuit_breaker_state')   push('circuit:update', '.circuit_breaker_state')
-      if (name === '.response_analysis')       push('analysis:update', '.response_analysis')
-      if (name === 'fix_plan.md')              win.webContents.send('fixplan:update', readText(join(ralph, 'fix_plan.md')))
+      if (name === 'status.json')           push('status:update',   'status.json')
+      if (name === 'progress.json')          push('progress:update', 'progress.json')
+      if (name === '.circuit_breaker_state') push('circuit:update',  '.circuit_breaker_state')
+      if (name === '.response_analysis')     push('analysis:update', '.response_analysis')
+      if (name === 'fix_plan.md')            broadcast('fixplan:update', projectPath, readText(join(rd, 'fix_plan.md')))
     })
 
-    watchers.set(win.id, watcher)
+    // Log tailing
+    const logFile = join(rd, 'logs', 'ralph.log')
+    let logSize = existsSync(logFile) ? readFileSync(logFile, 'utf8').length : 0
+    const logWatcher = chokidar.watch(logFile, { ignoreInitial: true })
+    logWatcher.on('change', () => {
+      const text = readText(logFile) ?? ''
+      const newContent = text.slice(logSize)
+      logSize = text.length
+      if (newContent) broadcast('logs:lines', projectPath, newContent.split('\n').filter(Boolean))
+    })
+    ;(watcher as FSWatcher & { add(p: string): void }).add(logFile)
 
-    // Also tail ralph.log for streaming log lines
-    const logFile = join(ralph, 'logs', 'ralph.log')
-    if (existsSync(logFile)) {
-      let lastSize = 0
-      const logWatcher = chokidar.watch(logFile, { ignoreInitial: true })
-      logWatcher.on('change', () => {
-        const text = readText(logFile) ?? ''
-        const newContent = text.slice(lastSize)
-        lastSize = text.length
-        if (newContent) win.webContents.send('logs:lines', newContent.split('\n').filter(Boolean))
-      })
-      // Merge into same watcher so cleanup is automatic
-      ;(watcher as FSWatcher & { add: (p: string) => void }).add(logFile)
-    }
+    watchers.set(projectPath, watcher)
   })
 
-  ipcMain.handle('status:unsubscribe', () => {
-    const win = getMainWindow()
-    if (win) stopWatchers(win.id)
+  ipcMain.handle('status:unsubscribe', (_e, projectPath: string) => {
+    watchers.get(projectPath)?.close()
+    watchers.delete(projectPath)
   })
 
-  // ── Logs ─────────────────────────────────────────────────────────────────
+  // ── Logs ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('logs:read', (_e, projectPath: string, lines: number = 200) => {
-    const logFile = join(getRalphDir(projectPath), 'logs', 'ralph.log')
+    const logFile = join(ralphDir(projectPath), 'logs', 'ralph.log')
     if (!existsSync(logFile)) return []
-    const content = readText(logFile) ?? ''
-    return content.split('\n').filter(Boolean).slice(-lines)
+    return (readText(logFile) ?? '').split('\n').filter(Boolean).slice(-lines)
   })
 
   ipcMain.handle('logs:list', (_e, projectPath: string) => {
-    const logsDir = join(getRalphDir(projectPath), 'logs')
+    const logsDir = join(ralphDir(projectPath), 'logs')
     if (!existsSync(logsDir)) return []
     return readdirSync(logsDir)
       .filter(f => f.endsWith('.log') && f !== 'ralph.log')
-      .sort()
-      .reverse()
-      .slice(0, 30)
+      .sort().reverse().slice(0, 30)
   })
 
-  // ── Files (config editor) ─────────────────────────────────────────────────
+  // ── File editor ───────────────────────────────────────────────────────────
 
-  const editableFiles = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/AGENT.md']
+  const EDITABLE = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/AGENT.md']
 
   ipcMain.handle('file:read', (_e, projectPath: string, relPath: string) => {
-    if (!editableFiles.includes(relPath)) return { ok: false, error: 'Not an editable file' }
-    const full = join(projectPath, relPath)
-    const content = readText(full)
-    return content !== null ? { ok: true, content } : { ok: false, error: 'File not found' }
+    if (!EDITABLE.includes(relPath)) return { ok: false, error: 'Not an editable file' }
+    const c = readText(join(projectPath, relPath))
+    return c !== null ? { ok: true, content: c } : { ok: false, error: 'File not found' }
   })
 
   ipcMain.handle('file:write', (_e, projectPath: string, relPath: string, content: string) => {
-    if (!editableFiles.includes(relPath)) return { ok: false, error: 'Not an editable file' }
+    if (!EDITABLE.includes(relPath)) return { ok: false, error: 'Not an editable file' }
+    try { writeFileSync(join(projectPath, relPath), content); return { ok: true } }
+    catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  // ── Ralph loop (TS engine) ────────────────────────────────────────────────
+
+  ipcMain.handle('ralph:start', (_e, projectPath: string) => {
+    if (loops.has(projectPath)) return { ok: false, error: 'Already running' }
+
+    const loop = new RalphLoop(projectPath)
+
+    loop.on('status',  s  => broadcast('status:update',   projectPath, s))
+    loop.on('circuit', c  => broadcast('circuit:update',  projectPath, c))
+    loop.on('log',     (level, msg) => broadcast('logs:lines', projectPath, [`[${new Date().toISOString()}] [${level}] ${msg}`]))
+    loop.on('output',  chunk => broadcast('pty:data', projectPath, chunk))
+    loop.on('exit',    (reason, detail) => {
+      loops.delete(projectPath)
+      broadcast('ralph:exit', projectPath, reason, detail)
+    })
+
+    loops.set(projectPath, loop)
+    addToStore(projectPath)
+
+    // Start async — don't await so IPC returns immediately
+    loop.start().catch((err: unknown) => {
+      loops.delete(projectPath)
+      broadcast('ralph:exit', projectPath, 'error', err instanceof Error ? err.message : String(err))
+    })
+
+    return { ok: true }
+  })
+
+  ipcMain.handle('ralph:stop', (_e, projectPath: string) => {
+    loops.get(projectPath)?.stop()
+    loops.delete(projectPath)
+  })
+
+  ipcMain.handle('ralph:running', (_e, projectPath: string) => loops.has(projectPath))
+
+  // ── PTY write (pass-through to running loop's stdin — future use) ─────────
+  // Currently the loop manages the Claude subprocess internally.
+  // This channel is kept for future interactive terminal use.
+  ipcMain.handle('pty:write', (_e, _projectPath: string, _data: string) => { /* no-op for now */ })
+  ipcMain.handle('pty:resize', () => { /* no-op — internal loop, no PTY to resize */ })
+
+  // ── Circuit breaker ───────────────────────────────────────────────────────
+
+  ipcMain.handle('circuit:reset', (_e, projectPath: string) => {
+    // Reset the running loop's circuit if active
+    const loop = loops.get(projectPath)
+    if (loop) {
+      // Expose circuit reset via event — loop will pick it up next iteration
+      // For now write directly (loop re-reads on next iteration)
+    }
     try {
-      writeFileSync(join(projectPath, relPath), content, 'utf8')
+      const config  = loadConfig(projectPath)
+      const circuit = new CircuitBreaker(ralphDir(projectPath), config)
+      circuit.reset()
+      broadcast('circuit:update', projectPath, circuit.snapshot())
       return { ok: true }
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
-  // ── Ralph process ─────────────────────────────────────────────────────────
-
-  ipcMain.handle('ralph:start', (_e, projectPath: string, args: string[] = []) => {
-    const win = getMainWindow()
-    if (!win) return { ok: false, error: 'No window' }
-
-    if (ptys.has(win.id)) return { ok: false, error: 'Already running' }
-
-    let script: string
-    try { script = findRalphScript() }
+  ipcMain.handle('session:reset', (_e, projectPath: string) => {
+    const f = join(ralphDir(projectPath), '.claude_session_id')
+    try { if (existsSync(f)) writeFileSync(f, ''); return { ok: true } }
     catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
-
-    const proc = pty.spawn('bash', [script, ...args], {
-      name: 'xterm-256color',
-      cwd: projectPath,
-      env: { ...process.env, TERM: 'xterm-256color' }
-    })
-
-    proc.onData(data => win.webContents.send('pty:data', data))
-    proc.onExit(({ exitCode }) => {
-      ptys.delete(win.id)
-      win.webContents.send('ralph:exit', exitCode)
-    })
-
-    ptys.set(win.id, { pty: proc, projectPath })
-    addToStore(projectPath)
-    return { ok: true }
-  })
-
-  ipcMain.handle('ralph:stop', () => {
-    const win = getMainWindow()
-    if (!win) return
-    const entry = ptys.get(win.id)
-    if (entry) { entry.pty.kill('SIGTERM'); ptys.delete(win.id) }
-  })
-
-  ipcMain.handle('ralph:running', () => {
-    const win = getMainWindow()
-    return win ? ptys.has(win.id) : false
-  })
-
-  ipcMain.handle('pty:write', (_e, data: string) => {
-    const win = getMainWindow()
-    if (!win) return
-    ptys.get(win.id)?.pty.write(data)
-  })
-
-  ipcMain.handle('pty:resize', (_e, cols: number, rows: number) => {
-    const win = getMainWindow()
-    if (!win) return
-    ptys.get(win.id)?.pty.resize(cols, rows)
-  })
-
-  // ── Circuit breaker ───────────────────────────────────────────────────────
-
-  ipcMain.handle('circuit:reset', async (_e, projectPath: string) => {
-    try {
-      await execAsync('ralph --reset-circuit', { cwd: projectPath })
-      return { ok: true }
-    } catch {
-      // Fallback: write CLOSED state directly
-      const file = join(getRalphDir(projectPath), '.circuit_breaker_state')
-      const state = {
-        state: 'CLOSED', last_change: new Date().toISOString(),
-        consecutive_no_progress: 0, consecutive_same_error: 0,
-        consecutive_permission_denials: 0, last_progress_loop: 0,
-        total_opens: 0, reason: 'Manual reset via Ralph Desktop', current_loop: 0
-      }
-      try { writeFileSync(file, JSON.stringify(state, null, 2)); return { ok: true } }
-      catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
-    }
-  })
-
-  ipcMain.handle('session:reset', async (_e, projectPath: string) => {
-    try {
-      await execAsync('ralph --reset-session', { cwd: projectPath })
-      return { ok: true }
-    } catch {
-      const f = join(getRalphDir(projectPath), '.claude_session_id')
-      try { if (existsSync(f)) writeFileSync(f, ''); return { ok: true } }
-      catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
-    }
   })
 
   // ── Beads ─────────────────────────────────────────────────────────────────
@@ -306,23 +231,20 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     catch { return { available: false, reason: '`bd` command not found on PATH' } }
   })
 
-  ipcMain.handle('beads:fetch', async (_e, projectPath: string, filter: string = 'open') => {
-    const args = ['list', '--json']
-    if (filter === 'all') args.push('--all')
-    else args.push('--status', filter)
-
+  ipcMain.handle('beads:fetch', async (_e, projectPath: string, filter = 'open') => {
+    const args = filter === 'all' ? ['list', '--json', '--all'] : ['list', '--json', '--status', filter]
     try {
-      const { stdout } = await execFileAsync('bd', args, { cwd: projectPath })
+      const { stdout } = await execAsync(`bd ${args.join(' ')}`, { cwd: projectPath })
       const raw = JSON.parse(stdout) as Record<string, unknown>[]
       if (!Array.isArray(raw)) throw new Error('Unexpected format')
-      const tasks = raw
-        .filter(t => t.id && t.title)
-        .map(t => ({
+      return {
+        ok: true,
+        tasks: raw.filter(t => t.id && t.title).map(t => ({
           id: String(t.id), title: String(t.title), status: String(t.status ?? 'open'),
           priority: t.priority !== undefined ? String(t.priority) : undefined,
           tags: Array.isArray(t.tags) ? (t.tags as unknown[]).map(String) : []
         }))
-      return { ok: true, tasks }
+      }
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
     }
@@ -332,12 +254,16 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
 
-  // ── Cleanup on window close ───────────────────────────────────────────────
+  // ── Cleanup ───────────────────────────────────────────────────────────────
 
-  ipcMain.handle('window:cleanup', () => {
-    const win = getMainWindow()
-    if (!win) return
-    stopWatchers(win.id)
-    stopPty(win.id)
+  ipcMain.handle('window:cleanup', (_e, projectPath?: string) => {
+    if (projectPath) {
+      watchers.get(projectPath)?.close(); watchers.delete(projectPath)
+      loops.get(projectPath)?.stop();    loops.delete(projectPath)
+    } else {
+      // Clean everything (window close)
+      watchers.forEach(w => w.close()); watchers.clear()
+      loops.forEach(l => l.stop());    loops.clear()
+    }
   })
 }
