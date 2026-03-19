@@ -205,20 +205,23 @@ export class SwarmOrchestrator extends (EventEmitter as new () => TypedEmitter) 
   /** Recent agent mail. */
   getMail(limit = 50): MailMessage[] { return this.coordinator.readMail(limit) }
 
-  /** Bead graph snapshot. */
+  /** Bead graph snapshot (legacy). */
   getGraph(): BeadGraph | null { return loadGraph(this.ralphDir) }
 
-  /** Graph stats snapshot. */
-  getStats(): ReturnType<typeof graphStats> | null {
-    const g = this.getGraph()
-    return g ? graphStats(g) : null
+  /** SQLite bead list. */
+  getBeads(status?: string): unknown[] {
+    if (status) return this.coordinator.store.listByStatus(status)
+    return this.coordinator.store.listAll()
   }
+
+  /** SQLite stats (fast). */
+  getStats() { return this.coordinator.getStats() }
 
   // ── Internal ────────────────────────────────────────────────────────────
 
   private _broadcastGraph(): void {
-    const graph = this.getGraph()
-    this.emit('graph', graph ? graphStats(graph) : { total: 0, pending: 0, ready: 0, claimed: 0, done: 0, failed: 0, pct: 0 }, graph)
+    const stats = this.coordinator.getStats()
+    this.emit('graph', stats, null)
   }
 
   private _broadcastAgents(): void {

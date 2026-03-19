@@ -1,289 +1,150 @@
+/**
+ * BeadsViewer — reads beads from the SQLite store (fast).
+ *
+ * Status values: pending | ready | claimed | done | failed
+ * Auto-refreshes every 5 s when any workers are active.
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type BdTask = Record<string, unknown> & {
-  id: string
-  title: string
-  status?: string
-  priority?: number | string
-  type?: string
+type BeadStatus = 'pending' | 'ready' | 'claimed' | 'done' | 'failed'
+
+interface Bead {
+  id:           string
+  title:        string
   description?: string
-  labels?: string[]
-  assignee?: string
+  type?:        string
+  status:       BeadStatus
+  priority?:    number
+  tags?:        string[]
+  claimedBy?:   string
+  files?:       string[]
+  deps?:        string[]
 }
 
-type Filter = 'open' | 'in_progress' | 'closed' | 'all'
+interface BeadStats {
+  total: number; pending: number; ready: number
+  claimed: number; done: number; failed: number; pct: number
+}
+
+type Filter = 'ready' | 'pending' | 'claimed' | 'done' | 'failed' | 'all'
 
 const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'open',        label: 'Open' },
-  { id: 'in_progress', label: 'In Progress' },
-  { id: 'closed',      label: 'Closed' },
-  { id: 'all',         label: 'All' },
+  { id: 'ready',   label: 'Ready' },
+  { id: 'claimed', label: 'In Progress' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'done',    label: 'Done' },
+  { id: 'failed',  label: 'Failed' },
+  { id: 'all',     label: 'All' },
 ]
 
-const TYPES    = ['task', 'bug', 'feature', 'chore']
-const PRIORITIES = [0, 1, 2, 3, 4]
-
-// ── Small helpers ─────────────────────────────────────────────────────────────
-
 function statusColor(status?: string): string {
-  if (status === 'open')        return 'var(--green)'
-  if (status === 'in_progress') return 'var(--yellow)'
-  if (status === 'closed')      return 'var(--muted)'
-  return 'var(--accent)'
+  if (status === 'ready')   return 'var(--green)'
+  if (status === 'claimed') return 'var(--yellow)'
+  if (status === 'done')    return 'var(--accent)'
+  if (status === 'failed')  return '#e06c75'
+  return 'var(--muted)'
 }
 
-function priorityLabel(p?: number | string): string {
-  if (p === undefined || p === null) return ''
-  return `P${p}`
-}
+// ── Bead row ──────────────────────────────────────────────────────────────────
 
-// ── Create / Edit modal ───────────────────────────────────────────────────────
-
-function BeadModal({
-  projectPath, task, onDone, onClose
-}: {
-  projectPath: string
-  task?: BdTask         // if set → edit mode (only priority + labels for now)
-  onDone: () => void
-  onClose: () => void
-}): JSX.Element {
-  const isEdit = !!task
-
-  const [title,       setTitle]       = useState(task?.title ?? '')
-  const [type,        setType]        = useState(task?.type  ?? 'task')
-  const [priority,    setPriority]    = useState<number>(
-    task?.priority !== undefined ? Number(task.priority) : 2
-  )
-  const [description, setDescription] = useState(task?.description ?? '')
-  const [labels,      setLabels]      = useState((task?.labels ?? []).join(', '))
-  const [saving,      setSaving]      = useState(false)
-  const [error,       setError]       = useState<string | null>(null)
-
-  const submit = async (): Promise<void> => {
-    if (!title.trim() && !isEdit) { setError('Title is required'); return }
-    setSaving(true)
-    setError(null)
-
-    const labelList = labels.split(',').map(l => l.trim()).filter(Boolean)
-
-    let r: { ok: boolean; error?: string }
-    if (isEdit) {
-      const existingLabels = task!.labels ?? []
-      const toAdd    = labelList.filter(l => !existingLabels.includes(l))
-      const toRemove = existingLabels.filter(l => !labelList.includes(l))
-      r = await window.ralph.beads.update(projectPath, task!.id, {
-        priority,
-        labelsAdd:    toAdd.length    ? toAdd    : undefined,
-        labelsRemove: toRemove.length ? toRemove : undefined,
-      })
-    } else {
-      r = await window.ralph.beads.create(projectPath, {
-        title: title.trim(),
-        type,
-        priority,
-        description: description.trim() || undefined,
-        labels: labelList.length ? labelList : undefined,
-      })
-    }
-
-    setSaving(false)
-    if (!r.ok) { setError(r.error ?? 'Unknown error'); return }
-    onDone()
-  }
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', boxSizing: 'border-box',
-    background: 'var(--surface2)', border: '1px solid var(--border)',
-    borderRadius: 6, color: 'var(--text)', padding: '7px 10px',
-    fontFamily: 'monospace', fontSize: 12, outline: 'none',
-  }
-  const labelStyle: React.CSSProperties = {
-    fontSize: 11, color: 'var(--muted)', marginBottom: 4, display: 'block'
-  }
-  const rowStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 }
+function BeadRow({ bead }: { bead: Bead }): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const isClosed = bead.status === 'done' || bead.status === 'failed'
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+      borderBottom: '1px solid var(--border)', padding: '10px 16px',
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+      opacity: isClosed ? 0.55 : 1,
     }}>
+      {/* Status dot */}
       <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, padding: 24, width: 440, display: 'flex', flexDirection: 'column', gap: 14
-      }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
-          {isEdit ? `Edit ${task!.id}` : 'New Bead'}
+        width: 8, height: 8, borderRadius: '50%',
+        background: statusColor(bead.status), marginTop: 6, flexShrink: 0
+      }} />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Meta row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>{bead.id}</span>
+          {bead.type && (
+            <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface2)', borderRadius: 4, padding: '1px 5px' }}>
+              {bead.type}
+            </span>
+          )}
+          {bead.priority !== undefined && (
+            <span style={{ fontSize: 11, color: 'var(--yellow)' }}>P{bead.priority}</span>
+          )}
+          {bead.claimedBy && (
+            <span style={{ fontSize: 11, color: 'var(--yellow)', background: 'var(--surface2)', borderRadius: 4, padding: '1px 5px' }}>
+              ⚡ {bead.claimedBy}
+            </span>
+          )}
+          {bead.tags?.map(t => (
+            <span key={t} style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', borderRadius: 4, padding: '1px 5px' }}>
+              {t}
+            </span>
+          ))}
         </div>
-
-        {!isEdit && (
-          <div style={rowStyle}>
-            <label style={labelStyle}>Title *</label>
-            <input value={title} onChange={e => setTitle(e.target.value)}
-              placeholder="What needs to be done?" style={inputStyle}
-              onKeyDown={e => e.key === 'Enter' && void submit()} autoFocus />
-          </div>
-        )}
-
-        {!isEdit && (
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ ...rowStyle, flex: 1 }}>
-              <label style={labelStyle}>Type</label>
-              <select value={type} onChange={e => setType(e.target.value)} style={inputStyle}>
-                {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div style={{ ...rowStyle, width: 80 }}>
-              <label style={labelStyle}>Priority</label>
-              <select value={priority} onChange={e => setPriority(Number(e.target.value))} style={inputStyle}>
-                {PRIORITIES.map(p => <option key={p} value={p}>P{p}</option>)}
-              </select>
-            </div>
-          </div>
-        )}
-
-        {isEdit && (
-          <div style={{ ...rowStyle, width: 80 }}>
-            <label style={labelStyle}>Priority</label>
-            <select value={priority} onChange={e => setPriority(Number(e.target.value))} style={inputStyle}>
-              {PRIORITIES.map(p => <option key={p} value={p}>P{p}</option>)}
-            </select>
-          </div>
-        )}
-
-        {!isEdit && (
-          <div style={rowStyle}>
-            <label style={labelStyle}>Description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)}
-              rows={3} style={{ ...inputStyle, resize: 'vertical' }}
-              placeholder="Optional details…" />
-          </div>
-        )}
-
-        <div style={rowStyle}>
-          <label style={labelStyle}>Labels (comma-separated)</label>
-          <input value={labels} onChange={e => setLabels(e.target.value)}
-            placeholder="e.g. bug, critical" style={inputStyle} />
+        {/* Title */}
+        <div
+          style={{ fontSize: 13, color: 'var(--text)', marginTop: 3, cursor: bead.description ? 'pointer' : 'default',
+            textDecoration: isClosed ? 'line-through' : 'none' }}
+          onClick={() => bead.description && setExpanded(e => !e)}
+        >
+          {bead.title}
         </div>
-
-        {error && (
-          <div style={{ fontSize: 12, color: '#f87171' }}>{error}</div>
+        {/* Expanded description */}
+        {expanded && bead.description && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+            {bead.description}
+          </div>
         )}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary btn-sm" onClick={() => void submit()} disabled={saving}>
-            {saving ? <span className="spinner" style={{ width: 12, height: 12 }} /> : (isEdit ? 'Save' : 'Create')}
-          </button>
-        </div>
+        {/* Files */}
+        {expanded && bead.files && bead.files.length > 0 && (
+          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {bead.files.map(f => (
+              <span key={f} style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace',
+                background: 'var(--surface2)', borderRadius: 3, padding: '1px 4px' }}>{f}</span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Bead row ──────────────────────────────────────────────────────────────────
+// ── Stats bar ─────────────────────────────────────────────────────────────────
 
-function BeadRow({
-  task, projectPath, onRefresh
-}: {
-  task: BdTask
-  projectPath: string
-  onRefresh: () => void
-}): JSX.Element {
-  const [editing,  setEditing]  = useState(false)
-  const [busy,     setBusy]     = useState(false)
-  const [expanded, setExpanded] = useState(false)
-
-  const isClosed = task.status === 'closed'
-
-  const handleClose = async (): Promise<void> => {
-    setBusy(true)
-    await window.ralph.beads.close(projectPath, task.id, 'Done')
-    setBusy(false)
-    onRefresh()
-  }
-
-  const handleReopen = async (): Promise<void> => {
-    setBusy(true)
-    await window.ralph.beads.reopen(projectPath, task.id)
-    setBusy(false)
-    onRefresh()
-  }
-
+function StatsBar({ stats }: { stats: BeadStats }): JSX.Element {
+  const segments: Array<{ key: keyof BeadStats; color: string }> = [
+    { key: 'done',    color: 'var(--accent)' },
+    { key: 'claimed', color: 'var(--yellow)' },
+    { key: 'ready',   color: 'var(--green)' },
+    { key: 'pending', color: 'var(--muted)' },
+    { key: 'failed',  color: '#e06c75' },
+  ]
   return (
-    <>
-      {editing && (
-        <BeadModal
-          projectPath={projectPath}
-          task={task}
-          onDone={() => { setEditing(false); onRefresh() }}
-          onClose={() => setEditing(false)}
-        />
-      )}
-      <div style={{
-        borderBottom: '1px solid var(--border)', padding: '10px 16px',
-        display: 'flex', alignItems: 'flex-start', gap: 12,
-        opacity: isClosed ? 0.55 : 1,
-      }}>
-        {/* Status dot */}
-        <div style={{
-          width: 8, height: 8, borderRadius: '50%',
-          background: statusColor(task.status), marginTop: 6, flexShrink: 0
-        }} />
-
-        {/* Main content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'monospace' }}>{task.id}</span>
-            {task.type && (
-              <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface2)', borderRadius: 4, padding: '1px 5px' }}>
-                {String(task.type)}
-              </span>
-            )}
-            {task.priority !== undefined && (
-              <span style={{ fontSize: 11, color: 'var(--yellow)' }}>{priorityLabel(task.priority)}</span>
-            )}
-            {(task.labels as string[] | undefined)?.map(l => (
-              <span key={l} style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', borderRadius: 4, padding: '1px 5px' }}>
-                {l}
-              </span>
-            ))}
-          </div>
-          <div
-            style={{ fontSize: 13, color: 'var(--text)', marginTop: 3, cursor: task.description ? 'pointer' : 'default',
-              textDecoration: isClosed ? 'line-through' : 'none' }}
-            onClick={() => task.description && setExpanded(e => !e)}
-          >
-            {task.title}
-          </div>
-          {expanded && task.description && (
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-              {String(task.description)}
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }}
-            onClick={() => setEditing(true)} disabled={busy} title="Edit">
-            ✎
-          </button>
-          {isClosed ? (
-            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }}
-              onClick={() => void handleReopen()} disabled={busy} title="Reopen">
-              ↩
-            </button>
-          ) : (
-            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--muted)' }}
-              onClick={() => void handleClose()} disabled={busy} title="Close">
-              ✕
-            </button>
-          )}
-        </div>
+    <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {/* Progress bar */}
+      <div style={{ height: 4, background: 'var(--surface2)', borderRadius: 2, overflow: 'hidden', display: 'flex' }}>
+        {stats.total > 0 && segments.map(({ key, color }) => {
+          const pct = ((stats[key] as number) / stats.total) * 100
+          return pct > 0 ? <div key={key} style={{ width: `${pct}%`, background: color }} /> : null
+        })}
       </div>
-    </>
+      {/* Counts */}
+      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--muted)' }}>
+        <span><span style={{ color: 'var(--accent)' }}>✓ {stats.done}</span> done</span>
+        <span><span style={{ color: 'var(--yellow)' }}>⚡ {stats.claimed}</span> active</span>
+        <span><span style={{ color: 'var(--green)' }}>◎ {stats.ready}</span> ready</span>
+        <span>{stats.pending} pending</span>
+        {stats.failed > 0 && <span style={{ color: '#e06c75' }}>✗ {stats.failed} failed</span>}
+        <span style={{ marginLeft: 'auto' }}>{stats.pct}% complete</span>
+      </div>
+    </div>
   )
 }
 
@@ -293,181 +154,121 @@ export default function BeadsViewer({ projectPath: externalPath }: { projectPath
   const [projectPath, setProjectPath] = useState<string | null>(externalPath ?? null)
   useEffect(() => { if (externalPath !== undefined) setProjectPath(externalPath) }, [externalPath])
 
-  const [available,        setAvailable]        = useState<boolean | null>(null)
-  const [unavailableReason, setUnavailableReason] = useState('')
-  const [filter,           setFilter]           = useState<Filter>('open')
-  const [tasks,            setTasks]            = useState<BdTask[]>([])
-  const [loading,          setLoading]          = useState(false)
-  const [error,            setError]            = useState<string | null>(null)
-  const [search,           setSearch]           = useState('')
-  const [creating,         setCreating]         = useState(false)
+  const [filter,  setFilter]  = useState<Filter>('ready')
+  const [beads,   setBeads]   = useState<Bead[]>([])
+  const [stats,   setStats]   = useState<BeadStats | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [search,  setSearch]  = useState('')
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const checkAndLoad = useCallback(async (path: string): Promise<void> => {
-    const result = await window.ralph.beads.check(path)
-    setAvailable(result.available)
-    if (!result.available) setUnavailableReason((result as { available: false; reason: string }).reason)
-  }, [])
+  const fetchBeads = useCallback(async () => {
+    if (!projectPath) return
+    setLoading(true)
+    const [beadList, beadStats] = await Promise.all([
+      window.ralph.swarm.beads(projectPath, filter === 'all' ? undefined : filter),
+      window.ralph.swarm.beadStats(projectPath),
+    ])
+    setLoading(false)
+    setBeads((beadList as Bead[]) ?? [])
+    setStats(beadStats as BeadStats ?? null)
+  }, [projectPath, filter])
 
-  const selectProject = useCallback(async () => {
+  useEffect(() => { void fetchBeads() }, [fetchBeads])
+
+  // Auto-refresh every 5 s
+  useEffect(() => {
+    if (!projectPath) return
+    intervalRef.current = setInterval(() => void fetchBeads(), 5_000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [projectPath, fetchBeads])
+
+  // Also refresh on graph broadcasts (bead state changes)
+  useEffect(() => {
+    return window.ralph.swarm.onGraph((p) => {
+      if (p === projectPath) void fetchBeads()
+    })
+  }, [projectPath, fetchBeads])
+
+  const selectProject = async (): Promise<void> => {
     const path = await window.ralph.selectProject()
     if (!path) return
-    setProjectPath(path); setTasks([]); setError(null); setAvailable(null)
-    await checkAndLoad(path)
-  }, [checkAndLoad])
-
-  useEffect(() => {
-    if (projectPath && available === null) void checkAndLoad(projectPath)
-  }, [projectPath, available, checkAndLoad])
-
-  const fetchTasks = useCallback(async () => {
-    if (!projectPath || !available) return
-    setLoading(true); setError(null)
-    const result = await window.ralph.beads.list(projectPath, filter)
-    setLoading(false)
-    if (result.ok) setTasks(result.tasks as BdTask[])
-    else { setError(result.error); setTasks([]) }
-  }, [projectPath, available, filter])
-
-  useEffect(() => { void fetchTasks() }, [fetchTasks])
-
-  useEffect(() => {
-    if (!projectPath || !available) return
-    intervalRef.current = setInterval(fetchTasks, 15_000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [projectPath, available, fetchTasks])
-
-  const visible = tasks.filter(t =>
-    !search ||
-    t.title.toLowerCase().includes(search.toLowerCase()) ||
-    t.id.toLowerCase().includes(search.toLowerCase())
-  )
-
-  const counts = {
-    open:        tasks.filter(t => t.status === 'open').length,
-    in_progress: tasks.filter(t => t.status === 'in_progress').length,
-    closed:      tasks.filter(t => t.status === 'closed').length,
-    all:         tasks.length,
+    setProjectPath(path); setBeads([]); setStats(null)
   }
+
+  const visible = beads.filter(b =>
+    !search ||
+    b.title.toLowerCase().includes(search.toLowerCase()) ||
+    b.id.toLowerCase().includes(search.toLowerCase())
+  )
 
   return (
     <>
-      {creating && projectPath && (
-        <BeadModal
-          projectPath={projectPath}
-          onDone={() => { setCreating(false); void fetchTasks() }}
-          onClose={() => setCreating(false)}
-        />
-      )}
-
       <div className="page-header">
         <div>
           <div className="page-title">◎ Beads</div>
           <div className="page-sub" style={{ fontFamily: 'monospace' }}>{projectPath ?? 'No project'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {projectPath && available && (
-            <>
-              <button className="btn btn-ghost btn-sm" onClick={() => void fetchTasks()} disabled={loading} title="Refresh">
-                {loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : '↻'} Refresh
-              </button>
-              <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>
-                + New Bead
-              </button>
-            </>
+          {projectPath && (
+            <button className="btn btn-ghost btn-sm" onClick={() => void fetchBeads()} disabled={loading} title="Refresh">
+              {loading ? <span className="spinner" style={{ width: 12, height: 12 }} /> : '↻'} Refresh
+            </button>
           )}
           <button className="btn btn-ghost btn-sm" onClick={() => void selectProject()}>⊕ Project</button>
         </div>
       </div>
 
-      {/* No project */}
-      {!projectPath && (
+      {!projectPath ? (
         <div className="state-box" style={{ flex: 1 }}>
           <div className="state-icon">📂</div>
           <div className="state-title">No project selected</div>
-          <div className="state-desc">Open a project with <code>bd init</code> already run.</div>
           <button className="btn btn-primary" onClick={() => void selectProject()}>⊕ Open project</button>
         </div>
-      )}
-
-      {/* Beads unavailable */}
-      {projectPath && available === false && (
-        <div className="state-box" style={{ flex: 1 }}>
-          <div className="state-icon">⚠</div>
-          <div className="state-title">Beads not available</div>
-          <div className="state-desc">{unavailableReason}</div>
-          <div className="state-code">bd init</div>
-        </div>
-      )}
-
-      {/* Checking */}
-      {projectPath && available === null && (
-        <div className="state-box" style={{ flex: 1 }}>
-          <span className="spinner" /><div className="state-desc">Checking…</div>
-        </div>
-      )}
-
-      {/* Error */}
-      {projectPath && available && error && (
-        <div className="state-box" style={{ flex: 1 }}>
-          <div className="state-icon">✗</div>
-          <div className="state-title">Failed to fetch tasks</div>
-          <div className="state-desc">{error}</div>
-          <button className="btn btn-ghost btn-sm" onClick={() => void fetchTasks()}>Retry</button>
-        </div>
-      )}
-
-      {/* Filter + search */}
-      {projectPath && available && !error && (
+      ) : (
         <>
+          {stats && stats.total > 0 && <StatsBar stats={stats} />}
+
+          {/* Filter + search bar */}
           <div className="filter-bar" style={{ gap: 8, alignItems: 'center' }}>
-            {FILTERS.map(f => (
-              <button key={f.id}
-                className={`filter-tab${filter === f.id ? ' active' : ''}`}
-                onClick={() => setFilter(f.id)}
-              >
-                {f.label}
-                {counts[f.id] > 0 && ` (${counts[f.id]})`}
-              </button>
-            ))}
+            {FILTERS.map(f => {
+              const count = stats ? (f.id === 'all' ? stats.total : (stats[f.id as keyof BeadStats] as number | undefined) ?? 0) : 0
+              return (
+                <button key={f.id}
+                  className={`filter-tab${filter === f.id ? ' active' : ''}`}
+                  onClick={() => setFilter(f.id)}
+                >
+                  {f.label}{count > 0 ? ` (${count})` : ''}
+                </button>
+              )
+            })}
             <input type="search" placeholder="Search…" value={search}
               onChange={e => setSearch(e.target.value)}
               style={{
                 marginLeft: 'auto', padding: '5px 10px', borderRadius: 6,
                 border: '1px solid var(--border)', background: 'var(--surface2)',
-                color: 'var(--text)', fontSize: 12, outline: 'none', width: 180
-              }}
-            />
+                color: 'var(--text)', fontSize: 12, outline: 'none', width: 180,
+              }} />
           </div>
 
-          {loading && tasks.length === 0 ? (
+          {/* Empty state */}
+          {!loading && visible.length === 0 && stats?.total === 0 && (
             <div className="state-box" style={{ flex: 1 }}>
-              <span className="spinner" /><div className="state-desc">Loading…</div>
+              <div className="state-icon">◎</div>
+              <div className="state-title">No beads yet</div>
+              <div className="state-desc">Submit a plan request to generate beads.</div>
             </div>
-          ) : visible.length === 0 ? (
-            <div className="state-box" style={{ flex: 1 }}>
-              <div className="state-icon">✓</div>
-              <div className="state-title">No beads</div>
-              <div className="state-desc">
-                {search ? 'Nothing matches your search.' : `No ${filter.replace('_', ' ')} beads.`}
-              </div>
-              {!search && (
-                <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}>+ New Bead</button>
-              )}
-            </div>
-          ) : (
-            <>
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                {visible.map(task => (
-                  <BeadRow key={task.id} task={task} projectPath={projectPath!} onRefresh={() => void fetchTasks()} />
-                ))}
-              </div>
-              <div className="summary-bar">
-                {visible.length} of {tasks.length} bead{tasks.length !== 1 ? 's' : ''}
-                {loading && ' · refreshing…'}
-              </div>
-            </>
           )}
+
+          {!loading && visible.length === 0 && (stats?.total ?? 0) > 0 && (
+            <div className="state-box" style={{ flex: 1 }}>
+              <div className="state-desc">No beads match filter / search.</div>
+            </div>
+          )}
+
+          {/* Bead list */}
+          <div style={{ flex: 1, overflow: 'auto' }}>
+            {visible.map(b => <BeadRow key={b.id} bead={b} />)}
+          </div>
         </>
       )}
     </>

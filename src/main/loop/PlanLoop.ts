@@ -21,8 +21,7 @@ import { execSync, spawn as spawnProc, ChildProcess } from 'child_process'
 
 import { AgentCoordinator }       from './AgentCoordinator'
 import { RalphConfig }            from './types'
-import type { BeadType, BeadStatus } from './Bead'
-import { spawnSync }               from 'child_process'
+import type { Bead, BeadType, BeadStatus } from './Bead'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -357,7 +356,7 @@ Rules:
 Output ONLY a valid JSON array. No markdown code fences, no explanation text.`
   }
 
-  // ── JSON bead parser → bd create ──────────────────────────────────────────
+  // ── JSON bead parser → SQLite bulk insert ────────────────────────────────
 
   private _parseAndSaveBeads(_planMd: string, raw: string): number {
     const jsonMatch = raw.match(/\[[\s\S]*\]/)
@@ -376,43 +375,40 @@ Output ONLY a valid JSON array. No markdown code fences, no explanation text.`
 
     const validTypes = new Set(['epic', 'task', 'subtask'])
 
-    const items = parsed
+    const beads: Bead[] = parsed
       .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
-      .map((b) => ({
-        title:       String(b['title']       ?? 'Untitled').slice(0, 80),
+      .map((b, i) => ({
+        id:          String(b['id'] ?? `bead-${String(i + 1).padStart(3, '0')}`),
+        title:       String(b['title']       ?? 'Untitled').slice(0, 120),
         description: String(b['description'] ?? ''),
         type:        (validTypes.has(String(b['type'])) ? b['type'] : 'task') as BeadType,
+        status:      'pending' as BeadStatus,
+        deps:        Array.isArray(b['deps'])  ? (b['deps']  as unknown[]).map(String) : [],
         files:       Array.isArray(b['files']) ? (b['files'] as unknown[]).map(String) : [],
         priority:    typeof b['priority'] === 'number' ? Math.min(10, Math.max(1, b['priority'])) : 5,
+        epicId:      b['epicId'] ? String(b['epicId']) : undefined,
+        taskId:      b['taskId'] ? String(b['taskId']) : undefined,
+        tags:        Array.isArray(b['tags'])  ? (b['tags']  as unknown[]).map(String) : [],
       }))
 
-    this._log('INFO', `Creating ${items.length} beads via bd…`)
-    let created = 0
-
-    for (const item of items) {
-      if (this.stopped) break
-      // Map priority 1-10 → bd 0-4
-      const bdPriority = String(Math.round((item.priority - 1) / 9 * 4))
-      const bdType     = item.type === 'epic' ? 'epic' : 'task'
-      const filesLine  = item.files.length > 0 ? `\nFILES: ${item.files.join(', ')}` : ''
-      const desc       = item.description + filesLine
-
-      const r = spawnSync('bd', ['create', item.title, '-t', bdType, '-p', bdPriority, '-d', desc], {
-        cwd: this.projectPath, env: this.env, timeout: 10_000, encoding: 'utf8'
-      })
-      if (r.status === 0) {
-        created++
-      } else {
-        this._log('WARN', `bd create failed for "${item.title}": ${r.stderr ?? ''}`)
-      }
+    // Resolve ready beads: those with no deps or all deps satisfied
+    const allIds = new Set(beads.map(b => b.id))
+    for (const bead of beads) {
+      bead.deps = bead.deps.filter(d => allIds.has(d))  // prune dangling refs
+      if (bead.deps.length === 0) bead.status = 'ready'
     }
 
+    // Bulk insert into SQLite — fast single transaction
+    this.coordinator.store.clear()
+    this.coordinator.store.insertMany(beads)
+
+    const readyCount = beads.filter(b => b.status === 'ready').length
     this.coordinator.post({
       from: this.agentId, type: 'info',
-      text: `Bead creation complete: ${created}/${items.length} beads created in bd`
+      text: `${beads.length} beads loaded into SQLite (${readyCount} ready immediately)`,
     })
 
-    return created
+    return beads.length
   }
 
   // ── Utilities ─────────────────────────────────────────────────────────────

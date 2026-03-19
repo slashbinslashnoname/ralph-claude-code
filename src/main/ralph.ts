@@ -423,6 +423,19 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     }
   })
 
+  // Bead list from SQLite (replaces bd list)
+  ipcMain.handle('swarm:beads', (_e, projectPath: string, status?: string) => {
+    const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)
+    if (status && status !== 'all') return swarm.getBeads(status)
+    return swarm.getBeads()
+  })
+
+  // Bead stats from SQLite
+  ipcMain.handle('swarm:bead-stats', (_e, projectPath: string) => {
+    const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)
+    return swarm.getStats()
+  })
+
   // Graph + mail snapshots
   ipcMain.handle('swarm:graph', (_e, projectPath: string) => {
     const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)

@@ -95,6 +95,10 @@ contextBridge.exposeInMainWorld('ralph', {
     stop:    (projectPath: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('swarm:stop', projectPath),
     status:  (projectPath: string) => ipcRenderer.invoke('swarm:status', projectPath),
+    beads:     (projectPath: string, status?: string) =>
+      ipcRenderer.invoke('swarm:beads', projectPath, status),
+    beadStats: (projectPath: string) =>
+      ipcRenderer.invoke('swarm:bead-stats', projectPath),
     graph:   (projectPath: string) => ipcRenderer.invoke('swarm:graph', projectPath),
     mail:    (projectPath: string, limit?: number) =>
       ipcRenderer.invoke('swarm:mail', projectPath, limit ?? 50),
