@@ -1,7 +1,7 @@
 {
-  "name": "ralph-desktop",
+  "name": "slashbot",
   "version": "0.1.0",
-  "description": "Ralph for Claude Code — desktop wrapper",
+  "description": "Slashbot — autonomous AI development loop desktop app",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -28,8 +28,8 @@
     "vite": "^5.4.0"
   },
   "build": {
-    "appId": "com.ralph.desktop",
-    "productName": "Ralph",
+    "appId": "com.slashbot.desktop",
+    "productName": "Slashbot",
     "directories": { "output": "dist" },
     "linux": { "target": ["AppImage"] },
     "mac": { "target": "dmg", "category": "public.app-category.developer-tools" },

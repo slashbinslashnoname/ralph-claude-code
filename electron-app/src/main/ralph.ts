@@ -9,7 +9,7 @@ import { ipcMain, BrowserWindow, dialog, app, shell } from 'electron'
 import { join }                                         from 'path'
 import { exec }                                         from 'child_process'
 import { existsSync, readFileSync, writeFileSync,
-         readdirSync, mkdirSync }                       from 'fs'
+         appendFileSync, readdirSync, mkdirSync }       from 'fs'
 import { promisify }                                    from 'util'
 import chokidar, { FSWatcher }                          from 'chokidar'
 
@@ -224,6 +224,22 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     const f = join(ralphDir(projectPath), '.claude_session_id')
     try { if (existsSync(f)) writeFileSync(f, ''); return { ok: true } }
     catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  // ── Fix plan task injection ───────────────────────────────────────────────
+
+  ipcMain.handle('fixplan:add-task', (_e, projectPath: string, task: string) => {
+    const file = join(ralphDir(projectPath), 'fix_plan.md')
+    if (!existsSync(file)) return { ok: false, error: 'fix_plan.md not found' }
+    const trimmed = task.trim()
+    if (!trimmed) return { ok: false, error: 'Task text is empty' }
+    try {
+      appendFileSync(file, `\n- [ ] ${trimmed}\n`)
+      broadcast('fixplan:update', projectPath, readText(file))
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // ── Ralph enable (replaces ralph_enable.sh) ──────────────────────────────

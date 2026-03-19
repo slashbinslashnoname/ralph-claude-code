@@ -64,6 +64,10 @@ contextBridge.exposeInMainWorld('ralph', {
   resetSession: (projectPath: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('session:reset', projectPath),
 
+  // ── Fix plan task injection ──────────────────────────────────────────────
+  addTask: (projectPath: string, task: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('fixplan:add-task', projectPath, task),
+
   // ── Beads ────────────────────────────────────────────────────────────────
   beads: {
     check: (projectPath: string) => ipcRenderer.invoke('beads:check', projectPath),

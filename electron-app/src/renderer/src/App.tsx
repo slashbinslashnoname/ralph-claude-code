@@ -115,7 +115,7 @@ export default function App(): JSX.Element {
       {/* ── Sidebar ── */}
       <aside className="sidebar">
         <div className="sidebar-logo">
-          Ralph<br />
+          Slashbot<br />
           <span>for Claude Code</span>
         </div>
         <nav className="sidebar-nav">
