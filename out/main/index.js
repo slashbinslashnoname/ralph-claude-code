@@ -397,22 +397,20 @@ function buildEnv() {
     "/sbin",
     "/opt/homebrew/bin",
     "/opt/homebrew/sbin",
-    // macOS Homebrew
     `${process.env.HOME ?? ""}/.local/bin`,
-    // pip / cargo user installs
     `${process.env.HOME ?? ""}/.npm-global/bin`,
-    // npm global (manual prefix)
-    `${process.env.HOME ?? ""}/.nvm/versions/node/*/bin`,
-    // nvm (glob, may not resolve)
     `${process.env.HOME ?? ""}/.volta/bin`
-    // Volta
   ];
-  const existingPath = process.env.PATH ?? "";
-  const merged = [...new Set([existingPath, ...extraPaths].flatMap((p) => p.split(":").filter(Boolean)))].join(":");
+  let loginPath = "";
+  try { loginPath = child_process.execSync('bash -l -c "echo $PATH"', { timeout: 3e3 }).toString().trim(); } catch {}
+  const merged = [...new Set([process.env.PATH ?? "", loginPath, ...extraPaths].flatMap((p) => p.split(":").filter(Boolean)))].join(":");
   return { ...process.env, PATH: merged };
 }
 function resolveCmd(cmd, env) {
-  if (cmd.startsWith("/")) return cmd;
+  if (cmd.startsWith("/")) {
+    if (fs.existsSync(cmd)) return cmd;
+    cmd = cmd.split("/").pop() ?? cmd;
+  }
   try {
     const result = child_process.execSync(`which ${cmd}`, { env, timeout: 3e3 }).toString().trim();
     if (result && result.startsWith("/")) return result;

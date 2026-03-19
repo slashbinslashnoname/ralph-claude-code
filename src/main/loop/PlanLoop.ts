@@ -115,6 +115,7 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
   // ── Entry point ────────────────────────────────────────────────────────
 
   async run(userRequest: string): Promise<void> {
+    this._log('INFO', `━━ PlanLoop: resolved claude cmd: ${this.resolvedCmd} ━━`)
     this._log('INFO', '━━ PlanLoop: Step 1 — Generating 3 competing plans ━━')
 
     // ── Step 1: Three competing plans ─────────────────────────────────────
