@@ -14,6 +14,7 @@ import {
   readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync
 } from 'fs'
 import { join } from 'path'
+import { execSync } from 'child_process'
 
 import { CircuitBreaker }   from './CircuitBreaker'
 import { RateLimit }        from './RateLimit'
@@ -40,9 +41,37 @@ function stripAnsi(s: string): string {
     .replace(/\r/g, '\n')
 }
 
-// Shell-safe single-quote escaping
-function q(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`
+/**
+ * Build a PATH-enriched environment for spawning subprocesses.
+ * Electron GUI apps inherit a stripped PATH; we add common bin dirs so
+ * node-pty (which uses posix_spawnp) can find claude and system tools.
+ */
+function buildEnv(): Record<string, string> {
+  const extraPaths = [
+    '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
+    '/opt/homebrew/bin', '/opt/homebrew/sbin',       // macOS Homebrew
+    `${process.env.HOME ?? ''}/.local/bin`,           // pip / cargo user installs
+    `${process.env.HOME ?? ''}/.npm-global/bin`,      // npm global (manual prefix)
+    `${process.env.HOME ?? ''}/.nvm/versions/node/*/bin`,  // nvm (glob, may not resolve)
+    `${process.env.HOME ?? ''}/.volta/bin`,           // Volta
+  ]
+  const existingPath = process.env.PATH ?? ''
+  const merged = [...new Set([existingPath, ...extraPaths].flatMap(p => p.split(':').filter(Boolean)))].join(':')
+  return { ...process.env, PATH: merged } as Record<string, string>
+}
+
+/**
+ * Resolve a command name to its absolute path using `which` in the enriched env.
+ * Falls back to the original name if resolution fails.
+ */
+function resolveCmd(cmd: string, env: Record<string, string>): string {
+  // Already an absolute path
+  if (cmd.startsWith('/')) return cmd
+  try {
+    const result = execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
+    if (result && result.startsWith('/')) return result
+  } catch { /* not found — return as-is and let pty give a clear error */ }
+  return cmd
 }
 
 export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
@@ -287,32 +316,35 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
   private _runClaude(): Promise<string> {
     return new Promise((resolve, reject) => {
       const prompt = this._buildPrompt()
-      const args   = this._buildArgs()
+      const env    = buildEnv()
 
-      // Write prompt to a temp file — avoids shell escaping issues with long prompts
-      const promptFile = join(this.ralphDir, '.current_prompt.md')
-      writeFileSync(promptFile, prompt)
+      // Resolve the claude binary to an absolute path.
+      // node-pty uses posix_spawnp which requires the command to be findable
+      // in the enriched PATH we pass (Electron GUI apps have a stripped PATH).
+      const resolvedCmd = resolveCmd(this.config.claudeCodeCmd, env)
+      this._log('INFO', `│   Resolved cmd: ${resolvedCmd}`)
 
+      // Pass the prompt via -p so we don't need a shell or stdin redirect.
+      // node-pty spawns Claude directly — no shell subprocess needed.
+      const args = this._buildArgs(prompt)
       this._log('INFO', `│   Prompt: ${prompt.length} chars`)
-      this._log('INFO', `│   Args: ${args.join(' ')}`)
-
-      // Spawn via sh so we get stdin redirection + PTY for proper output
-      // Without PTY, Claude CLI detects no TTY and may suppress stdout
-      const shellCmd = [this.config.claudeCodeCmd, ...args].map(q).join(' ') + ` < ${q(promptFile)}`
+      this._log('INFO', `│   Args: ${['(prompt)', ...args.slice(2)].join(' ')}`)
 
       let proc: IPty
       try {
-        proc = pty.spawn('sh', ['-c', shellCmd], {
+        proc = pty.spawn(resolvedCmd, args, {
           name: 'xterm-256color',
           cols: 220,
           rows: 50,
           cwd: this.projectPath,
-          env: { ...process.env } as Record<string, string>
+          env
         })
-      } catch (err) {
-        reject(err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT'
-          ? new Error(`Claude CLI not found: '${this.config.claudeCodeCmd}'. Install with: npm install -g @anthropic-ai/claude-code`)
-          : err)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        reject(new Error(
+          `Failed to spawn Claude (${resolvedCmd}): ${msg}. ` +
+          `Install with: npm install -g @anthropic-ai/claude-code`
+        ))
         return
       }
 
@@ -334,7 +366,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
 
       proc.onData(chunk => {
         rawOutput += chunk
-        // Forward raw PTY data to Terminal page (includes ANSI colors)
+        // Forward raw PTY data to Terminal page (ANSI colors preserved)
         this.emit('output', chunk)
         // Append to per-call log file
         appendFileSync(outFile, chunk)
@@ -350,7 +382,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
         this.ptyProc = null
         if (this.stopped) { resolve(rawOutput); return }
         if (exitCode !== 0 && rawOutput.trim().length === 0) {
-          reject(new Error(`Claude exited ${exitCode} with no output. Check Terminal for details.`))
+          reject(new Error(`Claude exited ${exitCode} with no output. Check the Terminal tab for details.`))
           return
         }
         if (exitCode !== 0) {
@@ -361,11 +393,13 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
     })
   }
 
-  private _buildArgs(): string[] {
+  // Pass the prompt as the -p argument so Claude reads it directly.
+  // No shell or stdin redirect needed — Claude accepts -p <prompt text>.
+  private _buildArgs(prompt: string): string[] {
     const args = [
+      '-p', prompt,
       '--output-format', this.config.claudeOutputFormat,
       '--allowedTools', this.config.allowedTools,
-      '--print'
     ]
     if (this.config.continueSession && this.lastSessionId) {
       args.push('--resume', this.lastSessionId)
