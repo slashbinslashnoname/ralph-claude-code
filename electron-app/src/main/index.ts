@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, globalShortcut } from 'electron'
 import { join } from 'path'
 import { registerIpc } from './ralph'
 
@@ -23,7 +23,6 @@ function createWindow(): BrowserWindow {
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -35,10 +34,20 @@ registerIpc(() => mainWindow)
 
 app.whenReady().then(() => {
   createWindow()
+
+  // Toggle DevTools with F12 (dev only)
+  if (process.env.ELECTRON_RENDERER_URL) {
+    globalShortcut.register('F12', () => {
+      mainWindow?.webContents.toggleDevTools()
+    })
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+app.on('will-quit', () => globalShortcut.unregisterAll())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
