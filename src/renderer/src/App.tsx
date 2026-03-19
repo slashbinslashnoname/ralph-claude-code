@@ -7,17 +7,21 @@ import ConfigEditor   from './pages/ConfigEditor'
 import TerminalPage   from './pages/TerminalPage'
 import SetupWizard    from './pages/SetupWizard'
 import SwarmDashboard from './pages/SwarmDashboard'
+import AgentMailPage  from './pages/AgentMailPage'
+import PlanPage       from './pages/PlanPage'
 
-type Page = 'dashboard' | 'swarm' | 'beads' | 'logs' | 'config' | 'terminal' | 'setup'
+// 'setup' is NOT in the nav — it only shows when opening a new unenabled project
+type Page = 'dashboard' | 'swarm' | 'beads' | 'mail' | 'plan' | 'logs' | 'config' | 'terminal' | 'setup'
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: 'dashboard', icon: '◉', label: 'Dashboard' },
   { id: 'swarm',     icon: '⬡', label: 'Swarm' },
-  { id: 'beads',     icon: '◎', label: 'Beads Tasks' },
+  { id: 'beads',     icon: '◎', label: 'Beads' },
+  { id: 'mail',      icon: '✉', label: 'Agent Mail' },
+  { id: 'plan',      icon: '📋', label: 'Plan' },
   { id: 'logs',      icon: '≡',  label: 'Logs' },
   { id: 'config',    icon: '⚙',  label: 'Config' },
   { id: 'terminal',  icon: '⌨',  label: 'Terminal' },
-  { id: 'setup',     icon: '✦',  label: 'Setup' }
 ]
 
 function genId(): string { return Math.random().toString(36).slice(2) }
@@ -81,7 +85,7 @@ export default function App(): JSX.Element {
     setTabs(ts => [...ts, tab])
     setActiveId(tab.id)
     window.ralph.subscribeStatus(path)
-    // Auto-navigate to setup if not enabled
+    // Auto-navigate to setup only when the project isn't enabled yet
     if (!s.enabled) setPage('setup')
     else setPage('dashboard')
   }, [tabs])
@@ -129,14 +133,6 @@ export default function App(): JSX.Element {
             >
               <span className="nav-icon">{n.icon}</span>
               {n.label}
-              {/* Badge: warn when Setup needed */}
-              {n.id === 'setup' && activeTab && !activeTab.enabled && (
-                <span style={{
-                  marginLeft: 'auto', background: 'var(--yellow)',
-                  color: '#000', fontSize: 10, fontWeight: 700,
-                  padding: '1px 5px', borderRadius: 99
-                }}>!</span>
-              )}
             </button>
           ))}
         </nav>
@@ -183,13 +179,15 @@ export default function App(): JSX.Element {
                   </div>
                 )}
 
-                {page === 'setup'     && <SetupWizard     projectPath={tab.path} onComplete={handleSetupDone} />}
-                {page === 'dashboard' && <Dashboard       projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
-                {page === 'swarm'     && <SwarmDashboard  projectPath={tab.path} />}
-                {page === 'beads'     && <BeadsViewer     projectPath={tab.path} />}
-                {page === 'logs'      && <LogViewer       projectPath={tab.path} />}
-                {page === 'config'    && <ConfigEditor    projectPath={tab.path} />}
-                {page === 'terminal'  && <TerminalPage    projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
+                {page === 'setup'     && <SetupWizard    projectPath={tab.path} onComplete={handleSetupDone} />}
+                {page === 'dashboard' && <Dashboard      projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
+                {page === 'swarm'     && <SwarmDashboard projectPath={tab.path} />}
+                {page === 'beads'     && <BeadsViewer    projectPath={tab.path} />}
+                {page === 'mail'      && <AgentMailPage  projectPath={tab.path} />}
+                {page === 'plan'      && <PlanPage       projectPath={tab.path} />}
+                {page === 'logs'      && <LogViewer      projectPath={tab.path} />}
+                {page === 'config'    && <ConfigEditor   projectPath={tab.path} />}
+                {page === 'terminal'  && <TerminalPage   projectPath={tab.path} onRunningChange={r => markRunning(tab.path, r)} />}
               </div>
             ))
           )}

@@ -132,6 +132,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
 
   private _setup(): void {
     mkdirSync(this.logDir, { recursive: true })
+    this._rotateLog()
     this.config  = loadConfig(this.projectPath)
     this.circuit = new CircuitBreaker(this.ralphDir, this.config)
     this.rate    = new RateLimit(this.ralphDir, this.config.maxCallsPerHour)
@@ -139,6 +140,18 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
     // Save circuit state immediately so Dashboard shows CLOSED instead of "No state file"
     this.circuit.save()
     this.emit('circuit', this.circuit.snapshot())
+  }
+
+  /** Keep the log file at most MAX_LOG_LINES lines to prevent runaway growth. */
+  private _rotateLog(maxLines = 2_000): void {
+    const logFile = join(this.logDir, 'ralph.log')
+    if (!existsSync(logFile)) return
+    try {
+      const lines = readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
+      if (lines.length > maxLines) {
+        writeFileSync(logFile, lines.slice(-maxLines).join('\n') + '\n')
+      }
+    } catch { /* best-effort */ }
   }
 
   private _clearStaleState(): void {
@@ -173,10 +186,18 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
       const cb = this.circuit.snapshot()
       this._log('INFO', `│ [2/5] Circuit: ${cb.state} (no-progress: ${cb.consecutive_no_progress}/${this.config.cbNoProgressThreshold}, errors: ${cb.consecutive_same_error}/${this.config.cbSameErrorThreshold})`)
       if (this.circuit.isOpen()) {
+        // Sleep for the REMAINING cooldown time, not a fixed 60s.
+        // The circuit transitions OPEN→HALF_OPEN after cbCooldownMinutes; sleeping
+        // less than that means it's still OPEN after reload → tight exit loop.
+        const openedAt = cb.opened_at ? new Date(cb.opened_at).getTime() : Date.now()
+        const cooldownMs = this.config.cbCooldownMinutes * 60_000
+        const remainingMs = Math.max(5_000, openedAt + cooldownMs - Date.now())
+        const remainingMin = Math.ceil(remainingMs / 60_000)
         this._log('WARN', `│ ✗ Circuit OPEN: ${cb.reason}`)
-        this._log('WARN', `│   Waiting ${this.config.cbCooldownMinutes}m for cooldown…`)
+        this._log('WARN', `│   Waiting ${remainingMin}m for cooldown to elapse…`)
         this._writeStatus('halted', 'circuit_open_waiting')
-        await this._sleep(60_000)
+        await this._sleep(remainingMs)
+        if (this.stopped) return
         this.circuit.load()
         if (this.circuit.isOpen()) { this._exit('circuit_open'); return }
         this._log('INFO', '│ ↻ Circuit → HALF_OPEN, resuming')

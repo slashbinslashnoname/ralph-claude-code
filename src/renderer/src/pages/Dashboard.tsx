@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 type Status = {
   timestamp: string; loop_count: number; calls_made_this_hour: number
@@ -24,64 +24,6 @@ function fmtElapsed(s?: number): string {
   if (!s) return '—'
   const m = Math.floor(s / 60), sec = s % 60
   return m > 0 ? `${m}m ${sec}s` : `${sec}s`
-}
-
-function QuickAddTask({ projectPath }: { projectPath: string }): JSX.Element {
-  const [text,    setText]    = useState('')
-  const [status,  setStatus]  = useState<'idle' | 'ok' | 'err'>('idle')
-  const [errMsg,  setErrMsg]  = useState('')
-  const textareaRef           = useRef<HTMLTextAreaElement>(null)
-
-  const submit = async (): Promise<void> => {
-    const trimmed = text.trim()
-    if (!trimmed) return
-    const r = await window.ralph.addTask(projectPath, trimmed)
-    if (r.ok) {
-      setText('')
-      setStatus('ok')
-      setTimeout(() => setStatus('idle'), 2500)
-    } else {
-      setErrMsg(r.error ?? 'Unknown error')
-      setStatus('err')
-      setTimeout(() => setStatus('idle'), 4000)
-    }
-  }
-
-  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void submit() }
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div className="stat-label">Inject new task</div>
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={e => setText(e.target.value)}
-        onKeyDown={onKey}
-        rows={3}
-        placeholder="Describe a task to add to fix_plan.md… (Ctrl+Enter to submit)"
-        style={{
-          width: '100%', boxSizing: 'border-box',
-          background: 'var(--surface2)', border: '1px solid var(--border)',
-          borderRadius: 6, color: 'var(--text)', padding: '8px 10px',
-          fontFamily: 'monospace', fontSize: 13, resize: 'vertical', outline: 'none'
-        }}
-      />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={() => void submit()}
-          disabled={!text.trim()}
-        >
-          + Add task
-        </button>
-        {status === 'ok'  && <span style={{ fontSize: 12, color: 'var(--green)' }}>✓ Task added to fix_plan.md</span>}
-        {status === 'err' && <span style={{ fontSize: 12, color: 'var(--red)'   }}>✗ {errMsg}</span>}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>Ctrl+Enter</span>
-      </div>
-    </div>
-  )
 }
 
 function QuotaBar({ used, max }: { used: number; max: number }): JSX.Element {
@@ -282,9 +224,6 @@ export default function Dashboard({ projectPath, onRunningChange }: Props): JSX.
           </div>
         )}
 
-        <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
-          <QuickAddTask projectPath={projectPath} />
-        </div>
       </div>
     </>
   )
