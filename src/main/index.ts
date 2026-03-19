@@ -4,9 +4,12 @@ import { registerIpc } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
 
+app.setName('Slashbot')
+
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     title: 'Slashbot',
+    icon: path.join(__dirname, '../../resources/icon.svg'),
     width: 1400,
     height: 860,
     minWidth: 960,

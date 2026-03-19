@@ -60,10 +60,9 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 
 .logo-icon {
   display: block;
-  font-size: 64px;
   color: var(--accent);
   filter: drop-shadow(0 0 30px rgba(99,102,241,0.3));
-  margin-bottom: 12px;
+  margin: 0 auto 12px;
   animation: float 3s ease-in-out infinite;
 }
 
@@ -228,7 +227,7 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   margin-bottom: 8px;
 }
 
-.project-icon { font-size: 18px; color: var(--accent); }
+.project-icon { color: var(--accent); flex-shrink: 0; }
 .project-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .nav-items { flex: 1; padding: 4px 8px; }
