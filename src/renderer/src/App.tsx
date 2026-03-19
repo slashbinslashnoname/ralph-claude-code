@@ -15,10 +15,10 @@ type Page = 'dashboard' | 'swarm' | 'beads' | 'mail' | 'plan' | 'logs' | 'config
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: 'dashboard', icon: '◉', label: 'Dashboard' },
-  { id: 'swarm',     icon: '⬡', label: 'Swarm' },
+  { id: 'plan',      icon: '📋', label: 'Plan' },
   { id: 'beads',     icon: '◎', label: 'Beads' },
   { id: 'mail',      icon: '✉', label: 'Agent Mail' },
-  { id: 'plan',      icon: '📋', label: 'Plan' },
+  { id: 'swarm',     icon: '⬡', label: 'Swarm' },
   { id: 'logs',      icon: '≡',  label: 'Logs' },
   { id: 'config',    icon: '⚙',  label: 'Config' },
   { id: 'terminal',  icon: '⌨',  label: 'Terminal' },
