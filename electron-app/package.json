@@ -1,0 +1,33 @@
+{
+  "name": "ralph-desktop",
+  "version": "0.1.0",
+  "description": "Ralph for Claude Code — desktop wrapper",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.5.0"
+  },
+  "build": {
+    "appId": "com.ralph.desktop",
+    "productName": "Ralph",
+    "directories": { "output": "dist" },
+    "linux": { "target": ["AppImage"] },
+    "mac": { "target": "dmg", "category": "public.app-category.developer-tools" },
+    "win": { "target": "nsis" }
+  }
+}
