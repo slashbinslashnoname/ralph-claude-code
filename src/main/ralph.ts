@@ -145,7 +145,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   // ── File editor ───────────────────────────────────────────────────────────
 
-  const EDITABLE = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/AGENT.md']
+  const EDITABLE = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/plan.md', '.ralph/AGENT.md']
 
   ipcMain.handle('file:read', (_e, projectPath: string, relPath: string) => {
     if (!EDITABLE.includes(relPath)) return { ok: false, error: 'Not an editable file' }
