@@ -10,8 +10,12 @@
     "dist": "electron-vite build && electron-builder"
   },
   "dependencies": {
+    "chokidar": "^3.6.0",
+    "node-pty": "^1.0.0",
     "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react-dom": "^18.3.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
@@ -28,6 +32,10 @@
     "directories": { "output": "dist" },
     "linux": { "target": ["AppImage"] },
     "mac": { "target": "dmg", "category": "public.app-category.developer-tools" },
-    "win": { "target": "nsis" }
+    "win": { "target": "nsis" },
+    "extraResources": [
+      { "from": "../", "to": "ralph",
+        "filter": ["**/*.sh", "lib/**", "templates/**", "!node_modules/**", "!electron-app/**", "!tests/**", "!docs/**"] }
+    ]
   }
 }

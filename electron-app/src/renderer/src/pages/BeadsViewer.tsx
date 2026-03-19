@@ -17,8 +17,13 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all',         label: 'All' }
 ]
 
-export default function BeadsViewer(): JSX.Element {
-  const [projectPath, setProjectPath] = useState<string | null>(null)
+export default function BeadsViewer({ projectPath: externalPath }: { projectPath?: string | null } = {}): JSX.Element {
+  const [projectPath, setProjectPath] = useState<string | null>(externalPath ?? null)
+
+  // Sync if parent changes project
+  useEffect(() => {
+    if (externalPath !== undefined) setProjectPath(externalPath)
+  }, [externalPath])
   const [available, setAvailable] = useState<boolean | null>(null)
   const [unavailableReason, setUnavailableReason] = useState('')
   const [filter, setFilter] = useState<Filter>('open')
