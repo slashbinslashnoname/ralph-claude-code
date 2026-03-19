@@ -111,6 +111,7 @@ export default function Dashboard({ projectPath, onRunningChange }: Props): JSX.
   const [running,  setRunning]  = useState(false)
   const [starting, setStarting] = useState(false)
   const [msg,      setMsg]      = useState<string | null>(null)
+  const [recentLogs, setRecentLogs] = useState<string[]>([])
 
   const flash = (m: string): void => { setMsg(m); setTimeout(() => setMsg(null), 3500) }
 
@@ -131,12 +132,18 @@ export default function Dashboard({ projectPath, onRunningChange }: Props): JSX.
   useEffect(() => {
     load()
     window.ralph.subscribeStatus(projectPath)
+    // Load recent log lines for the inline tail
+    window.ralph.readLogs(projectPath, 20).then(lines => setRecentLogs(lines))
 
     const unsubs = [
       window.ralph.onStatusUpdate((p, d) => { if (p === projectPath) setStatus(d as Status) }),
       window.ralph.onProgressUpdate((p, d) => { if (p === projectPath) setProgress(d as Progress) }),
       window.ralph.onCircuitUpdate((p, d) => { if (p === projectPath) setCircuit(d as Circuit) }),
-      window.ralph.onRalphExit((p) => { if (p === projectPath) { setRunningState(false); load() } })
+      window.ralph.onRalphExit((p) => { if (p === projectPath) { setRunningState(false); load() } }),
+      window.ralph.onLogLines((p, lines) => {
+        if (p !== projectPath) return
+        setRecentLogs(prev => [...prev, ...lines].slice(-30))
+      })
     ]
     return () => { unsubs.forEach(f => f()); window.ralph.unsubscribeStatus(projectPath) }
   }, [projectPath, load, setRunningState])
@@ -253,6 +260,24 @@ export default function Dashboard({ projectPath, onRunningChange }: Props): JSX.
             <div className="stat-label">Exit reason</div>
             <div style={{ marginTop: 8, fontFamily: 'monospace', fontSize: 13, color: 'var(--yellow)' }}>
               {status.exit_reason}
+            </div>
+          </div>
+        )}
+
+        {recentLogs.length > 0 && (
+          <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
+            <div className="stat-label" style={{ marginBottom: 8 }}>Recent activity</div>
+            <div style={{
+              fontFamily: 'monospace', fontSize: 11, lineHeight: 1.6,
+              maxHeight: 180, overflowY: 'auto', color: 'var(--muted)'
+            }}>
+              {recentLogs.slice(-20).map((line, i) => {
+                const color = line.includes('[ERROR]') ? 'var(--red)'
+                  : line.includes('[WARN]')  ? 'var(--yellow)'
+                  : line.includes('[SUCCESS]') ? 'var(--green)'
+                  : 'var(--muted)'
+                return <div key={i} style={{ color }}>{line}</div>
+              })}
             </div>
           </div>
         )}

@@ -1,10 +1,15 @@
 /**
  * RalphLoop — the autonomous development loop, implemented natively in TypeScript.
  * No shell scripts invoked — only the Claude CLI is spawned as a subprocess.
+ *
+ * Claude is spawned via node-pty (pseudo-terminal) so it detects a TTY and
+ * outputs normally. Raw PTY data is forwarded to the Terminal page via
+ * emit('output'). ANSI codes are stripped before JSON parsing.
  */
 
 import { EventEmitter } from 'events'
-import { spawn, ChildProcess } from 'child_process'
+import * as pty from 'node-pty'
+import { IPty } from 'node-pty'
 import {
   readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync
 } from 'fs'
@@ -24,6 +29,22 @@ interface TypedEmitter extends EventEmitter {
   emit<K extends keyof LoopEvents>(event: K, ...args: Parameters<LoopEvents[K]>): boolean
 }
 
+// Strip ANSI escape sequences and normalize line endings from PTY output
+function stripAnsi(s: string): string {
+  return s
+    .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')  // CSI sequences (colors, cursor)
+    .replace(/\x1B\][^\x07]*\x07/g, '')       // OSC sequences (title, etc.)
+    .replace(/\x1B[()][AB012]/g, '')           // Character set sequences
+    .replace(/\x1B[=>]/g, '')                  // Keypad mode
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+}
+
+// Shell-safe single-quote escaping
+function q(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`
+}
+
 export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
   private running = false
   private stopped = false
@@ -31,7 +52,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
   private loopCount = 0
   private testOnlyCount = 0
   private lastSessionId?: string
-  private claudeProc: ChildProcess | null = null  // current Claude subprocess
+  private ptyProc: IPty | null = null  // current Claude PTY subprocess
 
   private readonly ralphDir: string
   private readonly logDir: string
@@ -54,7 +75,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
 
     this._setup()
     this._log('INFO', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    this._log('INFO', '  Ralph Desktop — TypeScript loop engine')
+    this._log('INFO', '  Slashbot — TypeScript loop engine')
     this._log('INFO', `  Project: ${this.projectPath}`)
     this._log('INFO', `  Claude cmd: ${this.config.claudeCodeCmd}`)
     this._log('INFO', `  Max calls/hr: ${this.config.maxCallsPerHour}`)
@@ -69,13 +90,12 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
     this.stopped = true
     this.running = false
     this._log('INFO', 'Stop requested — terminating Claude subprocess…')
-    if (this.claudeProc) {
-      try { this.claudeProc.kill('SIGTERM') } catch { /* already dead */ }
-      setTimeout(() => {
-        try { this.claudeProc?.kill('SIGKILL') } catch { /* ignore */ }
-      }, 3000)
+    if (this.ptyProc) {
+      try { this.ptyProc.kill('SIGTERM') } catch { /* already dead */ }
+      const proc = this.ptyProc
+      setTimeout(() => { try { proc.kill('SIGKILL') } catch { /* ignore */ } }, 3000)
     }
-    // Emit exit here so the UI updates immediately
+    // Emit exit immediately so the UI updates now, not after Claude finishes
     this._exit('stopped')
   }
 
@@ -87,6 +107,9 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
     this.circuit = new CircuitBreaker(this.ralphDir, this.config)
     this.rate    = new RateLimit(this.ralphDir, this.config.maxCallsPerHour)
     this.circuit.load()
+    // Save circuit state immediately so Dashboard shows CLOSED instead of "No state file"
+    this.circuit.save()
+    this.emit('circuit', this.circuit.snapshot())
   }
 
   private _clearStaleState(): void {
@@ -143,8 +166,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
       // ── 4. Run Claude ───────────────────────────────────────────────────
       this.rate.record()
       const { used: usedNow, max: maxNow } = this.rate.status()
-      this._log('INFO', `│ [4/5] Spawning Claude (call ${usedNow}/${maxNow})`)
-      this._log('INFO', `│   cmd: ${this.config.claudeCodeCmd} --output-format ${this.config.claudeOutputFormat} --print`)
+      this._log('INFO', `│ [4/5] Spawning Claude via PTY (call ${usedNow}/${maxNow})`)
       if (this.lastSessionId) this._log('INFO', `│   session: ${this.lastSessionId}`)
       this._writeStatus('running', 'claude_execution')
 
@@ -153,7 +175,8 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
       try {
         rawOutput = await this._runClaude()
         const elapsed = ((Date.now() - claudeStart) / 1000).toFixed(1)
-        this._log('INFO', `│ ✓ Claude finished in ${elapsed}s (${rawOutput.length} bytes output)`)
+        const cleanLen = stripAnsi(rawOutput).length
+        this._log('INFO', `│ ✓ Claude finished in ${elapsed}s (${rawOutput.length} raw bytes / ${cleanLen} clean bytes)`)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         this._log('ERROR', `│ ✗ Claude error: ${msg}`)
@@ -164,22 +187,26 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
         continue
       }
 
+      if (this.stopped) break  // stop() was called during Claude run
+
       // ── 5. Analyse ──────────────────────────────────────────────────────
       this._log('INFO', '│ [5/5] Analysing response…')
 
-      if (detectApiLimit(rawOutput)) {
+      const cleanOutput = stripAnsi(rawOutput)
+
+      if (detectApiLimit(cleanOutput)) {
         this._log('WARN', '│ ✗ API/rate limit message detected — exiting for cooldown')
         this._exit('api_limit')
         return
       }
 
-      const { sessionId } = extractResultFromJsonStream(rawOutput)
+      const { sessionId } = extractResultFromJsonStream(cleanOutput)
       if (sessionId && sessionId !== this.lastSessionId) {
         this.lastSessionId = sessionId
         this._log('INFO', `│   New session ID: ${sessionId}`)
       }
 
-      const result = analyze(rawOutput)
+      const result = analyze(cleanOutput)
       this._log('INFO', `│   exitSignal=${result.exitSignal}  files=${result.filesModified}  questions=${result.askingQuestions}  progress=${result.hasProgress}`)
       if (result.workSummary) this._log('INFO', `│   summary: ${result.workSummary.slice(0, 120)}`)
 
@@ -255,91 +282,82 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
     this._exit('stopped')
   }
 
-  // ── Claude invocation ──────────────────────────────────────────────────────
+  // ── Claude invocation via PTY ──────────────────────────────────────────────
 
   private _runClaude(): Promise<string> {
     return new Promise((resolve, reject) => {
       const prompt = this._buildPrompt()
       const args   = this._buildArgs()
 
-      this._log('INFO', `│   Prompt: ${prompt.length} chars, args: ${args.join(' ')}`)
+      // Write prompt to a temp file — avoids shell escaping issues with long prompts
+      const promptFile = join(this.ralphDir, '.current_prompt.md')
+      writeFileSync(promptFile, prompt)
 
-      const proc = spawn(this.config.claudeCodeCmd, args, {
-        cwd: this.projectPath,
-        env: { ...process.env, TERM: 'xterm-256color' },
-        timeout: this.config.claudeTimeoutMinutes * 60_000
-      })
-      this.claudeProc = proc
+      this._log('INFO', `│   Prompt: ${prompt.length} chars`)
+      this._log('INFO', `│   Args: ${args.join(' ')}`)
 
-      proc.stdin.write(prompt)
-      proc.stdin.end()
+      // Spawn via sh so we get stdin redirection + PTY for proper output
+      // Without PTY, Claude CLI detects no TTY and may suppress stdout
+      const shellCmd = [this.config.claudeCodeCmd, ...args].map(q).join(' ') + ` < ${q(promptFile)}`
 
-      let output = ''
-      let stderr = ''
+      let proc: IPty
+      try {
+        proc = pty.spawn('sh', ['-c', shellCmd], {
+          name: 'xterm-256color',
+          cols: 220,
+          rows: 50,
+          cwd: this.projectPath,
+          env: { ...process.env } as Record<string, string>
+        })
+      } catch (err) {
+        reject(err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT'
+          ? new Error(`Claude CLI not found: '${this.config.claudeCodeCmd}'. Install with: npm install -g @anthropic-ai/claude-code`)
+          : err)
+        return
+      }
+
+      this.ptyProc = proc
+
+      let rawOutput = ''
       let lastEmit = Date.now()
 
-      proc.stdout.on('data', (chunk: Buffer) => {
-        const text = chunk.toString()
-        output += text
-        this.emit('output', text)
-        // Throttle progress logs to avoid flooding (max 1 per 2s)
-        if (Date.now() - lastEmit > 2000) {
-          lastEmit = Date.now()
-          this._log('INFO', `│   … Claude running (${output.length} bytes received)`)
-        }
-      })
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        const text = chunk.toString().trim()
-        stderr += text
-        if (text) {
-          // Surface stderr immediately so users can see it
-          for (const line of text.split('\n').filter(Boolean)) {
-            this._log('WARN', `│   stderr: ${line}`)
-          }
-        }
-      })
-
-      proc.on('close', code => {
-        this.claudeProc = null
-        if (stderr.trim()) {
-          this._log('WARN', `│   Claude stderr (${stderr.length} bytes) — shown above`)
-        }
-        if (this.stopped) { resolve(output); return }  // stopped externally, return whatever we got
-        if (code === 124) {
-          if (output.trim().length > 0) {
-            this._log('WARN', '│   ⏱ Timeout but output exists — treating as productive')
-            resolve(output)
-          } else {
-            reject(new Error(`Claude timed out after ${this.config.claudeTimeoutMinutes}m with no output`))
-          }
-          return
-        }
-        if (code !== 0 && output.trim().length === 0) {
-          reject(new Error(`Claude exited ${code}: ${stderr.slice(0, 400)}`))
-          return
-        }
-        if (code !== 0) {
-          this._log('WARN', `│   Claude exited with code ${code} but had output — continuing`)
-        }
-        resolve(output)
-      })
-
-      proc.on('error', (err) => {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          reject(new Error(
-            `Claude CLI not found: '${this.config.claudeCodeCmd}'. ` +
-            `Install with: npm install -g @anthropic-ai/claude-code`
-          ))
-        } else {
-          reject(err)
-        }
-      })
-
-      // Write raw output to timestamped log file
+      // Timestamped log file for this Claude call
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = join(this.logDir, `claude_output_${ts}.log`)
-      proc.stdout.on('data', (chunk: Buffer) => appendFileSync(outFile, chunk))
+
+      const timer = setTimeout(() => {
+        try { proc.kill() } catch { /* already dead */ }
+        this._log('WARN', `│   ⏱ Timeout after ${this.config.claudeTimeoutMinutes}m`)
+        if (rawOutput.trim().length > 0) resolve(rawOutput)
+        else reject(new Error(`Claude timed out after ${this.config.claudeTimeoutMinutes}m with no output`))
+      }, this.config.claudeTimeoutMinutes * 60_000)
+
+      proc.onData(chunk => {
+        rawOutput += chunk
+        // Forward raw PTY data to Terminal page (includes ANSI colors)
+        this.emit('output', chunk)
+        // Append to per-call log file
+        appendFileSync(outFile, chunk)
+        // Throttle progress logs (max 1 per 2s)
+        if (Date.now() - lastEmit > 2000) {
+          lastEmit = Date.now()
+          this._log('INFO', `│   … Claude running (${rawOutput.length} bytes received)`)
+        }
+      })
+
+      proc.onExit(({ exitCode }) => {
+        clearTimeout(timer)
+        this.ptyProc = null
+        if (this.stopped) { resolve(rawOutput); return }
+        if (exitCode !== 0 && rawOutput.trim().length === 0) {
+          reject(new Error(`Claude exited ${exitCode} with no output. Check Terminal for details.`))
+          return
+        }
+        if (exitCode !== 0) {
+          this._log('WARN', `│   Claude exited ${exitCode} but had output — continuing`)
+        }
+        resolve(rawOutput)
+      })
     })
   }
 
@@ -430,7 +448,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
 
   private _sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
-      const poll = setInterval(() => { if (this.stopped) { clearInterval(poll); clearTimeout(timer); resolve() } }, 250)
+      const poll  = setInterval(() => { if (this.stopped) { clearInterval(poll); clearTimeout(timer); resolve() } }, 250)
       const timer = setTimeout(() => { clearInterval(poll); resolve() }, ms)
     })
   }

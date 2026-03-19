@@ -77,12 +77,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   // ── File watchers ─────────────────────────────────────────────────────────
 
-  /**
-   * Subscribe to live file changes for a project.
-   * Events are prefixed with the projectPath so the renderer can route them
-   * to the correct tab: e.g. `status:update:<projectPath>`
-   */
-  ipcMain.handle('status:subscribe', (_e, projectPath: string) => {
+  function subscribeProject(projectPath: string): void {
     if (watchers.has(projectPath)) return  // already watching
 
     const rd = ralphDir(projectPath)
@@ -120,7 +115,9 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     ;(watcher as FSWatcher & { add(p: string): void }).add(logFile)
 
     watchers.set(projectPath, watcher)
-  })
+  }
+
+  ipcMain.handle('status:subscribe', (_e, projectPath: string) => subscribeProject(projectPath))
 
   ipcMain.handle('status:unsubscribe', (_e, projectPath: string) => {
     watchers.get(projectPath)?.close()
@@ -177,6 +174,13 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
     loops.set(projectPath, loop)
     addToStore(projectPath)
+
+    // Ensure file watchers are active — re-subscribe now that .ralph/ will exist
+    // (the renderer may have called subscribeStatus before .ralph/ was created)
+    if (!watchers.has(projectPath)) {
+      // Small delay so _setup() finishes creating .ralph/logs/ before we watch
+      setTimeout(() => subscribeProject(projectPath), 300)
+    }
 
     // Start async — don't await so IPC returns immediately
     loop.start().catch((err: unknown) => {
