@@ -84,8 +84,12 @@ contextBridge.exposeInMainWorld('ralph', {
 
   // ── Swarm orchestrator ────────────────────────────────────────────────────
   swarm: {
-    inject:  (projectPath: string, request: string): Promise<{ ok: boolean; error?: string }> =>
+    inject:      (projectPath: string, request: string): Promise<{ ok: boolean; id?: string; error?: string }> =>
       ipcRenderer.invoke('swarm:inject', projectPath, request),
+    queueRemove: (projectPath: string, id: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('swarm:queue-remove', projectPath, id),
+    queue:       (projectPath: string): Promise<Array<{ id: string; request: string }>> =>
+      ipcRenderer.invoke('swarm:queue', projectPath),
     start:   (projectPath: string, workerCount?: number): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('swarm:start', projectPath, workerCount ?? 2),
     stop:    (projectPath: string): Promise<{ ok: boolean }> =>
@@ -106,6 +110,8 @@ contextBridge.exposeInMainWorld('ralph', {
       listen('swarm:mail', cb),
     onPlanPhase: (cb: (p: string, phase: string) => void) =>
       listen('swarm:planPhase', cb),
+    onPlanQueue: (cb: (p: string, queue: Array<{ id: string; request: string }>) => void) =>
+      listen('swarm:planQueue', cb),
     onStopped:   (cb: (p: string) => void) =>
       listen('swarm:stopped', cb),
   },

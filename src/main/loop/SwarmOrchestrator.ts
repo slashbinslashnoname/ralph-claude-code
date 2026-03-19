@@ -39,6 +39,8 @@ export interface SwarmEvents {
   mail:      (msg: MailMessage) => void
   /** Planner phase changed. */
   planPhase: (phase: string) => void
+  /** Plan queue changed. */
+  planQueue: (queue: Array<{ id: string; request: string }>) => void
   /** All workers have stopped. */
   stopped:   () => void
 }
@@ -57,6 +59,9 @@ export class SwarmOrchestrator extends (EventEmitter as new () => TypedEmitter) 
   private mailPollTimer: ReturnType<typeof setInterval> | null = null
   private lastMailIndex  = 0
 
+  /** Queued plan requests — processed in order once planner is free. */
+  private planQueue: Array<{ id: string; request: string }> = []
+
   private readonly coordinator: AgentCoordinator
   private readonly ralphDir:    string
   private readonly logDir:      string
@@ -72,20 +77,40 @@ export class SwarmOrchestrator extends (EventEmitter as new () => TypedEmitter) 
   // ── Public API ─────────────────────────────────────────────────────────
 
   /**
-   * Inject new tasks → run Plan (Step 1) + Encode (Step 2).
-   * If workers are running they continue; they'll pick up the new beads
-   * automatically once the graph is updated.
+   * Enqueue a plan request. Runs immediately if planner is free,
+   * otherwise queued and auto-started when current plan finishes.
    */
-  async injectTasks(request: string): Promise<void> {
-    if (this.planning) {
-      this._log('WARN', 'Already planning — ignoring inject request')
-      return
-    }
+  injectTasks(request: string): { id: string } {
+    const id = `plan-${Date.now()}`
+    this.planQueue.push({ id, request })
+    this._broadcastQueue()
+    this._log('INFO', `Plan queued [${id}]: "${request.slice(0, 60)}"`)
+    this._drainQueue()
+    return { id }
+  }
+
+  /** Remove a queued (not yet running) plan request. */
+  removeQueuedPlan(id: string): boolean {
+    const idx = this.planQueue.findIndex(p => p.id === id)
+    if (idx < 0) return false
+    this.planQueue.splice(idx, 1)
+    this._broadcastQueue()
+    return true
+  }
+
+  /** Current queue snapshot. */
+  getPlanQueue(): Array<{ id: string; request: string }> {
+    return [...this.planQueue]
+  }
+
+  private async _drainQueue(): Promise<void> {
+    if (this.planning || this.planQueue.length === 0) return
+    const next = this.planQueue.shift()!
+    this._broadcastQueue()
     this.planning = true
-    const config  = loadConfig(this.projectPath)
+    const config = loadConfig(this.projectPath)
 
-    this._log('INFO', `━━ Swarm: inject-tasks → Plan + Encode ━━`)
-
+    this._log('INFO', `━━ Swarm: running plan [${next.id}] ━━`)
     this.planner = new PlanLoop(this.projectPath, config, this.coordinator)
 
     this.planner.on('log',    (level, msg) => this._log(level, msg, 'planner'))
@@ -94,15 +119,17 @@ export class SwarmOrchestrator extends (EventEmitter as new () => TypedEmitter) 
 
     this.planner.on('done', beadCount => {
       this.planning = false
-      this._log('SUCCESS', `Plan complete — ${beadCount} beads in graph`)
+      this._log('SUCCESS', `Plan [${next.id}] complete — ${beadCount} beads created`)
       this._broadcastGraph()
+      this._drainQueue()  // process next if any
     })
     this.planner.on('error', msg => {
       this.planning = false
-      this._log('ERROR', `Plan/Encode failed: ${msg}`)
+      this._log('ERROR', `Plan [${next.id}] failed: ${msg}`)
+      this._drainQueue()  // try next even if this one failed
     })
 
-    await this.planner.run(request)
+    await this.planner.run(next.request)
     this.planner = null
   }
 
@@ -216,6 +243,10 @@ export class SwarmOrchestrator extends (EventEmitter as new () => TypedEmitter) 
 
   private _stopMailPoll(): void {
     if (this.mailPollTimer) { clearInterval(this.mailPollTimer); this.mailPollTimer = null }
+  }
+
+  private _broadcastQueue(): void {
+    this.emit('planQueue', [...this.planQueue])
   }
 
   private _log(level: 'INFO' | 'WARN' | 'ERROR' | 'SUCCESS', msg: string, agentId?: string): void {

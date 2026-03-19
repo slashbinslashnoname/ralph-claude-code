@@ -356,6 +356,9 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     swarm.on('planPhase', phase => {
       broadcast('swarm:planPhase', projectPath, phase)
     })
+    swarm.on('planQueue', queue => {
+      broadcast('swarm:planQueue', projectPath, queue)
+    })
     swarm.on('stopped', () => {
       swarms.delete(projectPath)
       broadcast('swarm:stopped', projectPath)
@@ -365,18 +368,28 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     return swarm
   }
 
-  // Inject new tasks → Step 1 (Plan) + Step 2 (Encode)
-  ipcMain.handle('swarm:inject', async (_e, projectPath: string, request: string) => {
+  // Inject new tasks → enqueue for Plan + Encode
+  ipcMain.handle('swarm:inject', (_e, projectPath: string, request: string) => {
     try {
       const swarm = getOrCreateSwarm(projectPath)
-      // Don't await — runs async and broadcasts events
-      swarm.injectTasks(request).catch((err: unknown) => {
-        broadcast('swarm:log', projectPath, 'ERROR', err instanceof Error ? err.message : String(err), 'planner')
-      })
-      return { ok: true }
+      const { id } = swarm.injectTasks(request)
+      return { ok: true, id }
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
+  })
+
+  // Remove a queued plan by id
+  ipcMain.handle('swarm:queue-remove', (_e, projectPath: string, id: string) => {
+    const swarm = swarms.get(projectPath)
+    if (!swarm) return { ok: false, error: 'No swarm' }
+    return { ok: swarm.removeQueuedPlan(id) }
+  })
+
+  // Get current plan queue
+  ipcMain.handle('swarm:queue', (_e, projectPath: string) => {
+    const swarm = swarms.get(projectPath)
+    return swarm ? swarm.getPlanQueue() : []
   })
 
   // Start N workers → Steps 3–5 loop

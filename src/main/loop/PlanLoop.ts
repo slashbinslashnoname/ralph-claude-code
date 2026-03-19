@@ -20,9 +20,9 @@ import { join }          from 'path'
 import { execSync, spawn as spawnProc, ChildProcess } from 'child_process'
 
 import { AgentCoordinator }       from './AgentCoordinator'
-import { BeadGraph, initGraph, saveGraph, upsertBead } from './Bead'
 import { RalphConfig }            from './types'
-import type { Bead, BeadType, BeadStatus } from './Bead'
+import type { BeadType, BeadStatus } from './Bead'
+import { spawnSync }               from 'child_process'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -357,15 +357,12 @@ Rules:
 Output ONLY a valid JSON array. No markdown code fences, no explanation text.`
   }
 
-  // ── JSON bead parser ───────────────────────────────────────────────────────
+  // ── JSON bead parser → bd create ──────────────────────────────────────────
 
-  private _parseAndSaveBeads(planMd: string, raw: string): number {
-    // Extract JSON array from Claude's response (may have surrounding text)
+  private _parseAndSaveBeads(_planMd: string, raw: string): number {
     const jsonMatch = raw.match(/\[[\s\S]*\]/)
     if (!jsonMatch) {
-      this._log('WARN', 'No JSON array found in encode response — creating minimal graph')
-      const graph = initGraph(planMd)
-      saveGraph(this.ralphDir, graph)
+      this._log('WARN', 'No JSON array found in encode response — no beads created')
       return 0
     }
 
@@ -374,48 +371,48 @@ Output ONLY a valid JSON array. No markdown code fences, no explanation text.`
       parsed = JSON.parse(jsonMatch[0]) as unknown[]
     } catch (e: unknown) {
       this._log('ERROR', `JSON parse failed: ${e instanceof Error ? e.message : String(e)}`)
-      const graph = initGraph(planMd)
-      saveGraph(this.ralphDir, graph)
       return 0
     }
 
-    const validStatuses = new Set(['pending', 'ready', 'claimed', 'done', 'failed'])
-    const validTypes    = new Set(['epic', 'task', 'subtask'])
+    const validTypes = new Set(['epic', 'task', 'subtask'])
 
-    const beads: Bead[] = parsed
+    const items = parsed
       .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
-      .map((b, i) => ({
-        id:          String(b['id']          ?? `bead-${String(i + 1).padStart(3, '0')}`),
-        title:       String(b['title']       ?? 'Untitled'),
+      .map((b) => ({
+        title:       String(b['title']       ?? 'Untitled').slice(0, 80),
         description: String(b['description'] ?? ''),
         type:        (validTypes.has(String(b['type'])) ? b['type'] : 'task') as BeadType,
-        status:      'pending' as BeadStatus,  // always start pending — we compute ready
-        deps:        Array.isArray(b['deps']) ? (b['deps'] as unknown[]).map(String) : [],
         files:       Array.isArray(b['files']) ? (b['files'] as unknown[]).map(String) : [],
         priority:    typeof b['priority'] === 'number' ? Math.min(10, Math.max(1, b['priority'])) : 5,
-        epicId:      b['epicId']  ? String(b['epicId'])  : undefined,
-        taskId:      b['taskId']  ? String(b['taskId'])  : undefined,
-        tags:        Array.isArray(b['tags']) ? (b['tags'] as unknown[]).map(String) : [],
       }))
 
-    // Compute initial ready statuses: beads with no deps are ready immediately
-    const allIds = new Set(beads.map(b => b.id))
-    for (const bead of beads) {
-      // Filter out deps that don't exist in the graph
-      bead.deps = bead.deps.filter(d => allIds.has(d))
-      if (bead.deps.length === 0) bead.status = 'ready'
-    }
+    this._log('INFO', `Creating ${items.length} beads via bd…`)
+    let created = 0
 
-    const graph = initGraph(planMd)
-    for (const bead of beads) upsertBead(graph, bead)
-    saveGraph(this.ralphDir, graph)
+    for (const item of items) {
+      if (this.stopped) break
+      // Map priority 1-10 → bd 0-4
+      const bdPriority = String(Math.round((item.priority - 1) / 9 * 4))
+      const bdType     = item.type === 'epic' ? 'epic' : 'task'
+      const filesLine  = item.files.length > 0 ? `\nFILES: ${item.files.join(', ')}` : ''
+      const desc       = item.description + filesLine
+
+      const r = spawnSync('bd', ['create', item.title, '-t', bdType, '-p', bdPriority, '-d', desc], {
+        cwd: this.projectPath, env: this.env, timeout: 10_000, encoding: 'utf8'
+      })
+      if (r.status === 0) {
+        created++
+      } else {
+        this._log('WARN', `bd create failed for "${item.title}": ${r.stderr ?? ''}`)
+      }
+    }
 
     this.coordinator.post({
       from: this.agentId, type: 'info',
-      text: `Bead graph created: ${beads.length} beads, ${beads.filter(b => b.status === 'ready').length} ready`
+      text: `Bead creation complete: ${created}/${items.length} beads created in bd`
     })
 
-    return beads.length
+    return created
   }
 
   // ── Utilities ─────────────────────────────────────────────────────────────

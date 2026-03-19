@@ -148,19 +148,13 @@ export class WorkerLoop extends (EventEmitter as new () => TypedEmitter) {
 
       const bead = this.coordinator.claimBestBead(this.agentId)
       if (!bead) {
-        // No work available — check if graph is fully done
-        const graph = this.coordinator.loadGraph()
-        if (graph) {
-          const remaining = graph.beads.filter(b => b.status !== 'done' && b.status !== 'failed')
-          if (remaining.length === 0) {
-            this._log('SUCCESS', `[${this.agentId}] All beads complete — worker done`)
-            this._exit('all_beads_done')
-            return
-          }
-          this._log('INFO', `[${this.agentId}] No available beads (${remaining.filter(b => b.status === 'claimed').length} claimed by others) — waiting…`)
-        } else {
-          this._log('WARN', `[${this.agentId}] No bead graph found — waiting for Plan/Encode phase…`)
+        // No work claimed — check if all done or still waiting for plan
+        if (!this.coordinator.hasOpenWork()) {
+          this._log('SUCCESS', `[${this.agentId}] No open beads — worker done`)
+          this._exit('all_beads_done')
+          return
         }
+        this._log('INFO', `[${this.agentId}] No available beads (others claimed or plan not ready) — waiting…`)
         this._setPhase('waiting')
         await this._sleep(5_000)
         continue
@@ -328,14 +322,14 @@ export class WorkerLoop extends (EventEmitter as new () => TypedEmitter) {
     ].join('\n')
   }
 
-  private _getSiblingContext(bead: Bead): string {
-    const graph = this.coordinator.loadGraph()
-    if (!graph) return ''
-    const done = graph.beads
-      .filter(b => b.status === 'done' && (b.epicId === bead.epicId || b.taskId === bead.taskId))
-      .slice(-5)
-      .map(b => `✓ [${b.id}] ${b.title}`)
-    return done.join('\n')
+  private _getSiblingContext(_bead: Bead): string {
+    // Sibling context via bd list closed — return recent closed beads
+    try {
+      const { stdout, ok } = this.coordinator.bdListClosed(5)
+      if (!ok || !stdout.trim()) return ''
+      const items = JSON.parse(stdout) as Array<{ id?: unknown; title?: unknown }>
+      return items.map(b => `✓ [${String(b.id ?? '')}] ${String(b.title ?? '')}`).join('\n')
+    } catch { return '' }
   }
 
   // ── Utilities ─────────────────────────────────────────────────────────────

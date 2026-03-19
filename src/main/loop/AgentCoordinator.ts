@@ -16,12 +16,54 @@
 import {
   readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync
 } from 'fs'
-import { join } from 'path'
-import {
-  Bead, BeadGraph, loadGraph, saveGraph,
-  markClaimed, markDone, markFailed, rankBeads,
-  readyBeads, computeUnblockCounts
-} from './Bead'
+import { join, dirname } from 'path'
+import { execSync, spawnSync } from 'child_process'
+import { Bead, BeadGraph, BeadType, loadGraph } from './Bead'
+
+// ── bd helpers ─────────────────────────────────────────────────────────────
+
+function bdEnv(): Record<string, string> {
+  const extras = [
+    '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
+    '/opt/homebrew/bin', '/opt/homebrew/sbin',
+    `${process.env.HOME ?? ''}/.local/bin`,
+    `${process.env.HOME ?? ''}/.npm-global/bin`,
+  ]
+  let loginPath = ''
+  try { loginPath = execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim() } catch { /* ignore */ }
+  const merged = [...new Set(
+    [process.env.PATH ?? '', loginPath, ...extras].flatMap(p => p.split(':').filter(Boolean))
+  )].join(':')
+  return { ...process.env, PATH: merged } as Record<string, string>
+}
+
+function bdRun(args: string[], cwd: string): { stdout: string; ok: boolean } {
+  const r = spawnSync('bd', args, { cwd, env: bdEnv(), timeout: 15_000, encoding: 'utf8' })
+  return { stdout: r.stdout ?? '', ok: r.status === 0 }
+}
+
+function parseBeadFiles(raw: Record<string, unknown>): string[] {
+  const desc = String(raw['description'] ?? '')
+  const match = desc.match(/FILES:\s*([^\n]+)/)
+  if (!match) return []
+  return match[1].split(',').map(f => f.trim()).filter(Boolean)
+}
+
+function mapBdBead(raw: Record<string, unknown>, files: string[]): Bead {
+  const t = String(raw['type'] ?? 'task')
+  const bdP = Number(raw['priority'] ?? 2)
+  return {
+    id:          String(raw['id'] ?? ''),
+    title:       String(raw['title'] ?? ''),
+    description: String(raw['description'] ?? '').replace(/\nFILES:.*$/m, '').trim(),
+    type:        (t === 'epic' ? 'epic' : 'task') as BeadType,
+    status:      'claimed',
+    deps:        [],
+    files,
+    priority:    Math.round(bdP / 4 * 9) + 1,
+    tags:        Array.isArray(raw['labels']) ? (raw['labels'] as unknown[]).map(String) : [],
+  }
+}
 
 // ── File lock types ────────────────────────────────────────────────────────
 
@@ -175,63 +217,76 @@ export class AgentCoordinator {
     } catch { return [] }
   }
 
-  // ── Bead claim / complete / fail ─────────────────────────────────────────
+  // ── Bead claim / complete / fail (via bd CLI) ────────────────────────────
+
+  private get projectPath(): string { return dirname(this.ralphDir) }
 
   /**
-   * Atomically claim the best available bead for this agent.
+   * Atomically claim the best available open bead via `bd`.
    * Returns the claimed bead, or null if nothing is available.
-   *
-   * "Available" means: status ready, no file conflicts with other agents.
    */
   claimBestBead(agentId: string): Bead | null {
-    // Re-read graph fresh each time to see other agents' claims
-    const graph = loadGraph(this.ralphDir)
-    if (!graph) return null
+    let beads: Record<string, unknown>[]
+    try {
+      const { stdout, ok } = bdRun(['list', '--status', 'open', '--json'], this.projectPath)
+      if (!ok) return null
+      const parsed = JSON.parse(stdout)
+      beads = Array.isArray(parsed) ? parsed as Record<string, unknown>[] : []
+    } catch { return null }
 
-    const ready = readyBeads(graph)
-    if (ready.length === 0) return null
+    if (beads.length === 0) return null
 
-    const unblockCounts = computeUnblockCounts(graph)
-    const ranked        = rankBeads(ready, unblockCounts)
+    // Sort by priority descending (bd: 4=highest)
+    beads.sort((a, b) => (Number(b['priority'] ?? 0)) - (Number(a['priority'] ?? 0)))
 
-    for (const candidate of ranked) {
-      if (!this.filesAvailable(agentId, candidate.files)) continue
-      // Attempt to claim
-      if (!markClaimed(graph, candidate.id, agentId)) continue
-      saveGraph(this.ralphDir, graph)
-      this.reserveFiles(agentId, candidate.id, candidate.files)
-      this.post({ from: agentId, type: 'claimed', beadId: candidate.id, files: candidate.files })
-      return graph.beads.find(b => b.id === candidate.id)!
+    for (const raw of beads) {
+      const id = String(raw['id'] ?? '')
+      if (!id) continue
+      const files = parseBeadFiles(raw)
+      if (!this.filesAvailable(agentId, files)) continue
+
+      // Atomic claim via bd update --claim
+      const { ok } = bdRun(['update', id, '--claim'], this.projectPath)
+      if (!ok) continue
+
+      this.reserveFiles(agentId, id, files)
+      this.post({ from: agentId, type: 'claimed', beadId: id, files })
+      return mapBdBead(raw, files)
     }
     return null
   }
 
   completeBead(agentId: string, beadId: string): string[] {
-    const graph = loadGraph(this.ralphDir)
-    if (!graph) return []
-    const unlocked = markDone(graph, beadId)
-    saveGraph(this.ralphDir, graph)
+    bdRun(['close', beadId, '--reason', 'Done'], this.projectPath)
     this.releaseFiles(agentId, beadId)
-    this.post({ from: agentId, type: 'completed', beadId, text: `unlocked ${unlocked.length} beads` })
-    return unlocked
+    this.post({ from: agentId, type: 'completed', beadId })
+    return []
   }
 
   failBead(agentId: string, beadId: string, reason: string): void {
-    const graph = loadGraph(this.ralphDir)
-    if (!graph) return
-    markFailed(graph, beadId)
-    saveGraph(this.ralphDir, graph)
+    bdRun(['close', beadId, '--reason', `Failed: ${reason.slice(0, 200)}`], this.projectPath)
     this.releaseFiles(agentId, beadId)
     this.post({ from: agentId, type: 'failed', beadId, text: reason })
+  }
+
+  /** Returns last N closed beads as { stdout, ok } for sibling context. */
+  bdListClosed(limit = 5): { stdout: string; ok: boolean } {
+    return bdRun(['list', '--status', 'closed', '--json'], this.projectPath)
+  }
+
+  /** True if there are any open or in-progress beads. */
+  hasOpenWork(): boolean {
+    try {
+      const open = JSON.parse(bdRun(['list', '--status', 'open', '--json'], this.projectPath).stdout)
+      if (Array.isArray(open) && open.length > 0) return true
+      const claimed = JSON.parse(bdRun(['list', '--status', 'in_progress', '--json'], this.projectPath).stdout)
+      return Array.isArray(claimed) && claimed.length > 0
+    } catch { return false }
   }
 
   // ── Graph helpers ─────────────────────────────────────────────────────────
 
   loadGraph(): BeadGraph | null {
     return loadGraph(this.ralphDir)
-  }
-
-  saveGraph(graph: BeadGraph): void {
-    saveGraph(this.ralphDir, graph)
   }
 }
