@@ -52,11 +52,15 @@ function buildEnv(): Record<string, string> {
     '/opt/homebrew/bin', '/opt/homebrew/sbin',       // macOS Homebrew
     `${process.env.HOME ?? ''}/.local/bin`,           // pip / cargo user installs
     `${process.env.HOME ?? ''}/.npm-global/bin`,      // npm global (manual prefix)
-    `${process.env.HOME ?? ''}/.nvm/versions/node/*/bin`,  // nvm (glob, may not resolve)
     `${process.env.HOME ?? ''}/.volta/bin`,           // Volta
   ]
-  const existingPath = process.env.PATH ?? ''
-  const merged = [...new Set([existingPath, ...extraPaths].flatMap(p => p.split(':').filter(Boolean)))].join(':')
+  // Pull the full login-shell PATH so Electron's stripped env doesn't miss
+  // custom install locations (nvm, volta, /opt/node*, etc.)
+  let loginPath = ''
+  try { loginPath = execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim() } catch { /* ignore */ }
+  const merged = [...new Set(
+    [process.env.PATH ?? '', loginPath, ...extraPaths].flatMap(p => p.split(':').filter(Boolean))
+  )].join(':')
   return { ...process.env, PATH: merged } as Record<string, string>
 }
 

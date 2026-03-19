@@ -45,8 +45,10 @@ function buildEnv(): Record<string, string> {
     `${process.env.HOME ?? ''}/.npm-global/bin`,
     `${process.env.HOME ?? ''}/.volta/bin`,
   ]
+  let loginPath = ''
+  try { loginPath = execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim() } catch { /* ignore */ }
   const merged = [...new Set(
-    [process.env.PATH ?? '', ...extras].flatMap(p => p.split(':').filter(Boolean))
+    [process.env.PATH ?? '', loginPath, ...extras].flatMap(p => p.split(':').filter(Boolean))
   )].join(':')
   return { ...process.env, PATH: merged } as Record<string, string>
 }
