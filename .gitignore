@@ -11,6 +11,7 @@
 .ralph/.circuit_breaker_history
 .ralph/.json_parse_result
 .ralph/.last_output_length
+.ralph
 
 # Ralph logs and generated docs
 .ralph/logs/*
