@@ -4,7 +4,6 @@ import { join } from 'path'
 const REQUIRED = [
   '.ralph',
   '.ralph/PROMPT.md',
-  '.ralph/fix_plan.md',
   '.ralph/AGENT.md',
   '.ralphrc'
 ]

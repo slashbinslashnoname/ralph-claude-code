@@ -102,7 +102,6 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
       if (name === 'progress.json')          push('progress:update', 'progress.json')
       if (name === '.circuit_breaker_state') push('circuit:update',  '.circuit_breaker_state')
       if (name === '.response_analysis')     push('analysis:update', '.response_analysis')
-      if (name === 'fix_plan.md')            broadcast('fixplan:update', projectPath, readText(join(rd, 'fix_plan.md')))
     })
 
     // Log tailing
@@ -145,7 +144,7 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   // ── File editor ───────────────────────────────────────────────────────────
 
-  const EDITABLE = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/plan.md', '.ralph/AGENT.md']
+  const EDITABLE = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/AGENT.md']
 
   ipcMain.handle('file:read', (_e, projectPath: string, relPath: string) => {
     if (!EDITABLE.includes(relPath)) return { ok: false, error: 'Not an editable file' }
@@ -233,21 +232,6 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
   })
 
-  // ── Fix plan task injection ───────────────────────────────────────────────
-
-  ipcMain.handle('fixplan:add-task', (_e, projectPath: string, task: string) => {
-    const file = join(ralphDir(projectPath), 'fix_plan.md')
-    if (!existsSync(file)) return { ok: false, error: 'fix_plan.md not found' }
-    const trimmed = task.trim()
-    if (!trimmed) return { ok: false, error: 'Task text is empty' }
-    try {
-      appendFileSync(file, `\n- [ ] ${trimmed}\n`)
-      broadcast('fixplan:update', projectPath, readText(file))
-      return { ok: true }
-    } catch (e: unknown) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
 
   // ── Ralph enable (replaces ralph_enable.sh) ──────────────────────────────
 

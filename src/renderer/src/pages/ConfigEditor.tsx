@@ -3,68 +3,10 @@ import React, { useCallback, useEffect, useState } from 'react'
 type Tab = { id: string; label: string; path: string; lang: string }
 
 const TABS: Tab[] = [
-  { id: 'ralphrc',   label: '.ralphrc',     path: '.ralphrc',          lang: 'bash' },
-  { id: 'prompt',   label: 'PROMPT.md',    path: '.ralph/PROMPT.md',  lang: 'markdown' },
-  { id: 'fixplan',  label: 'fix_plan.md',  path: '.ralph/fix_plan.md', lang: 'markdown' },
-  { id: 'agent',    label: 'AGENT.md',     path: '.ralph/AGENT.md',   lang: 'markdown' }
+  { id: 'ralphrc', label: '.ralphrc',    path: '.ralphrc',         lang: 'bash' },
+  { id: 'prompt',  label: 'PROMPT.md',  path: '.ralph/PROMPT.md', lang: 'markdown' },
+  { id: 'agent',   label: 'AGENT.md',   path: '.ralph/AGENT.md',  lang: 'markdown' }
 ]
-
-function TaskCheckbox({ line, onChange }: { line: string; onChange: (updated: string) => void }): JSX.Element {
-  const checked = line.startsWith('- [x]') || line.startsWith('- [X]')
-  const isTask = line.startsWith('- [')
-
-  if (!isTask) return <div style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1.8 }}>{line}</div>
-
-  return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', lineHeight: 1.8 }}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={e => {
-          const rest = line.replace(/^- \[[xX ]\]\s*/, '')
-          onChange(`- [${e.target.checked ? 'x' : ' '}] ${rest}`)
-        }}
-        style={{ marginTop: 4, accentColor: 'var(--accent)' }}
-      />
-      <span style={{
-        fontSize: 13,
-        textDecoration: checked ? 'line-through' : 'none',
-        color: checked ? 'var(--muted)' : 'var(--text)'
-      }}>
-        {line.replace(/^- \[[xX ]\]\s*/, '')}
-      </span>
-    </label>
-  )
-}
-
-function FixPlanViewer({ content, onChange }: { content: string; onChange: (c: string) => void }): JSX.Element {
-  const lines = content.split('\n')
-  const updateLine = (i: number, updated: string): void => {
-    const newLines = [...lines]
-    newLines[i] = updated
-    onChange(newLines.join('\n'))
-  }
-  const total = lines.filter(l => l.startsWith('- [')).length
-  const done  = lines.filter(l => l.startsWith('- [x]') || l.startsWith('- [X]')).length
-
-  return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
-      {total > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-            <span>Progress</span><span>{done} / {total} tasks</span>
-          </div>
-          <div style={{ height: 4, background: 'var(--surface2)', borderRadius: 99 }}>
-            <div style={{ height: '100%', width: `${total > 0 ? (done / total) * 100 : 0}%`, background: 'var(--green)', borderRadius: 99, transition: 'width 0.3s' }} />
-          </div>
-        </div>
-      )}
-      {lines.map((line, i) => (
-        <TaskCheckbox key={i} line={line} onChange={updated => updateLine(i, updated)} />
-      ))}
-    </div>
-  )
-}
 
 export default function ConfigEditor({ projectPath }: { projectPath: string }): JSX.Element {
   const [activeTab, setActiveTab] = useState<string>('ralphrc')
@@ -85,7 +27,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string }): 
     }
   }, [projectPath, contents])
 
-  // Load first tab on mount and when project changes
   useEffect(() => {
     setContents({})
     setDirty({})
@@ -95,16 +36,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string }): 
     const tab = TABS.find(t => t.id === activeTab)
     if (tab) loadTab(tab)
   }, [activeTab, loadTab])
-
-  // Subscribe to live fix_plan changes
-  useEffect(() => {
-    if (!projectPath) return
-    window.ralph.subscribeStatus(projectPath)
-    const unsub = window.ralph.onFixplanUpdate((p, content) => {
-      if (p === projectPath && !dirty['fixplan']) setContents(prev => ({ ...prev, fixplan: content }))
-    })
-    return () => { unsub(); window.ralph.unsubscribeStatus(projectPath) }
-  }, [projectPath, dirty])
 
   const handleChange = (id: string, value: string): void => {
     setContents(prev => ({ ...prev, [id]: value }))
@@ -127,7 +58,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string }): 
 
   const content = contents[activeTab]
   const isDirty = dirty[activeTab]
-  const isFixplan = activeTab === 'fixplan'
 
   return (
     <>
@@ -148,7 +78,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string }): 
         </div>
       )}
 
-      {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
         {TABS.map(tab => (
           <button
@@ -168,11 +97,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string }): 
 
       {content === undefined ? (
         <div className="state-box" style={{ flex: 1 }}><span className="spinner" /></div>
-      ) : isFixplan ? (
-        <FixPlanViewer
-          content={content}
-          onChange={v => handleChange('fixplan', v)}
-        />
       ) : (
         <textarea
           value={content}
@@ -190,12 +114,6 @@ export default function ConfigEditor({ projectPath }: { projectPath: string }): 
       <div className="summary-bar">
         {TABS.find(t => t.id === activeTab)?.path}
         {isDirty ? ' · unsaved changes' : ''}
-        {isFixplan && (() => {
-          const lines = (content ?? '').split('\n')
-          const done = lines.filter(l => l.startsWith('- [x]') || l.startsWith('- [X]')).length
-          const total = lines.filter(l => l.startsWith('- [')).length
-          return total > 0 ? ` · ${done}/${total} tasks done` : ''
-        })()}
       </div>
     </>
   )

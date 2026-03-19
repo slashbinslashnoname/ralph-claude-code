@@ -15,7 +15,7 @@
  */
 
 import { EventEmitter } from 'events'
-import { appendFileSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
+import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'fs'
 import { join }          from 'path'
 import { execSync, spawn as spawnProc, ChildProcess } from 'child_process'
 
@@ -149,8 +149,7 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
     try {
       const raw = await this._runClaude(this._buildSynthesisPrompt(plans), 'synthesis')
       planMd = stripAnsi(raw)
-      writeFileSync(join(this.ralphDir, 'plan.md'), planMd)
-      this._log('SUCCESS', `Plan saved (${planMd.length} chars)`)
+      this._log('SUCCESS', `Plan ready (${planMd.length} chars)`)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       this._log('ERROR', `Synthesis failed: ${msg}`)

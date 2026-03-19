@@ -27,7 +27,6 @@ contextBridge.exposeInMainWorld('ralph', {
   onProgressUpdate: (cb: (p: string, d: unknown) => void) => listen('progress:update', cb),
   onCircuitUpdate:  (cb: (p: string, d: unknown) => void) => listen('circuit:update',  cb),
   onAnalysisUpdate: (cb: (p: string, d: unknown) => void) => listen('analysis:update', cb),
-  onFixplanUpdate:  (cb: (p: string, c: string)  => void) => listen('fixplan:update',  cb),
   onLogLines:       (cb: (p: string, lines: string[]) => void) => listen('logs:lines', cb),
   onRalphExit:      (cb: (p: string, reason: string, detail?: string) => void) => listen('ralph:exit', cb),
   onPtyData:        (cb: (p: string, chunk: string) => void) => listen('pty:data',    cb),
@@ -64,9 +63,6 @@ contextBridge.exposeInMainWorld('ralph', {
   resetSession: (projectPath: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('session:reset', projectPath),
 
-  // ── Fix plan task injection ──────────────────────────────────────────────
-  addTask: (projectPath: string, task: string): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('fixplan:add-task', projectPath, task),
 
   // ── Beads ────────────────────────────────────────────────────────────────
   beads: {

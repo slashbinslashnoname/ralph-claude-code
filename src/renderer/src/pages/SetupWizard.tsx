@@ -176,7 +176,7 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
             </p>
 
             <div style={{ marginBottom: 20 }}>
-              {['.ralphrc', '.ralph/', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/AGENT.md'].map(f => (
+              {['.ralphrc', '.ralph/', '.ralph/PROMPT.md', '.ralph/AGENT.md'].map(f => (
                 <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ color: 'var(--green)', fontSize: 13 }}>+</span>
                   <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{f}</span>

@@ -81,7 +81,7 @@ export interface EnabledStatus {
   hasRalphDir: boolean
 }
 
-const REQUIRED = ['.ralphrc', '.ralph', '.ralph/PROMPT.md', '.ralph/fix_plan.md', '.ralph/AGENT.md']
+const REQUIRED = ['.ralphrc', '.ralph', '.ralph/PROMPT.md', '.ralph/AGENT.md']
 
 export function checkEnabled(projectPath: string): EnabledStatus {
   const missing = REQUIRED.filter(p => !existsSync(join(projectPath, p)))
@@ -145,15 +145,13 @@ You are an autonomous developer working on **${ctx.name}** (${ctx.type} project)
 
 ## Your task
 
-Work through the items in \`.ralph/fix_plan.md\` one by one, implementing each task completely before moving to the next.
+Work through assigned tasks one by one, implementing each completely before moving to the next.
 
 ## Guidelines
 
-- Read \`.ralph/fix_plan.md\` at the start of each iteration to see remaining tasks
 - Implement ONE task at a time — don't skip ahead
 - After implementing a task, run tests: \`${ctx.testCmd || 'your test command'}\`
 - Commit your work: \`git add -A && git commit -m "feat: description"\`
-- Mark the task done in fix_plan.md: change \`- [ ]\` to \`- [x]\`
 - If a task is unclear, make a reasonable assumption and document it in a comment
 
 ## Protected files (DO NOT modify or delete)
@@ -185,21 +183,10 @@ RALPH_STATUS: {
 }
 \`\`\`
 
-Set \`EXIT_SIGNAL\` to \`true\` only when ALL tasks in fix_plan.md are complete (\`- [x]\`).
+Set \`EXIT_SIGNAL\` to \`true\` only when ALL assigned tasks are complete.
 `
 }
 
-function generateFixPlanMd(opts: EnableOptions): string {
-  const tasks = opts.initialTasks.length > 0
-    ? opts.initialTasks.map(t => `- [ ] ${t}`).join('\n')
-    : [
-        '- [ ] Review the codebase and understand the project structure',
-        '- [ ] Add your tasks here',
-        '- [ ] Each task on its own line — Ralph will work through them in order'
-      ].join('\n')
-
-  return `# Tasks\n\n${tasks}\n`
-}
 
 function generateAgentMd(ctx: ProjectContext): string {
   const sections: string[] = [`# Build & Run — ${ctx.name}`]
@@ -290,7 +277,6 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
     // 2. Generate template files
     write('.ralphrc',           generateRalphrc(ctx, opts))
     write('.ralph/PROMPT.md',   generatePromptMd(ctx, opts))
-    write('.ralph/fix_plan.md', generateFixPlanMd(opts))
     write('.ralph/AGENT.md',    generateAgentMd(ctx))
 
     // 3. Update .gitignore (append Ralph section if not already present)

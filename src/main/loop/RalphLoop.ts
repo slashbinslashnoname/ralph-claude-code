@@ -23,6 +23,7 @@ import {
 } from './ResponseAnalyzer'
 import { validateIntegrity } from './FileGuard'
 import { loadConfig }        from './RcParser'
+import { loadGraph }         from './Bead'
 import { ExitReason, LoopEvents, RalphConfig, RalphStatus } from './types'
 
 interface TypedEmitter extends EventEmitter {
@@ -322,7 +323,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
       }
 
       if (this._isPlanComplete()) {
-        this._log('SUCCESS', '└─ ✓ All fix_plan.md items checked off')
+        this._log('SUCCESS', '└─ ✓ All beads complete')
         this._exit('plan_complete')
         return
       }
@@ -437,11 +438,14 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
 
   private _buildPrompt(): string {
     const promptFile = join(this.ralphDir, 'PROMPT.md')
-    const fixPlan    = join(this.ralphDir, 'fix_plan.md')
+    const promptContent = existsSync(promptFile) ? readFileSync(promptFile, 'utf8') : ''
 
-    const promptContent  = existsSync(promptFile) ? readFileSync(promptFile, 'utf8') : ''
-    const remainingTasks = existsSync(fixPlan)
-      ? readFileSync(fixPlan, 'utf8').split('\n').filter(l => l.startsWith('- [ ]')).join('\n')
+    const graph = loadGraph(this.ralphDir)
+    const pendingBeads = graph
+      ? graph.beads
+          .filter(b => b.status === 'pending' || b.status === 'ready')
+          .map(b => `- [ ] [${b.id}] ${b.title}`)
+          .join('\n')
       : ''
 
     const circuitInfo = this.circuit.isOpen()
@@ -452,7 +456,7 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
       `## Loop Context`,
       `Loop iteration: ${this.loopCount}`,
       `Session: ${this.lastSessionId ?? 'new'}`,
-      remainingTasks ? `\n### Remaining tasks\n${remainingTasks}` : '',
+      pendingBeads ? `\n### Pending beads\n${pendingBeads}` : '',
       circuitInfo
     ].filter(Boolean).join('\n')
 
@@ -462,18 +466,15 @@ export class RalphLoop extends (EventEmitter as new () => TypedEmitter) {
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   private _isPlanComplete(): boolean {
-    const f = join(this.ralphDir, 'fix_plan.md')
-    if (!existsSync(f)) return false
-    const lines   = readFileSync(f, 'utf8').split('\n')
-    const tasks   = lines.filter(l => l.startsWith('- ['))
-    const pending = lines.filter(l => l.startsWith('- [ ]'))
-    return tasks.length > 0 && pending.length === 0
+    const graph = loadGraph(this.ralphDir)
+    if (!graph || graph.beads.length === 0) return false
+    return graph.beads.every(b => b.status === 'done' || b.status === 'failed')
   }
 
   private _remainingTaskCount(): number {
-    const f = join(this.ralphDir, 'fix_plan.md')
-    if (!existsSync(f)) return 0
-    return readFileSync(f, 'utf8').split('\n').filter(l => l.startsWith('- [ ]')).length
+    const graph = loadGraph(this.ralphDir)
+    if (!graph) return 0
+    return graph.beads.filter(b => b.status === 'pending' || b.status === 'ready' || b.status === 'claimed').length
   }
 
   private _writeStatus(status: RalphStatus['status'], lastAction: string, exitReason = ''): void {
