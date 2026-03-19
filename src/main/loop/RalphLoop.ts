@@ -65,8 +65,11 @@ function buildEnv(): Record<string, string> {
  * Falls back to the original name if resolution fails.
  */
 function resolveCmd(cmd: string, env: Record<string, string>): string {
-  // Already an absolute path
-  if (cmd.startsWith('/')) return cmd
+  // If absolute path given but doesn't exist, fall back to which <basename>
+  if (cmd.startsWith('/')) {
+    if (existsSync(cmd)) return cmd
+    cmd = cmd.split('/').pop() ?? cmd   // strip path, retry as bare name
+  }
   try {
     const result = execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
     if (result && result.startsWith('/')) return result

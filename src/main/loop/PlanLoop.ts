@@ -52,7 +52,10 @@ function buildEnv(): Record<string, string> {
 }
 
 function resolveCmd(cmd: string, env: Record<string, string>): string {
-  if (cmd.startsWith('/')) return cmd
+  if (cmd.startsWith('/')) {
+    if (existsSync(cmd)) return cmd
+    cmd = cmd.split('/').pop() ?? cmd
+  }
   try {
     const r = execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
     if (r.startsWith('/')) return r
