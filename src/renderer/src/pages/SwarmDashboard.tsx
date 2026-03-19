@@ -14,7 +14,7 @@
  *   └──────────────────────────┴──────────────────────┘
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -26,22 +26,6 @@ interface SwarmStats {
 interface AgentInfo {
   id: string; index: number; phase: string
   currentBeadId: string | null; loopCount: number; lastActivity: string
-}
-
-interface MailMsg {
-  ts: string; from: string; type: string
-  beadId?: string; files?: string[]; text?: string
-}
-
-interface BeadInfo {
-  id: string; title: string; type: string; status: string
-  priority: number; deps: string[]; files: string[]
-  epicId?: string; claimedBy?: string; unblockCount?: number; score?: number
-}
-
-interface BeadGraph {
-  version: number; createdAt: string; updatedAt: string
-  planMd: string; beads: BeadInfo[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -57,13 +41,6 @@ const PHASE_COLOR: Record<string, string> = {
   encoding:  'var(--yellow)',
   waiting:   'var(--muted)',
 }
-
-const STATUS_COLOR: Record<string, string> = {
-  pending: 'var(--muted)', ready: 'var(--blue)',
-  claimed: 'var(--yellow)', done: 'var(--green)', failed: 'var(--red)'
-}
-
-const TYPE_ICON: Record<string, string> = { epic: '◉', task: '◎', subtask: '·' }
 
 function relTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -120,96 +97,18 @@ function AgentCard({ agent }: { agent: AgentInfo }): JSX.Element {
   )
 }
 
-function MailRow({ msg }: { msg: MailMsg }): JSX.Element {
-  const color = msg.type === 'completed' ? 'var(--green)'
-    : msg.type === 'failed'    ? 'var(--red)'
-    : msg.type === 'claimed'   ? 'var(--yellow)'
-    : msg.type === 'started'   ? 'var(--blue)'
-    : msg.type === 'stopped'   ? 'var(--muted)'
-    : 'var(--muted)'
-  return (
-    <div style={{ display: 'flex', gap: 8, fontSize: 11, lineHeight: 1.5 }}>
-      <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-        {new Date(msg.ts).toLocaleTimeString()}
-      </span>
-      <span style={{ color: 'var(--accent)', minWidth: 70, fontWeight: 600 }}>{msg.from}</span>
-      <span style={{ color, minWidth: 65, fontWeight: 600 }}>{msg.type}</span>
-      <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {msg.beadId ? `[${msg.beadId}] ` : ''}{msg.text ?? ''}
-      </span>
-    </div>
-  )
-}
-
-function BeadTable({ beads }: { beads: BeadInfo[] }): JSX.Element {
-  const [filter, setFilter] = useState<'all' | 'ready' | 'claimed' | 'done' | 'failed'>('all')
-  const shown = filter === 'all' ? beads : beads.filter(b => b.status === filter)
-  const counts: Record<string, number> = {}
-  beads.forEach(b => { counts[b.status] = (counts[b.status] ?? 0) + 1 })
-
-  return (
-    <div>
-      {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        {(['all', 'ready', 'claimed', 'done', 'failed'] as const).map(f => (
-          <button key={f}
-            className={`btn btn-ghost btn-sm${filter === f ? ' active' : ''}`}
-            style={{ fontSize: 11, padding: '2px 8px', opacity: filter === f ? 1 : 0.6 }}
-            onClick={() => setFilter(f)}
-          >
-            {f === 'all' ? `all (${beads.length})` : `${f} (${counts[f] ?? 0})`}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-        {shown.slice(0, 100).map(b => (
-          <div key={b.id} style={{
-            display: 'grid', gridTemplateColumns: '18px 60px 1fr 40px',
-            gap: 8, alignItems: 'start', padding: '4px 0',
-            borderBottom: '1px solid var(--border)', fontSize: 12
-          }}>
-            <span style={{ color: 'var(--muted)', marginTop: 1 }}>{TYPE_ICON[b.type] ?? '·'}</span>
-            <span style={{
-              color: STATUS_COLOR[b.status] ?? 'var(--muted)',
-              fontWeight: 600, fontSize: 10, textTransform: 'uppercase', marginTop: 2
-            }}>{b.status}</span>
-            <div>
-              <div style={{ color: 'var(--text)' }}>{b.title}</div>
-              {b.claimedBy && <div style={{ fontSize: 10, color: 'var(--muted)' }}>→ {b.claimedBy}</div>}
-            </div>
-            <span style={{ color: 'var(--muted)', fontSize: 10, textAlign: 'right' }}>
-              p{b.priority}
-            </span>
-          </div>
-        ))}
-        {shown.length > 100 && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', padding: '6px 0' }}>
-            …and {shown.length - 100} more
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Main component ─────────────────────────────────────────────────────────
 
 interface Props { projectPath: string }
 
 export default function SwarmDashboard({ projectPath }: Props): JSX.Element {
-  const [stats,      setStats]      = useState<SwarmStats | null>(null)
-  const [agents,     setAgents]     = useState<AgentInfo[]>([])
-  const [mail,       setMail]       = useState<MailMsg[]>([])
-  const [graph,      setGraph]      = useState<BeadGraph | null>(null)
-  const [running,    setRunning]    = useState(false)
-  const [planning,   setPlanning]   = useState(false)
-  const [planPhase,  setPlanPhase]  = useState('')
-  const [workers,    setWorkers]    = useState(2)
-  const [request,    setRequest]    = useState('')
-  const [msg,        setMsg]        = useState<string | null>(null)
-  const [activeTab,  setActiveTab]  = useState<'graph' | 'mail' | 'plan'>('graph')
-  const mailEndRef = useRef<HTMLDivElement>(null)
+  const [stats,     setStats]     = useState<SwarmStats | null>(null)
+  const [agents,    setAgents]    = useState<AgentInfo[]>([])
+  const [running,   setRunning]   = useState(false)
+  const [planning,  setPlanning]  = useState(false)
+  const [planPhase, setPlanPhase] = useState('')
+  const [workers,   setWorkers]   = useState(2)
+  const [msg,       setMsg]       = useState<string | null>(null)
 
   const flash = (m: string): void => { setMsg(m); setTimeout(() => setMsg(null), 4000) }
 
@@ -224,13 +123,6 @@ export default function SwarmDashboard({ projectPath }: Props): JSX.Element {
     setPlanning(s.planning)
     setAgents(s.agents)
     setStats(s.stats)
-
-    const g = await window.ralph.swarm.graph(projectPath) as BeadGraph | null
-    setGraph(g)
-    if (g) setStats(calcStats(g))
-
-    const m = await window.ralph.swarm.mail(projectPath, 50) as MailMsg[]
-    setMail(m)
   }, [projectPath])
 
   useEffect(() => { load() }, [load])
@@ -243,15 +135,9 @@ export default function SwarmDashboard({ projectPath }: Props): JSX.Element {
         if (p !== projectPath) return
         setAgents(a as AgentInfo[])
       }),
-      window.ralph.swarm.onGraph((p, s, g) => {
+      window.ralph.swarm.onGraph((p, s) => {
         if (p !== projectPath) return
         setStats(s as SwarmStats)
-        setGraph(g as BeadGraph | null)
-      }),
-      window.ralph.swarm.onMail((p, m) => {
-        if (p !== projectPath) return
-        setMail(prev => [...prev, m as MailMsg].slice(-100))
-        setTimeout(() => mailEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
       }),
       window.ralph.swarm.onPlanPhase((p, phase) => {
         if (p !== projectPath) return
@@ -266,15 +152,6 @@ export default function SwarmDashboard({ projectPath }: Props): JSX.Element {
   }, [projectPath])
 
   // ── Actions ─────────────────────────────────────────────────────────────
-
-  const handleInject = async (): Promise<void> => {
-    if (!request.trim()) return
-    setPlanning(true)
-    setPlanPhase('planning-1')
-    const r = await window.ralph.swarm.inject(projectPath, request.trim())
-    if (!r.ok) { flash(`Plan failed: ${r.error}`); setPlanning(false) }
-    else setRequest('')
-  }
 
   const handleStart = async (): Promise<void> => {
     const r = await window.ralph.swarm.start(projectPath, workers)
@@ -345,135 +222,42 @@ export default function SwarmDashboard({ projectPath }: Props): JSX.Element {
 
       <div style={{ padding: '16px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        {/* Top row: inject + stats + agents */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-
-          {/* Inject panel */}
-          <div className="stat-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div className="stat-label">
-              {planning ? '⟳ Planning in progress…' : 'Inject new tasks → Plan + Encode'}
-            </div>
-            <textarea
-              value={request}
-              onChange={e => setRequest(e.target.value)}
-              onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); void handleInject() } }}
-              rows={5}
-              disabled={planning}
-              placeholder="Describe what you want built… (Ctrl+Enter to run Plan + Encode)"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                background: 'var(--surface2)', border: '1px solid var(--border)',
-                borderRadius: 6, color: 'var(--text)', padding: '8px 10px',
-                fontFamily: 'monospace', fontSize: 12, resize: 'vertical', outline: 'none'
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => void handleInject()}
-                disabled={planning || !request.trim()}
-              >
-                {planning ? <span className="spinner" style={{ width: 12, height: 12 }} /> : '⬡'} Plan + Encode
-              </button>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 'auto' }}>Ctrl+Enter</span>
-            </div>
-          </div>
-
-          {/* Stats + agent cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {/* Progress ring + stats */}
-            {stats && (
-              <div className="stat-card" style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                <ProgressRing pct={stats.pct} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, fontSize: 12 }}>
-                    {[
-                      ['total',   stats.total,   'var(--text)'],
-                      ['ready',   stats.ready,   'var(--blue)'],
-                      ['claimed', stats.claimed, 'var(--yellow)'],
-                      ['done',    stats.done,    'var(--green)'],
-                      ['pending', stats.pending, 'var(--muted)'],
-                      ['failed',  stats.failed,  'var(--red)'],
-                    ].map(([label, val, color]) => (
-                      <div key={label as string}>
-                        <span style={{ color: 'var(--muted)' }}>{label as string} </span>
-                        <span style={{ color: color as string, fontWeight: 700 }}>{val as number}</span>
-                      </div>
-                    ))}
+        {/* Progress ring + stats */}
+        {stats && (
+          <div className="stat-card" style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <ProgressRing pct={stats.pct} />
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, fontSize: 12 }}>
+                {[
+                  ['total',   stats.total,   'var(--text)'],
+                  ['ready',   stats.ready,   'var(--blue)'],
+                  ['claimed', stats.claimed, 'var(--yellow)'],
+                  ['done',    stats.done,    'var(--green)'],
+                  ['pending', stats.pending, 'var(--muted)'],
+                  ['failed',  stats.failed,  'var(--red)'],
+                ].map(([label, val, color]) => (
+                  <div key={label as string}>
+                    <span style={{ color: 'var(--muted)' }}>{label as string} </span>
+                    <span style={{ color: color as string, fontWeight: 700 }}>{val as number}</span>
                   </div>
-                </div>
+                ))}
               </div>
-            )}
-
-            {/* Agent cards */}
-            {agents.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
-                No workers running. Click "Start workers" to begin Steps 3–5.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {agents.map(a => <AgentCard key={a.id} agent={a} />)}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Bottom panel: tabbed graph / mail / plan */}
-        <div className="stat-card" style={{ flex: 1 }}>
-          <div style={{ display: 'flex', gap: 1, marginBottom: 12, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-            {(['graph', 'mail', 'plan'] as const).map(tab => (
-              <button key={tab}
-                className={`btn btn-ghost btn-sm${activeTab === tab ? ' active' : ''}`}
-                style={{ fontSize: 12, opacity: activeTab === tab ? 1 : 0.5 }}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab === 'graph' ? `⬡ Beads (${graph?.beads.length ?? 0})`
-                  : tab === 'mail' ? `✉ Agent mail (${mail.length})`
-                  : '📋 Plan'}
-              </button>
-            ))}
-          </div>
-
-          {activeTab === 'graph' && (
-            graph ? <BeadTable beads={graph.beads} />
-            : <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                No bead graph yet. Inject tasks above to generate one.
-              </div>
-          )}
-
-          {activeTab === 'mail' && (
-            <div style={{ maxHeight: 320, overflowY: 'auto', fontFamily: 'monospace' }}>
-              {mail.length === 0
-                ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>No messages yet</div>
-                : mail.slice(-50).map((m, i) => <MailRow key={i} msg={m} />)
-              }
-              <div ref={mailEndRef} />
             </div>
-          )}
+          </div>
+        )}
 
-          {activeTab === 'plan' && (
-            <pre style={{
-              fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap',
-              maxHeight: 400, overflowY: 'auto', lineHeight: 1.6
-            }}>
-              {graph?.planMd ?? 'No plan generated yet.'}
-            </pre>
-          )}
-        </div>
+        {/* Agent cards */}
+        {agents.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
+            No workers running. Click "Start workers" to begin.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+            {agents.map(a => <AgentCard key={a.id} agent={a} />)}
+          </div>
+        )}
       </div>
     </>
   )
 }
 
-// ── Util ───────────────────────────────────────────────────────────────────
-
-function calcStats(graph: BeadGraph): SwarmStats {
-  const c = { total: 0, pending: 0, ready: 0, claimed: 0, done: 0, failed: 0 }
-  for (const b of graph.beads) {
-    c.total++
-    const s = b.status as keyof typeof c
-    if (s in c) c[s]++
-  }
-  const pct = c.total ? Math.round((c.done / c.total) * 100) : 0
-  return { ...c, pct }
-}

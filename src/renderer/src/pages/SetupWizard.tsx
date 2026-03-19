@@ -41,7 +41,7 @@ interface Props {
   onComplete: () => void
 }
 
-type Step = 'check' | 'info' | 'tasks' | 'confirm' | 'done' | 'already-enabled'
+type Step = 'check' | 'info' | 'confirm' | 'done' | 'already-enabled'
 
 export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Element {
   const [step,    setStep]    = useState<Step>('check')
@@ -49,7 +49,6 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
   const [opts,    setOpts]    = useState<EnableOptions>({
     force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: []
   })
-  const [taskInput,  setTaskInput]  = useState('')
   const [installing, setInstalling] = useState(false)
   const [result,     setResult]     = useState<{ filesCreated: string[] } | null>(null)
   const [error,      setError]      = useState<string | null>(null)
@@ -63,20 +62,17 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
     })
   }, [projectPath])
 
-  const parseTasks = (): string[] =>
-    taskInput.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-
   const handleEnable = useCallback(async (force = false) => {
     setInstalling(true)
     setError(null)
-    const finalOpts = { ...opts, force, initialTasks: parseTasks() }
+    const finalOpts = { ...opts, force, initialTasks: [] }
     const r = await window.ralph.enable(projectPath, finalOpts) as {
       ok: boolean; error?: string; filesCreated: string[]
     }
     setInstalling(false)
     if (r.ok) { setResult(r); setStep('done') }
     else setError(r.error ?? 'Unknown error')
-  }, [projectPath, opts, taskInput])
+  }, [projectPath, opts])
 
   const ctx = status?.context
 
@@ -133,7 +129,7 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
         {/* ── Step 1: Project info ── */}
         {step === 'info' && ctx && (
           <div>
-            <StepIndicator current={1} total={3} />
+            <StepIndicator current={1} total={2} />
             <h2 style={{ marginBottom: 8 }}>Project detected</h2>
             <p style={{ color: 'var(--muted)', marginBottom: 24, fontSize: 13 }}>
               Ralph identified your project type. Review and continue.
@@ -165,54 +161,15 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-primary" onClick={() => setStep('tasks')}>Continue →</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 2: Task source ── */}
-        {step === 'tasks' && ctx && (
-          <div>
-            <StepIndicator current={2} total={3} />
-            <h2 style={{ marginBottom: 8 }}>Initial tasks</h2>
-            <p style={{ color: 'var(--muted)', marginBottom: 20, fontSize: 13 }}>
-              Add your starting task list for Ralph to work through. One task per line.
-            </p>
-
-            <textarea
-              placeholder={`Implement user authentication\nAdd database migrations\nWrite unit tests\n...`}
-              value={taskInput}
-              onChange={e => setTaskInput(e.target.value)}
-              rows={8}
-              style={{ ...inputStyle, width: '100%', fontFamily: 'monospace', resize: 'vertical', marginBottom: 16 }}
-            />
-
-            {ctx.hasBeads && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={opts.useBeads}
-                  onChange={e => setOpts(o => ({ ...o, useBeads: e.target.checked }))}
-                  style={{ accentColor: 'var(--accent)', width: 16, height: 16 }}
-                />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>Import tasks from Beads</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Fetch open issues from .beads/ and add them to fix_plan.md</div>
-                </div>
-              </label>
-            )}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setStep('info')}>← Back</button>
               <button className="btn btn-primary" onClick={() => setStep('confirm')}>Continue →</button>
             </div>
           </div>
         )}
 
-        {/* ── Step 3: Confirm ── */}
+        {/* ── Step 2: Confirm ── */}
         {step === 'confirm' && ctx && (
           <div>
-            <StepIndicator current={3} total={3} />
+            <StepIndicator current={2} total={2} />
             <h2 style={{ marginBottom: 8 }}>Ready to enable Ralph</h2>
             <p style={{ color: 'var(--muted)', marginBottom: 20, fontSize: 13 }}>
               The following files will be created in your project:
@@ -232,16 +189,6 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
               </div>
             </div>
 
-            {parseTasks().length > 0 && (
-              <div className="stat-card" style={{ marginBottom: 20 }}>
-                <div className="stat-label">Initial tasks ({parseTasks().length})</div>
-                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
-                  {parseTasks().slice(0, 4).map((t, i) => <div key={i}>• {t}</div>)}
-                  {parseTasks().length > 4 && <div>…and {parseTasks().length - 4} more</div>}
-                </div>
-              </div>
-            )}
-
             {error && (
               <div style={{ padding: '10px 14px', background: '#450a0a', borderRadius: 6, color: 'var(--red)', fontSize: 13, marginBottom: 16 }}>
                 {error}
@@ -249,7 +196,7 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
             )}
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button className="btn btn-ghost" onClick={() => setStep('tasks')}>← Back</button>
+              <button className="btn btn-ghost" onClick={() => setStep('info')}>← Back</button>
               <button className="btn btn-primary" onClick={() => handleEnable(false)} disabled={installing}>
                 {installing ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Enabling…</> : '✦ Enable Ralph'}
               </button>
@@ -277,8 +224,7 @@ export default function SetupWizard({ projectPath, onComplete }: Props): JSX.Ele
             </div>
 
             <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
-              Next: open <code style={{ color: 'var(--accent)' }}>.ralph/fix_plan.md</code> to review your tasks,
-              then go to the Dashboard to start the loop.
+              Next: go to the <strong>Plan</strong> tab to describe what you want built, then use the <strong>Swarm</strong> tab to start workers.
             </div>
 
             <button className="btn btn-primary" onClick={onComplete}>
