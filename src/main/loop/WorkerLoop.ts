@@ -13,11 +13,9 @@
  */
 
 import { EventEmitter } from 'events'
-import * as pty          from 'node-pty'
-import { IPty }          from 'node-pty'
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'fs'
 import { join }          from 'path'
-import { execSync }      from 'child_process'
+import { execSync, spawn as spawnProc, ChildProcess } from 'child_process'
 
 import { AgentCoordinator, AgentPhase }    from './AgentCoordinator'
 import { Bead }                            from './Bead'
@@ -83,7 +81,7 @@ interface TypedEmitter extends EventEmitter {
 export class WorkerLoop extends (EventEmitter as new () => TypedEmitter) {
   private running   = false
   private stopped   = false
-  private ptyProc: IPty | null = null
+  private childProc: ChildProcess | null = null
   private loopCount = 0
   private sessionId?: string
 
@@ -127,9 +125,9 @@ export class WorkerLoop extends (EventEmitter as new () => TypedEmitter) {
   stop(): void {
     this.stopped = true
     this.running = false
-    if (this.ptyProc) {
-      try { this.ptyProc.kill('SIGTERM') } catch { /* ignore */ }
-      const p = this.ptyProc
+    if (this.childProc) {
+      try { this.childProc.kill('SIGTERM') } catch { /* ignore */ }
+      const p = this.childProc
       setTimeout(() => { try { p.kill('SIGKILL') } catch { /* ignore */ } }, 3000)
     }
     this.coordinator.releaseAllForAgent(this.agentId)
@@ -234,11 +232,11 @@ export class WorkerLoop extends (EventEmitter as new () => TypedEmitter) {
       const ts      = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = join(this.logDir, `${this.agentId}_${label}_${ts}.log`)
 
-      let proc: IPty
+      let proc: ChildProcess
       try {
-        proc = pty.spawn(this.resolvedCmd, args, {
-          name: 'xterm-256color', cols: 220, rows: 50,
-          cwd: this.projectPath, env: this.env
+        proc = spawnProc(this.resolvedCmd, args, {
+          cwd: this.projectPath, env: this.env,
+          stdio: ['ignore', 'pipe', 'pipe'],
         })
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -246,31 +244,42 @@ export class WorkerLoop extends (EventEmitter as new () => TypedEmitter) {
         return
       }
 
-      this.ptyProc = proc
+      this.childProc = proc
       let raw = ''
 
       const timer = setTimeout(() => {
-        try { proc.kill() } catch { /* ignore */ }
+        try { proc.kill('SIGTERM') } catch { /* ignore */ }
         this._log('WARN', `[${this.agentId}] Timeout after ${this.config.claudeTimeoutMinutes}m`)
         if (raw.trim()) resolve(raw)
         else reject(new Error(`${this.agentId}: timed out with no output`))
       }, this.config.claudeTimeoutMinutes * 60_000)
 
-      proc.onData(chunk => {
-        raw += chunk
-        this.emit('output', chunk)
-        appendFileSync(outFile, chunk)
+      proc.stdout!.on('data', (chunk: Buffer) => {
+        const s = chunk.toString()
+        raw += s
+        this.emit('output', s)
+        appendFileSync(outFile, s)
       })
 
-      proc.onExit(({ exitCode }) => {
+      proc.stderr!.on('data', (chunk: Buffer) => {
+        appendFileSync(outFile, chunk.toString())
+      })
+
+      proc.on('close', (exitCode) => {
         clearTimeout(timer)
-        this.ptyProc = null
+        this.childProc = null
         if (this.stopped) { resolve(raw); return }
         if (exitCode !== 0 && !raw.trim()) {
           reject(new Error(`${this.agentId}: Claude exited ${exitCode} with no output`))
           return
         }
         resolve(raw)
+      })
+
+      proc.on('error', (err) => {
+        clearTimeout(timer)
+        this.childProc = null
+        reject(new Error(`${this.agentId}: spawn failed (${this.resolvedCmd}): ${err.message}`))
       })
     })
   }

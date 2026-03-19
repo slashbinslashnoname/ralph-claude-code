@@ -15,11 +15,9 @@
  */
 
 import { EventEmitter } from 'events'
-import * as pty          from 'node-pty'
-import { IPty }          from 'node-pty'
 import { appendFileSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs'
 import { join }          from 'path'
-import { execSync }      from 'child_process'
+import { execSync, spawn as spawnProc, ChildProcess } from 'child_process'
 
 import { AgentCoordinator }       from './AgentCoordinator'
 import { BeadGraph, initGraph, saveGraph, upsertBead } from './Bead'
@@ -84,7 +82,7 @@ interface TypedEmitter extends EventEmitter {
 
 export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
   private stopped       = false
-  private ptyProc: IPty | null = null
+  private childProc: ChildProcess | null = null
 
   private readonly ralphDir:    string
   private readonly logDir:      string
@@ -107,8 +105,8 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
 
   stop(): void {
     this.stopped = true
-    if (this.ptyProc) {
-      try { this.ptyProc.kill('SIGTERM') } catch { /* ignore */ }
+    if (this.childProc) {
+      try { this.childProc.kill('SIGTERM') } catch { /* ignore */ }
     }
   }
 
@@ -182,8 +180,6 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
 
   private _runClaude(prompt: string, label: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      // Use text output + ultrathink flag (extended thinking) for planning steps.
-      // --ultrathink instructs the Claude CLI to use maximum extended thinking budget.
       const args    = [
         '-p', prompt,
         '--output-format', 'text',
@@ -193,11 +189,11 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
       const ts      = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = join(this.logDir, `planner_${label}_${ts}.log`)
 
-      let proc: IPty
+      let proc: ChildProcess
       try {
-        proc = pty.spawn(this.resolvedCmd, args, {
-          name: 'xterm-256color', cols: 220, rows: 50,
-          cwd: this.projectPath, env: this.env
+        proc = spawnProc(this.resolvedCmd, args, {
+          cwd: this.projectPath, env: this.env,
+          stdio: ['ignore', 'pipe', 'pipe'],
         })
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -205,30 +201,41 @@ export class PlanLoop extends (EventEmitter as new () => TypedEmitter) {
         return
       }
 
-      this.ptyProc = proc
+      this.childProc = proc
       let raw = ''
 
       const timer = setTimeout(() => {
-        try { proc.kill() } catch { /* ignore */ }
+        try { proc.kill('SIGTERM') } catch { /* ignore */ }
         if (raw.trim()) resolve(raw)
         else reject(new Error('PlanLoop: timed out with no output'))
-      }, this.config.claudeTimeoutMinutes * 60_000 * 3)  // 3x timeout for planning
+      }, this.config.claudeTimeoutMinutes * 60_000 * 3)
 
-      proc.onData(chunk => {
-        raw += chunk
-        this.emit('output', chunk)
-        appendFileSync(outFile, chunk)
+      proc.stdout!.on('data', (chunk: Buffer) => {
+        const s = chunk.toString()
+        raw += s
+        this.emit('output', s)
+        appendFileSync(outFile, s)
       })
 
-      proc.onExit(({ exitCode }) => {
+      proc.stderr!.on('data', (chunk: Buffer) => {
+        appendFileSync(outFile, chunk.toString())
+      })
+
+      proc.on('close', (exitCode) => {
         clearTimeout(timer)
-        this.ptyProc = null
+        this.childProc = null
         if (this.stopped) { resolve(raw); return }
         if (exitCode !== 0 && !raw.trim()) {
           reject(new Error(`PlanLoop: Claude exited ${exitCode} with no output`))
           return
         }
         resolve(raw)
+      })
+
+      proc.on('error', (err) => {
+        clearTimeout(timer)
+        this.childProc = null
+        reject(new Error(`PlanLoop spawn failed: ${err.message}`))
       })
     })
   }
