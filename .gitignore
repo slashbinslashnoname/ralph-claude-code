@@ -18,6 +18,9 @@
 .ralph/docs/generated/*
 !.ralph/docs/generated/.gitkeep
 
+.ralph
+.ralphrc
+.worktrees
 # General logs
 *.log
 
@@ -50,6 +53,17 @@ target/
 
 # Ralph backup directories (created by migration)
 .ralph_backup_*
+
+# Agent worktrees
+.worktrees/
+
+# Ralph coordination files
+.ralph/file_locks.json
+.ralph/agents.json
+.ralph/activity.jsonl
+
+# Electron build output
+out/
 
 # Dolt database files (added by bd init)
 .dolt/

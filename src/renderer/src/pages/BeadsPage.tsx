@@ -1,0 +1,343 @@
+import React, { useState, useEffect, useCallback } from 'react'
+
+const ralph = window.ralph
+
+interface Props { projectPath: string }
+
+type BeadFilter = 'all' | 'open' | 'in_progress' | 'closed'
+
+const TABS: { id: BeadFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'open', label: 'Open' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'closed', label: 'Closed' },
+]
+
+export default function BeadsPage({ projectPath }: Props) {
+  const [beads, setBeads] = useState<any[]>([])
+  const [filter, setFilter] = useState<BeadFilter>('all')
+  const [bdAvailable, setBdAvailable] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newType, setNewType] = useState('task')
+  const [newPriority, setNewPriority] = useState(2)
+  const [editing, setEditing] = useState<any>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [planPrompt, setPlanPrompt] = useState('')
+  const [isPlanning, setIsPlanning] = useState(false)
+  const [planPhase, setPlanPhase] = useState('')
+  const [planQueue, setPlanQueue] = useState<any[]>([])
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    const check = await ralph.beads.check(projectPath)
+    setBdAvailable(check.available)
+    if (check.available) {
+      const r = await ralph.beads.list(projectPath, filter === 'all' ? 'all' : filter)
+      if (r.ok) setBeads(r.tasks)
+    }
+    setLoading(false)
+  }, [projectPath, filter])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  // Plan inject listeners
+  useEffect(() => {
+    ralph.swarm.status(projectPath).then(s => setIsPlanning(s.planning ?? false))
+    ralph.swarm.queue(projectPath).then(setPlanQueue)
+    const unsubs = [
+      ralph.swarm.onPlanPhase((_p: string, phase: string) => setPlanPhase(phase)),
+      ralph.swarm.onPlanQueue((_p: string, q: any[]) => setPlanQueue(q)),
+      ralph.swarm.onStopped(() => { setIsPlanning(false); refresh() }),
+    ]
+    return () => unsubs.forEach(u => u())
+  }, [projectPath])
+
+  const injectPlan = useCallback(async () => {
+    if (!planPrompt.trim()) return
+    setIsPlanning(true)
+    await ralph.swarm.inject(projectPath, planPrompt)
+    setPlanPrompt('')
+    // Refresh beads after a delay to pick up newly created beads
+    setTimeout(refresh, 3000)
+  }, [projectPath, planPrompt, refresh])
+
+  const createBead = useCallback(async () => {
+    if (!newTitle.trim()) return
+    const r = await ralph.beads.create(projectPath, {
+      title: newTitle, type: newType, priority: newPriority,
+      description: newDesc || undefined
+    })
+    if (r.ok) {
+      setNewTitle(''); setNewDesc(''); setShowCreate(false)
+      refresh()
+    }
+  }, [projectPath, newTitle, newDesc, newType, newPriority, refresh])
+
+  const claimBead = useCallback(async (id: string) => {
+    await ralph.beads.update(projectPath, id, { claim: true })
+    refresh()
+  }, [projectPath, refresh])
+
+  const closeBead = useCallback(async (id: string) => {
+    await ralph.beads.close(projectPath, id, 'Done')
+    refresh()
+  }, [projectPath, refresh])
+
+  const reopenBead = useCallback(async (id: string) => {
+    await ralph.beads.reopen(projectPath, id, 'Back to open')
+    refresh()
+  }, [projectPath, refresh])
+
+  const changePriority = useCallback(async (id: string, priority: number) => {
+    await ralph.beads.update(projectPath, id, { priority })
+    refresh()
+  }, [projectPath, refresh])
+
+  const startEdit = useCallback((bead: any) => {
+    setEditing(bead)
+    setEditTitle(bead.title)
+    setEditDesc(bead.description ?? '')
+  }, [])
+
+  const saveEdit = useCallback(async () => {
+    if (!editing) return
+    const updates: any = {}
+    if (editTitle !== editing.title) updates.title = editTitle
+    if (editDesc !== (editing.description ?? '')) updates.description = editDesc
+    if (Object.keys(updates).length > 0) {
+      await ralph.beads.update(projectPath, editing.id, updates)
+    }
+    setEditing(null)
+    refresh()
+  }, [projectPath, editing, editTitle, editDesc, refresh])
+
+  const cancelEdit = useCallback(() => setEditing(null), [])
+
+  // Count beads per status for tab badges
+  const counts = {
+    all: beads.length,
+    open: 0, in_progress: 0, closed: 0
+  }
+  // We re-count from the "all" set if on all tab, otherwise just show current
+  // For simplicity, we always show the current list length
+
+  if (!bdAvailable) {
+    return (
+      <div className="page">
+        <header className="page-header"><h2>Beads</h2></header>
+        <div className="empty-state">
+          <span className="empty-icon">{'\u29BE'}</span>
+          <h3>bd CLI not found</h3>
+          <p>Install beads-rust to manage tasks:</p>
+          <code>cargo install beads-rust</code>
+          <p className="mt-2">Then run <code>bd init</code> in your project.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const statusColor = (s: string) => {
+    if (s === 'done') return 'success'
+    if (s === 'claimed') return 'warning'
+    if (s === 'ready') return 'info'
+    if (s === 'failed') return 'danger'
+    return 'idle'
+  }
+
+  const statusLabel = (s: string) => {
+    if (s === 'ready') return 'open'
+    if (s === 'claimed') return 'in progress'
+    if (s === 'done') return 'closed'
+    return s
+  }
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <h2>Beads</h2>
+        <div className="header-actions">
+          <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
+            + Create Bead
+          </button>
+          <button className="btn btn-ghost" onClick={refresh} disabled={loading}>
+            {'\u27F3'} Refresh
+          </button>
+        </div>
+      </header>
+
+      {/* Plan inject */}
+      <div className="card card-loop1">
+        <div className="card-header-bar">
+          <h3>Plan & Encode Beads</h3>
+          {isPlanning && <span className="badge badge-warning animate-pulse">Planning: {planPhase}</span>}
+        </div>
+        <div className="prompt-area">
+          <textarea
+            className="textarea textarea-prompt"
+            placeholder="Describe what you want to build... Claude will analyze the codebase, create a plan, and encode it as beads."
+            rows={2}
+            value={planPrompt}
+            onChange={e => setPlanPrompt(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) injectPlan() }}
+          />
+          <button className="btn btn-primary" onClick={injectPlan} disabled={!planPrompt.trim() || isPlanning}>
+            {isPlanning ? 'Planning...' : 'Inject Plan'}
+          </button>
+        </div>
+        {planQueue.length > 0 && (
+          <div className="queue-list">
+            <span className="queue-label">Queue:</span>
+            {planQueue.map(q => (
+              <div key={q.id} className="queue-item">
+                <span>{q.request.slice(0, 60)}...</span>
+                <button className="btn btn-sm btn-ghost" onClick={() => ralph.swarm.queueRemove(projectPath, q.id)}>
+                  {'\u2715'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Status tabs */}
+      <div className="bead-tabs">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`tab ${filter === tab.id ? 'active' : ''}`}
+            onClick={() => setFilter(tab.id)}
+          >
+            {tab.label}
+            {filter === tab.id && beads.length > 0 && (
+              <span className="tab-count">{beads.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Create form */}
+      {showCreate && (
+        <div className="card card-create animate-slide-down">
+          <h3>New Bead</h3>
+          <div className="form-grid">
+            <input className="input" placeholder="Title" value={newTitle}
+              onChange={e => setNewTitle(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && createBead()} autoFocus />
+            <div className="form-row">
+              <select className="select" value={newType} onChange={e => setNewType(e.target.value)}>
+                <option value="task">Task</option>
+                <option value="feature">Feature</option>
+                <option value="bug">Bug</option>
+                <option value="epic">Epic</option>
+              </select>
+              <select className="select" value={newPriority} onChange={e => setNewPriority(Number(e.target.value))}>
+                <option value={0}>P0 Critical</option>
+                <option value={1}>P1 High</option>
+                <option value={2}>P2 Medium</option>
+                <option value={3}>P3 Low</option>
+                <option value={4}>P4 Lowest</option>
+              </select>
+            </div>
+            <textarea className="textarea" placeholder="Description (optional)" rows={3}
+              value={newDesc} onChange={e => setNewDesc(e.target.value)} />
+            <div className="form-actions">
+              <button className="btn btn-primary" onClick={createBead} disabled={!newTitle.trim()}>Create</button>
+              <button className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit panel */}
+      {editing && (
+        <div className="card card-edit animate-slide-down">
+          <div className="card-header-bar">
+            <h3>Edit: {editing.id}</h3>
+            <div className="header-actions">
+              <button className="btn btn-sm btn-primary" onClick={saveEdit}>Save</button>
+              <button className="btn btn-sm btn-ghost" onClick={cancelEdit}>Cancel</button>
+            </div>
+          </div>
+          <div className="form-grid">
+            <input className="input" value={editTitle} onChange={e => setEditTitle(e.target.value)}
+              placeholder="Title" />
+            <textarea className="textarea" value={editDesc} onChange={e => setEditDesc(e.target.value)}
+              placeholder="Description" rows={3} />
+          </div>
+        </div>
+      )}
+
+      {/* Bead list */}
+      <div className="bead-list">
+        {beads.length === 0 && !loading && (
+          <div className="empty-state">
+            <span className="empty-icon">{'\u29BE'}</span>
+            <h3>No beads</h3>
+            <p>Create a bead or inject a plan via the Swarm page.</p>
+          </div>
+        )}
+        {beads.map(bead => (
+          <div key={bead.id} className="bead-card">
+            <div className="bead-card-header">
+              <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
+              <span className="bead-id">{bead.id}</span>
+              <span className="bead-type-tag">{bead.type}</span>
+              <span className="bead-spacer" />
+
+              <select className={`select select-xs priority-select p${bead.priority}`}
+                value={bead.priority}
+                onChange={e => changePriority(bead.id, Number(e.target.value))}>
+                <option value={0}>P0</option>
+                <option value={1}>P1</option>
+                <option value={2}>P2</option>
+                <option value={3}>P3</option>
+                <option value={4}>P4</option>
+              </select>
+            </div>
+
+            <h4 className="bead-title">{bead.title}</h4>
+            {bead.description && <p className="bead-desc">{bead.description.slice(0, 200)}</p>}
+
+            {bead.tags?.length > 0 && (
+              <div className="bead-meta">
+                {bead.tags.map((t: string) => <span key={t} className="tag">{t}</span>)}
+              </div>
+            )}
+
+            <div className="bead-actions">
+              {bead.status === 'ready' && (
+                <>
+                  <button className="btn btn-xs btn-info" onClick={() => claimBead(bead.id)}>Claim</button>
+                  <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
+                </>
+              )}
+              {bead.status === 'claimed' && (
+                <>
+                  <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Back to Open</button>
+                  <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
+                </>
+              )}
+              {bead.status === 'done' && (
+                <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Reopen</button>
+              )}
+              {bead.status === 'failed' && (
+                <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Retry</button>
+              )}
+              {bead.status === 'pending' && (
+                <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Unblock</button>
+              )}
+
+              <span className="bead-action-spacer" />
+              <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)}>Edit</button>
+              {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}

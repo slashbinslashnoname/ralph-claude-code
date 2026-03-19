@@ -1,33 +1,40 @@
 {
-  "name": "ralph-claude-code",
+  "name": "slashbot",
   "version": "1.0.0",
-  "description": "> **Autonomous AI development loop with intelligent exit detection and rate limiting**",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs",
-    "example": "examples",
-    "test": "tests"
-  },
+  "description": "Slashbot — Agent Flywheel Orchestrator for autonomous AI development with beads",
+  "main": "./out/main/index.js",
   "scripts": {
-    "test": "bats tests/unit/ tests/integration/",
-    "test:unit": "bats tests/unit/",
-    "test:integration": "bats tests/integration/",
-    "test:e2e": "bats tests/e2e/"
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite preview",
+    "test": "echo \"No tests configured yet\""
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/frankbria/ralph-claude-code.git"
   },
-  "keywords": [],
+  "keywords": ["electron", "ai", "claude", "beads", "autonomous"],
   "author": "",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/frankbria/ralph-claude-code/issues"
   },
   "homepage": "https://github.com/frankbria/ralph-claude-code#readme",
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "node-pty": "^1.0.0"
+  },
   "devDependencies": {
-    "bats": "^1.12.0",
-    "bats-assert": "^2.2.0",
-    "bats-support": "^0.3.0"
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.2.0",
+"electron": "^33.0.0",
+    "electron-vite": "^2.3.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.4.0"
   }
 }
