@@ -248,29 +248,82 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
 
   // ── Beads ─────────────────────────────────────────────────────────────────
 
+  const bd = (args: string, cwd: string) => execAsync(`bd ${args}`, { cwd })
+
   ipcMain.handle('beads:check', async (_e, projectPath: string) => {
     if (!existsSync(join(projectPath, '.beads')))
-      return { available: false, reason: 'No .beads directory found' }
+      return { available: false, reason: 'No .beads directory found — run `bd init` in this project.' }
     try { await execAsync('which bd'); return { available: true } }
-    catch { return { available: false, reason: '`bd` command not found on PATH' } }
+    catch { return { available: false, reason: '`bd` command not found on PATH.' } }
   })
 
-  ipcMain.handle('beads:fetch', async (_e, projectPath: string, filter = 'open') => {
-    const args = filter === 'all' ? ['list', '--json', '--all'] : ['list', '--json', '--status', filter]
+  ipcMain.handle('beads:list', async (_e, projectPath: string, filter = 'open') => {
     try {
-      const { stdout } = await execAsync(`bd ${args.join(' ')}`, { cwd: projectPath })
+      const args = filter === 'all' ? 'list --json' : `list --status ${filter} --json`
+      const { stdout } = await bd(args, projectPath)
       const raw = JSON.parse(stdout) as Record<string, unknown>[]
-      if (!Array.isArray(raw)) throw new Error('Unexpected format')
-      return {
-        ok: true,
-        tasks: raw.filter(t => t.id && t.title).map(t => ({
-          id: String(t.id), title: String(t.title), status: String(t.status ?? 'open'),
-          priority: t.priority !== undefined ? String(t.priority) : undefined,
-          tags: Array.isArray(t.tags) ? (t.tags as unknown[]).map(String) : []
-        }))
-      }
+      return { ok: true, tasks: Array.isArray(raw) ? raw : [] }
     } catch (e: unknown) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
+    }
+  })
+
+  ipcMain.handle('beads:show', async (_e, projectPath: string, id: string) => {
+    try {
+      const { stdout } = await bd(`show ${id} --json`, projectPath)
+      return { ok: true, task: JSON.parse(stdout) }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('beads:create', async (_e, projectPath: string, opts: {
+    title: string; type?: string; priority?: number; description?: string; labels?: string[]
+  }) => {
+    try {
+      let args = `create ${JSON.stringify(opts.title)}`
+      if (opts.type)        args += ` -t ${opts.type}`
+      if (opts.priority !== undefined) args += ` -p ${opts.priority}`
+      if (opts.description) args += ` -d ${JSON.stringify(opts.description)}`
+      if (opts.labels?.length) args += ` -l ${opts.labels.join(',')}`
+      args += ' --json'
+      const { stdout } = await bd(args, projectPath)
+      return { ok: true, task: JSON.parse(stdout) }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('beads:update', async (_e, projectPath: string, id: string, opts: {
+    priority?: number; claim?: boolean; labelsAdd?: string[]; labelsRemove?: string[]
+  }) => {
+    try {
+      if (opts.priority !== undefined) await bd(`update ${id} --priority ${opts.priority} --json`, projectPath)
+      if (opts.claim) await bd(`update ${id} --claim --json`, projectPath)
+      for (const l of opts.labelsAdd    ?? []) await bd(`label add    ${id} ${l} --json`, projectPath)
+      for (const l of opts.labelsRemove ?? []) await bd(`label remove ${id} ${l} --json`, projectPath)
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('beads:close', async (_e, projectPath: string, id: string, reason = 'Done') => {
+    try {
+      await bd(`close ${id} --reason ${JSON.stringify(reason)} --json`, projectPath)
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('beads:reopen', async (_e, projectPath: string, id: string, reason = '') => {
+    try {
+      const args = reason ? `reopen ${id} --reason ${JSON.stringify(reason)} --json` : `reopen ${id} --json`
+      await bd(args, projectPath)
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
@@ -285,7 +338,6 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     const swarm = new SwarmOrchestrator(projectPath)
 
     swarm.on('log', (level, msg, agentId) => {
-      broadcast('logs:lines', projectPath, [`[${new Date().toISOString()}] [${level}] ${msg}`])
       broadcast('swarm:log', projectPath, level, msg, agentId ?? null)
     })
     swarm.on('output', (agentId, chunk) => {

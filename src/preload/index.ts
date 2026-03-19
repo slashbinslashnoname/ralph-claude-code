@@ -66,9 +66,20 @@ contextBridge.exposeInMainWorld('ralph', {
 
   // ── Beads ────────────────────────────────────────────────────────────────
   beads: {
-    check: (projectPath: string) => ipcRenderer.invoke('beads:check', projectPath),
-    fetch: (projectPath: string, filter?: string) =>
-      ipcRenderer.invoke('beads:fetch', projectPath, filter ?? 'open')
+    check:  (projectPath: string) =>
+      ipcRenderer.invoke('beads:check', projectPath),
+    list:   (projectPath: string, filter?: string) =>
+      ipcRenderer.invoke('beads:list', projectPath, filter ?? 'open'),
+    show:   (projectPath: string, id: string) =>
+      ipcRenderer.invoke('beads:show', projectPath, id),
+    create: (projectPath: string, opts: { title: string; type?: string; priority?: number; description?: string; labels?: string[] }) =>
+      ipcRenderer.invoke('beads:create', projectPath, opts),
+    update: (projectPath: string, id: string, opts: { priority?: number; claim?: boolean; labelsAdd?: string[]; labelsRemove?: string[] }) =>
+      ipcRenderer.invoke('beads:update', projectPath, id, opts),
+    close:  (projectPath: string, id: string, reason?: string) =>
+      ipcRenderer.invoke('beads:close', projectPath, id, reason ?? 'Done'),
+    reopen: (projectPath: string, id: string, reason?: string) =>
+      ipcRenderer.invoke('beads:reopen', projectPath, id, reason),
   },
 
   // ── Swarm orchestrator ────────────────────────────────────────────────────
