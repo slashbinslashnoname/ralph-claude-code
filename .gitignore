@@ -17,6 +17,7 @@
 !.ralph/logs/.gitkeep
 .ralph/docs/generated/*
 !.ralph/docs/generated/.gitkeep
+out
 
 # General logs
 *.log
