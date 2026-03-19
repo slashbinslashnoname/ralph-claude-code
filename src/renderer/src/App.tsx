@@ -7,6 +7,7 @@ import SwarmPage from './pages/SwarmPage'
 import LogViewer from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
 import SetupWizard from './pages/SetupWizard'
+import SlashbotLogo from './components/SlashbotLogo'
 
 const ralph = window.ralph
 
@@ -206,7 +207,7 @@ export default function App() {
       <div className="landing">
         <div className="landing-content">
           <div className="landing-logo">
-            <span className="logo-icon">{'\u2B21'}</span>
+            <SlashbotLogo size={64} className="logo-icon" />
             <h1>Slashbot</h1>
             <p className="subtitle">Agent Flywheel Orchestrator</p>
           </div>
@@ -256,7 +257,7 @@ export default function App() {
       {current && (
         <nav className="sidebar">
           <div className="sidebar-header" title={current.path}>
-            <span className="project-icon">{'\u2B21'}</span>
+            <SlashbotLogo size={18} className="project-icon" />
             <span className="project-name">{current.path.split('/').pop()}</span>
           </div>
           <div className="nav-items">
