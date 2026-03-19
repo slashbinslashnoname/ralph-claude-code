@@ -16,6 +16,10 @@ import chokidar, { FSWatcher }                          from 'chokidar'
 import { RalphLoop }    from './loop/RalphLoop'
 import { loadConfig }   from './loop/RcParser'
 import { CircuitBreaker } from './loop/CircuitBreaker'
+import {
+  checkEnabled, detectProjectContext, enableRalph,
+  EnableOptions
+} from './loop/RalphEnabler'
 
 const execAsync = promisify(exec)
 
@@ -220,6 +224,19 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null): void {
     const f = join(ralphDir(projectPath), '.claude_session_id')
     try { if (existsSync(f)) writeFileSync(f, ''); return { ok: true } }
     catch (e: unknown) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  // ── Ralph enable (replaces ralph_enable.sh) ──────────────────────────────
+
+  ipcMain.handle('ralph:is-enabled', (_e, projectPath: string) => {
+    return {
+      ...checkEnabled(projectPath),
+      context: detectProjectContext(projectPath)
+    }
+  })
+
+  ipcMain.handle('ralph:enable', (_e, projectPath: string, opts: EnableOptions) => {
+    return enableRalph(projectPath, opts)
   })
 
   // ── Beads ─────────────────────────────────────────────────────────────────
