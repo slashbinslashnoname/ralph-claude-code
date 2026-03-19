@@ -50,3 +50,7 @@ target/
 
 # Ralph backup directories (created by migration)
 .ralph_backup_*
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
