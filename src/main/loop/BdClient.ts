@@ -325,7 +325,7 @@ export class BdClient {
   // ── Stats (computed from list) ────────────────────────────────────────
 
   stats(): BeadStats {
-    const all = this.list()
+    const all = this.listAll()
     const total = all.length
     const open = all.filter(b => b.status === 'ready' || b.status === 'pending').length
     const inProgress = all.filter(b => b.status === 'claimed').length
