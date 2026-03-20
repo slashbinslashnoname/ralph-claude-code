@@ -165,7 +165,7 @@ export class BdClient {
     label?: string
     assignee?: string
   }): Bead[] {
-    let args = 'list'
+    let args = 'list --limit 0'
     if (filter?.status) args += ` --status ${filter.status}`
     if (filter?.type) args += ` --type ${filter.type}`
     if (filter?.priority !== undefined) args += ` --priority ${filter.priority}`
@@ -177,7 +177,7 @@ export class BdClient {
 
   listAll(): Bead[] {
     try {
-      const raw = this.runJson<unknown[]>('list --all')
+      const raw = this.runJson<unknown[]>('list --all --limit 0')
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch {
       return this.list()
