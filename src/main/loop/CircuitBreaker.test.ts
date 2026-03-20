@@ -367,7 +367,8 @@ describe('CircuitBreaker', () => {
         cb.recordError(`error ${i}`)
       }
       // Should not throw and circuit should still work
-      expect(cb.snapshot().consecutive_same_error).toBe(14) // 15 calls, first one doesn't count
+      // First call doesn't increment (lastErrors.length < 2), calls 2-15 each increment
+      expect(cb.snapshot().consecutive_same_error).toBe(14)
     })
   })
 
