@@ -9,6 +9,7 @@ import { WorkerLoop } from './WorkerLoop'
 
 export class SwarmOrchestrator extends EventEmitter {
   private workers = new Map<string, WorkerLoop>()
+  private workerLoopPromises = new Map<string, Promise<void>>()
   private planner: PlanLoop | null = null
   private planning = false
   private activityPollTimer: ReturnType<typeof setInterval> | null = null
@@ -19,6 +20,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private logDir: string
   private agentOutputBuffers = new Map<string, string>()
   sessionStartedAt: string | null = null
+  private shuttingDown = false
 
   constructor(private projectPath: string) {
     super()
@@ -83,6 +85,10 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   startWorkers(n = 2): void {
+    if (this.shuttingDown) {
+      this._log('WARN', 'Cannot start workers during shutdown')
+      return
+    }
     const config = loadConfig(this.projectPath)
     if (!this.sessionStartedAt) this.sessionStartedAt = new Date().toISOString()
 
@@ -120,11 +126,14 @@ export class SwarmOrchestrator extends EventEmitter {
         }
       })
       this.workers.set(agentId, worker)
-      worker.start().catch(err => {
+      const loopPromise = worker.start().catch(err => {
         this._log('ERROR', `[${agentId}] start failed: ${err instanceof Error ? err.message : err}`)
         this.workers.delete(agentId)
         this._broadcastAgents()
+      }).finally(() => {
+        this.workerLoopPromises.delete(agentId)
       })
+      this.workerLoopPromises.set(agentId, loopPromise)
     }
     this._startActivityPoll()
     this._broadcastAgents()
@@ -150,6 +159,50 @@ export class SwarmOrchestrator extends EventEmitter {
     this.stopWorkers()
   }
 
+  /**
+   * Gracefully shut down: stop accepting new work, wait for in-flight merges
+   * to finish, then clean up and emit 'shutdown-complete'.
+   */
+  async shutdown(timeoutMs = 30_000): Promise<void> {
+    if (this.shuttingDown) return
+    this.shuttingDown = true
+    this._log('INFO', 'Shutdown initiated — stopping planner and workers…')
+
+    // Stop planner and clear queue
+    this.planner?.stop()
+    this.planner = null
+    this.planning = false
+    this.planQueue = []
+    this._broadcastQueue()
+
+    // Signal all workers to stop (they will finish in-flight merges via their finally blocks)
+    for (const worker of this.workers.values()) {
+      worker.stop()
+    }
+
+    // Wait for worker loops to fully complete (including finally-block merges),
+    // with a timeout to avoid hanging indefinitely
+    const loopPromises = [...this.workerLoopPromises.values()]
+    if (loopPromises.length > 0) {
+      await Promise.race([
+        Promise.allSettled(loopPromises),
+        new Promise<void>(resolve => setTimeout(() => {
+          this._log('WARN', `Shutdown timeout (${timeoutMs}ms) — forcing cleanup`)
+          resolve()
+        }, timeoutMs))
+      ])
+    }
+
+    this.workers.clear()
+    this.workerLoopPromises.clear()
+    this._stopActivityPoll()
+    this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
+    this._log('INFO', 'Shutdown complete')
+    this.shuttingDown = false
+    this.emit('shutdown-complete')
+  }
+
+  isShuttingDown(): boolean { return this.shuttingDown }
   workerCount(): number { return this.workers.size }
   isPlanning(): boolean { return this.planning }
   getAgents(): AgentInfo[] { return this.coordinator.getAgents() }
