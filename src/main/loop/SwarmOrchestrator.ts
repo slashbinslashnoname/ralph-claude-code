@@ -6,6 +6,7 @@ import { loadConfig } from './RcParser'
 import { AgentCoordinator } from './AgentCoordinator'
 import { PlanLoop } from './PlanLoop'
 import { WorkerLoop } from './WorkerLoop'
+import { runHealthCheck, formatHealthErrors } from './HealthCheck'
 
 export class SwarmOrchestrator extends EventEmitter {
   private workers = new Map<string, WorkerLoop>()
@@ -90,6 +91,14 @@ export class SwarmOrchestrator extends EventEmitter {
       return
     }
     const config = loadConfig(this.projectPath)
+
+    // Pre-flight health check
+    const health = runHealthCheck(this.projectPath, config.claudeCodeCmd)
+    if (!health.ok) {
+      const report = formatHealthErrors(health.errors)
+      this._log('ERROR', `Health check failed:\n${report}`)
+      throw new Error(`Health check failed:\n${report}`)
+    }
     if (!this.sessionStartedAt) this.sessionStartedAt = new Date().toISOString()
 
     // Stop excess workers if reducing count
