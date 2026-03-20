@@ -4,7 +4,7 @@
  * returns { ok: false, error } to the renderer.
  */
 
-import { validateProjectPath } from './beadValidation'
+import { validateProjectPath, validateStatusFilter } from './beadValidation'
 
 // ── Worker count validation ──────────────────────────────────────────────────
 const MIN_WORKERS = 1
@@ -158,5 +158,48 @@ export function validateSwarmAgentLogContent(projectPath: unknown, filename: unk
   return {
     projectPath: validateProjectPath(projectPath),
     filename: validateLogFilename(filename),
+  }
+}
+
+export function validateSwarmQueue(projectPath: unknown): {
+  projectPath: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+  }
+}
+
+export function validateSwarmStatus(projectPath: unknown): {
+  projectPath: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+  }
+}
+
+export function validateSwarmBeads(projectPath: unknown, status: unknown): {
+  projectPath: string; status: string
+} {
+  // Default to 'all' (not 'open') to preserve original swarm:beads behavior
+  const s = (status === undefined || status === null) ? 'all' : validateStatusFilter(status)
+  return {
+    projectPath: validateProjectPath(projectPath),
+    status: s,
+  }
+}
+
+export function validateSwarmBeadStats(projectPath: unknown): {
+  projectPath: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+  }
+}
+
+export function validateSwarmAgentLogs(projectPath: unknown): {
+  projectPath: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
   }
 }

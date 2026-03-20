@@ -11,6 +11,11 @@ import {
   validateSwarmStop,
   validateSwarmInject,
   validateSwarmQueueRemove,
+  validateSwarmQueue,
+  validateSwarmStatus,
+  validateSwarmBeads,
+  validateSwarmBeadStats,
+  validateSwarmAgentLogs,
   validateSwarmActivity,
   validateSwarmAgentOutput,
   validateSwarmAgentLogContent,
@@ -307,5 +312,77 @@ describe('validateSwarmAgentLogContent', () => {
 
   it('rejects path traversal in filename', () => {
     assert.throws(() => validateSwarmAgentLogContent('/path', '../secrets'), /path separators/)
+  })
+})
+
+describe('validateSwarmQueue', () => {
+  it('validates projectPath', () => {
+    const result = validateSwarmQueue('/path/to/project')
+    assert.deepEqual(result, { projectPath: '/path/to/project' })
+  })
+
+  it('rejects invalid projectPath', () => {
+    assert.throws(() => validateSwarmQueue(''), /projectPath/)
+    assert.throws(() => validateSwarmQueue(null), /projectPath/)
+  })
+})
+
+describe('validateSwarmStatus', () => {
+  it('validates projectPath', () => {
+    const result = validateSwarmStatus('/path/to/project')
+    assert.deepEqual(result, { projectPath: '/path/to/project' })
+  })
+
+  it('rejects invalid projectPath', () => {
+    assert.throws(() => validateSwarmStatus(''), /projectPath/)
+  })
+})
+
+describe('validateSwarmBeads', () => {
+  it('validates projectPath and status', () => {
+    const result = validateSwarmBeads('/path', 'open')
+    assert.deepEqual(result, { projectPath: '/path', status: 'open' })
+  })
+
+  it('defaults status to all', () => {
+    const result = validateSwarmBeads('/path', undefined)
+    assert.equal(result.status, 'all')
+  })
+
+  it('accepts all valid statuses', () => {
+    assert.equal(validateSwarmBeads('/path', 'closed').status, 'closed')
+    assert.equal(validateSwarmBeads('/path', 'in_progress').status, 'in_progress')
+    assert.equal(validateSwarmBeads('/path', 'all').status, 'all')
+  })
+
+  it('rejects invalid status', () => {
+    assert.throws(() => validateSwarmBeads('/path', 'invalid'), /Invalid filter/)
+  })
+
+  it('rejects invalid projectPath', () => {
+    assert.throws(() => validateSwarmBeads('', 'open'), /projectPath/)
+  })
+})
+
+describe('validateSwarmBeadStats', () => {
+  it('validates projectPath', () => {
+    const result = validateSwarmBeadStats('/path/to/project')
+    assert.deepEqual(result, { projectPath: '/path/to/project' })
+  })
+
+  it('rejects invalid projectPath', () => {
+    assert.throws(() => validateSwarmBeadStats(''), /projectPath/)
+  })
+})
+
+describe('validateSwarmAgentLogs', () => {
+  it('validates projectPath', () => {
+    const result = validateSwarmAgentLogs('/path/to/project')
+    assert.deepEqual(result, { projectPath: '/path/to/project' })
+  })
+
+  it('rejects invalid projectPath', () => {
+    assert.throws(() => validateSwarmAgentLogs(''), /projectPath/)
+    assert.throws(() => validateSwarmAgentLogs(null), /projectPath/)
   })
 })
