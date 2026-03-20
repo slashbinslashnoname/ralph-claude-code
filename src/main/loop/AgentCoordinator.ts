@@ -5,6 +5,13 @@ import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
 
+/** Write to a temp file then rename — atomic on POSIX (prevents corruption on crash). */
+function atomicWriteSync(filePath: string, data: string): void {
+  const tmp = filePath + '.tmp'
+  fs.writeFileSync(tmp, data)
+  fs.renameSync(tmp, filePath)
+}
+
 export class AgentCoordinator {
   private lockFile: string
   private agentsFile: string
@@ -27,7 +34,7 @@ export class AgentCoordinator {
   }
 
   writeLocks(locks: FileLock[]): void {
-    fs.writeFileSync(this.lockFile, JSON.stringify(locks, null, 2))
+    atomicWriteSync(this.lockFile, JSON.stringify(locks, null, 2))
   }
 
   reserveFiles(agentId: string, beadId: string, files: string[]): void {
@@ -61,7 +68,7 @@ export class AgentCoordinator {
   }
 
   writeAgents(agents: AgentInfo[]): void {
-    fs.writeFileSync(this.agentsFile, JSON.stringify(agents, null, 2))
+    atomicWriteSync(this.agentsFile, JSON.stringify(agents, null, 2))
   }
 
   registerAgent(agent: AgentInfo): void {
@@ -173,10 +180,42 @@ export class AgentCoordinator {
     }
   }
 
-  /** Merge a worktree branch back to the current branch and clean up */
-  mergeWorktree(agentId: string, beadId: string, branch: string, worktreePath: string): { merged: boolean; filesChanged: string[]; error?: string } {
+  /** Merge a worktree branch back to the current branch and clean up.
+   *  Retries up to maxRetries times on conflict, pulling before each retry.
+   *  If stoppedFn returns true, retries are skipped. */
+  mergeWorktree(
+    agentId: string, beadId: string, branch: string, worktreePath: string,
+    opts?: { maxRetries?: number; stoppedFn?: () => boolean }
+  ): { merged: boolean; filesChanged: string[]; error?: string } {
+    const maxRetries = opts?.maxRetries ?? 2
+    const stoppedFn = opts?.stoppedFn
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const result = this._tryMerge(branch, worktreePath)
+      if (result.merged) {
+        this._cleanupWorktree(worktreePath, branch)
+        return result
+      }
+
+      // No more retries or agent is stopping — give up
+      if (attempt >= maxRetries || (stoppedFn && stoppedFn())) {
+        this._cleanupWorktree(worktreePath, branch)
+        return result
+      }
+
+      // Pull latest before retrying (abort failed merge first)
+      try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      try { execSync('git pull --rebase=false', { cwd: this.projectPath, timeout: 15000, stdio: 'pipe' }) } catch { /* ignore */ }
+    }
+
+    // Should not reach here, but be safe
+    this._cleanupWorktree(worktreePath, branch)
+    return { merged: false, filesChanged: [], error: 'exhausted retries' }
+  }
+
+  /** Single merge attempt — does not clean up worktree on failure. */
+  private _tryMerge(branch: string, worktreePath: string): { merged: boolean; filesChanged: string[]; error?: string } {
     try {
-      // Check if there are any commits on the branch that differ from current
       const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: this.projectPath, timeout: 5000
       }).toString().trim()
@@ -186,12 +225,9 @@ export class AgentCoordinator {
       }).toString().trim()
 
       if (!diffOutput) {
-        // No new commits, nothing to merge
-        this._cleanupWorktree(worktreePath, branch)
         return { merged: true, filesChanged: [] }
       }
 
-      // Get list of changed files
       const filesOutput = execSync(`git diff --name-only "${currentBranch}..${branch}"`, {
         cwd: this.projectPath, timeout: 5000
       }).toString().trim()
@@ -203,7 +239,6 @@ export class AgentCoordinator {
         const fullPath = path.join(this.projectPath, name)
         let stat: fs.Stats | null = null
         try { stat = fs.lstatSync(fullPath) } catch { continue }
-        // Skip if git-tracked
         try {
           execSync(`git ls-files --error-unmatch "${name}"`, { cwd: this.projectPath, timeout: 3000, stdio: 'pipe' })
           continue
@@ -219,16 +254,13 @@ export class AgentCoordinator {
         }
       }
 
-      // Merge the branch
       try {
         execSync(`git merge "${branch}" --no-edit`, {
           cwd: this.projectPath, timeout: 30000
         })
       } finally {
-        // Restore moved items
         for (const item of movedItems) {
           try {
-            // Remove whatever the merge may have placed there
             try { fs.rmSync(item.path, { recursive: true, force: true }) } catch { /* ok */ }
             if (item.symlinkTarget) {
               const isDir = (() => { try { return fs.statSync(item.symlinkTarget).isDirectory() } catch { return false } })()
@@ -241,19 +273,10 @@ export class AgentCoordinator {
         }
       }
 
-      // Cleanup
-      this._cleanupWorktree(worktreePath, branch)
-
       return { merged: true, filesChanged }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-
-      // Abort failed merge
       try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
-
-      // Still cleanup the worktree
-      this._cleanupWorktree(worktreePath, branch)
-
       return { merged: false, filesChanged: [], error: msg }
     }
   }
@@ -310,6 +333,35 @@ export class AgentCoordinator {
     this.bd.close(beadId, `Failed: ${reason}`)
     this.releaseFiles(agentId, beadId)
     this.postActivity({ agentId, type: 'failed', beadId, summary: reason })
+  }
+
+  /** Remove worktree directories not owned by any registered agent. */
+  cleanOrphanedWorktrees(): string[] {
+    const worktreesDir = path.join(this.projectPath, '.worktrees')
+    if (!fs.existsSync(worktreesDir)) return []
+
+    const agents = new Set(this.readAgents().map(a => a.id))
+    const removed: string[] = []
+
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(worktreesDir, { withFileTypes: true }) } catch { return [] }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      // Worktree dirs are named <agentId>-<beadId>, e.g. "agent-0-sb-abc"
+      const parts = entry.name.split('-')
+      const agentId = parts.slice(0, 2).join('-') // e.g. "agent-0"
+      if (agents.has(agentId)) continue // owned by active agent
+
+      const wtPath = path.join(worktreesDir, entry.name)
+      const beadId = parts.slice(2).join('-') // e.g. "sb-abc"
+      const branch = `agent/${agentId}/${beadId}`
+      this._cleanupWorktree(wtPath, branch)
+      // Fallback: rm dir if git worktree remove didn't work
+      try { if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true }) } catch { /* ignore */ }
+      removed.push(entry.name)
+    }
+    return removed
   }
 
   hasOpenWork(): boolean {

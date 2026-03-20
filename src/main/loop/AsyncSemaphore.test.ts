@@ -116,6 +116,71 @@ describe('AsyncSemaphore', () => {
     sem.release()
   })
 
+  it('acquire with retry pattern — retry succeeds after timeout', async () => {
+    const sem = new AsyncSemaphore()
+    await sem.acquire() // hold the lock
+
+    // Simulate retry-on-timeout: first attempt times out, second succeeds
+    let acquired = false
+    const maxRetries = 3
+    let attempts = 0
+
+    // Release after 80ms — first 30ms attempt fails, second succeeds
+    setTimeout(() => sem.release(), 80)
+
+    for (let i = 0; i < maxRetries; i++) {
+      attempts++
+      try {
+        await sem.acquire(50) // 50ms timeout
+        acquired = true
+        break
+      } catch {
+        // timeout — retry
+      }
+    }
+
+    assert.equal(acquired, true, 'should acquire on retry')
+    assert.equal(attempts, 2, 'should succeed on second attempt')
+    sem.release()
+  })
+
+  it('acquire with retry pattern — respects max retries', async () => {
+    const sem = new AsyncSemaphore()
+    await sem.acquire() // hold the lock, never release
+
+    const maxRetries = 3
+    let attempts = 0
+
+    for (let i = 0; i < maxRetries; i++) {
+      attempts++
+      try {
+        await sem.acquire(20)
+        break
+      } catch {
+        // timeout — retry
+      }
+    }
+
+    assert.equal(attempts, 3, 'should exhaust all retries')
+    sem.release() // cleanup
+  })
+
+  it('concurrent acquire+release stress test', async () => {
+    const sem = new AsyncSemaphore()
+    let counter = 0
+
+    const tasks = Array.from({ length: 10 }, async (_, i) => {
+      await sem.acquire(2000)
+      counter++
+      // Simulate brief work
+      await new Promise(r => setTimeout(r, 5))
+      sem.release()
+    })
+
+    await Promise.all(tasks)
+    assert.equal(counter, 10, 'all tasks should complete')
+  })
+
   it('middle waiter times out, FIFO preserved for survivors', async () => {
     const sem = new AsyncSemaphore()
     const order: string[] = []

@@ -91,10 +91,11 @@ export class WorkerLoop extends EventEmitter {
       const p = this.childProc
       setTimeout(() => { try { p.kill('SIGKILL') } catch { /* ignore */ } }, 3000)
     }
+    // Release file locks immediately but defer deregistration —
+    // the loop's finally block may still be merging and needs the agent state.
     this.coordinator.releaseAllForAgent(this.agentId)
-    this.coordinator.deregisterAgent(this.agentId)
     this.coordinator.postActivity({ agentId: this.agentId, type: 'stopped' })
-    this._exit('stopped')
+    // Do NOT call deregisterAgent() here — it will be called in _exit()
   }
 
   private async _loop(): Promise<void> {
@@ -206,7 +207,9 @@ export class WorkerLoop extends EventEmitter {
             })
           } catch { /* ignore — may have nothing to commit */ }
 
-          const result = this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath)
+          const result = this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath, {
+            stoppedFn: () => this.stopped
+          })
           filesChanged = result.filesChanged
 
           if (result.merged) {
@@ -421,6 +424,8 @@ DO NOT write any implementation code. Analysis only.`
 
   private _exit(reason: string): void {
     this.running = false
+    // Deregister after loop fully exits (including finally-block merges)
+    this.coordinator.deregisterAgent(this.agentId)
     this._log('INFO', `[${this.agentId}] exit: ${reason}`)
     this.emit('exit', reason)
   }
