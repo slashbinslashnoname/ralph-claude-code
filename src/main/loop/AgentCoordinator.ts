@@ -132,8 +132,13 @@ export class AgentCoordinator {
 
       // Clean up stale worktree if exists
       if (fs.existsSync(worktreePath)) {
-        try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.projectPath, timeout: 10000 }) } catch { /* ignore */ }
+        try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+        // Force-remove directory if git worktree remove didn't clean it
+        try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
       }
+
+      // Prune stale worktree references so git doesn't block creating new ones
+      try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
 
       // Delete branch if it exists from a previous attempt
       try { execSync(`git branch -D "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
@@ -279,6 +284,8 @@ export class AgentCoordinator {
 
   /** Single merge attempt — does not clean up worktree on failure. */
   private _tryMerge(branch: string, worktreePath: string): { merged: boolean; filesChanged: string[]; error?: string } {
+    // Declared outside try so it's accessible in the catch block
+    let stashed = false
     try {
       const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: this.projectPath, timeout: 5000
@@ -319,7 +326,6 @@ export class AgentCoordinator {
       }
 
       // Stash any pending local modifications so merge doesn't fail
-      let stashed = false
       try {
         const stashOut = execSync('git stash push -m "ralph-merge-tmp" --include-untracked', {
           cwd: this.projectPath, timeout: 10000, stdio: 'pipe'
@@ -369,6 +375,10 @@ export class AgentCoordinator {
 
   private _cleanupWorktree(worktreePath: string, branch: string): void {
     try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+    // Force-remove directory if git worktree remove didn't clean it up
+    try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
+    // Prune stale worktree references so git doesn't think the worktree still exists
+    try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
     try { execSync(`git branch -D "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
   }
 
@@ -399,8 +409,19 @@ export class AgentCoordinator {
         }
       }
 
-      // Sort: fewest unresolved deps + open children first, then priority
+      // Read retry attempts to deprioritize beads that keep failing
+      const retryCount = new Map<string, number>()
+      for (const c of candidates) {
+        const raw = this.bd.getState(c.id, 'retry_attempt')
+        const n = parseInt(raw, 10)
+        if (!isNaN(n) && n > 0) retryCount.set(c.id, n)
+      }
+
+      // Sort: fewest retries first, then fewest unresolved deps + open children, then priority
       candidates.sort((a, b) => {
+        const retriesA = retryCount.get(a.id) ?? 0
+        const retriesB = retryCount.get(b.id) ?? 0
+        if (retriesA !== retriesB) return retriesA - retriesB
         const unresolvedA = a.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
         const unresolvedB = b.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
         if (unresolvedA !== unresolvedB) return unresolvedA - unresolvedB
@@ -486,6 +507,10 @@ export class AgentCoordinator {
     }
     // Clear all file locks from previous session
     this.clearAllFileLocks()
+    // Clean up orphaned worktrees from previous session
+    this.cleanOrphanedWorktrees()
+    // Prune stale git worktree references
+    try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
   }
 
   failBead(agentId: string, beadId: string, reason: string): void {

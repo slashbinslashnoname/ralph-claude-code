@@ -145,6 +145,7 @@ export class WorkerLoop extends EventEmitter {
       // Wrap in try/finally to ensure worktree is always merged back
       let executeFailed = false
       let apiLimited = false
+      let mergeFailed = false
       let filesChanged: string[] = []
 
       try {
@@ -209,40 +210,73 @@ export class WorkerLoop extends EventEmitter {
       } finally {
         // ── Phase 4: Always merge worktree back ─────────────────────
         if (wt) {
-          this._setPhase('merging', bead.id, bead.title)
-          this._log('INFO', `[${this.agentId}] Merging worktree branch ${wt.branch}…`)
-
-          // Commit any uncommitted changes in the worktree
           try {
-            execSync('git add -A && git diff --cached --quiet || git commit -m "agent work on bead"', {
-              cwd: wt.worktreePath, timeout: 10000, stdio: 'pipe',
-              env: { ...this.env, GIT_AUTHOR_NAME: this.agentId, GIT_COMMITTER_NAME: this.agentId }
-            })
-          } catch { /* ignore — may have nothing to commit */ }
+            this._setPhase('merging', bead.id, bead.title)
+            this._log('INFO', `[${this.agentId}] Merging worktree branch ${wt.branch}…`)
 
-          const result = await this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath, {
-            stoppedFn: () => this.stopped,
-            claudeCmd: this.resolvedCmd,
-            env: this.env
-          })
-          filesChanged = result.filesChanged
+            // Commit any uncommitted changes in the worktree
+            try {
+              execSync('git add -A && git diff --cached --quiet || git commit -m "agent work on bead"', {
+                cwd: wt.worktreePath, timeout: 10000, stdio: 'pipe',
+                env: { ...this.env, GIT_AUTHOR_NAME: this.agentId, GIT_COMMITTER_NAME: this.agentId }
+              })
+            } catch { /* ignore — may have nothing to commit */ }
 
-          if (result.merged) {
-            this._log('SUCCESS', `[${this.agentId}] Merged ${filesChanged.length} files from ${wt.branch}`)
-            this.emit('output', `\n── Merged ${wt.branch} → ${filesChanged.length} files ──\n${filesChanged.map(f => `  ${f}`).join('\n')}\n\n`)
-            this.coordinator.postActivity({
-              agentId: this.agentId, type: 'merged', beadId: bead.id,
-              beadTitle: bead.title, branch: wt.branch,
-              filesChanged, summary: `Merged ${filesChanged.length} files`
+            const result = await this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath, {
+              stoppedFn: () => this.stopped,
+              claudeCmd: this.resolvedCmd,
+              env: this.env
             })
-          } else {
-            this._log('ERROR', `[${this.agentId}] Merge conflict: ${result.error}`)
-            this.emit('output', `\n── Merge FAILED: ${wt.branch} ──\n${result.error}\n\n`)
+            filesChanged = result.filesChanged
+
+            if (result.merged) {
+              this._log('SUCCESS', `[${this.agentId}] Merged ${filesChanged.length} files from ${wt.branch}`)
+              this.emit('output', `\n── Merged ${wt.branch} → ${filesChanged.length} files ──\n${filesChanged.map(f => `  ${f}`).join('\n')}\n\n`)
+              this.coordinator.postActivity({
+                agentId: this.agentId, type: 'merged', beadId: bead.id,
+                beadTitle: bead.title, branch: wt.branch,
+                filesChanged, summary: `Merged ${filesChanged.length} files`
+              })
+            } else {
+              this._log('ERROR', `[${this.agentId}] Merge failed: ${result.error}`)
+              this.emit('output', `\n── Merge FAILED: ${wt.branch} ──\n${result.error}\n\n`)
+              mergeFailed = true
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            this._log('ERROR', `[${this.agentId}] Merge crashed: ${msg}`)
+            this.emit('output', `\n── Merge ERROR: ${msg} ──\n\n`)
+            mergeFailed = true
           }
         }
       }
 
       // ── Phase 5: Close, retry, or permanently fail bead ──────────
+      if (mergeFailed) {
+        const attempt = this._getBeadAttempt(bead.id)
+        const maxRetries = this.config.maxRetries
+
+        if (attempt < maxRetries) {
+          this._incrementBeadAttempt(bead.id)
+          this.coordinator.reopenBead(this.agentId, bead.id)
+          const backoffMs = this._backoffMs(attempt)
+          this._log('WARN', `[${this.agentId}] Bead [${bead.id}] merge failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${Math.round(backoffMs / 1000)}s`)
+          this.coordinator.postActivity({
+            agentId: this.agentId, type: 'failed', beadId: bead.id,
+            beadTitle: bead.title,
+            summary: `Merge failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying after backoff`
+          })
+          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+          await this._sleep(backoffMs)
+          continue
+        }
+
+        this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] merge permanently failed after ${maxRetries + 1} attempts`)
+        this.coordinator.failBead(this.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
+        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+        await this._sleep(3000)
+        continue
+      }
       if (executeFailed) {
         const attempt = this._getBeadAttempt(bead.id)
         const maxRetries = this.config.maxRetries
