@@ -77,24 +77,27 @@ describe('SwarmOrchestrator.shutdown()', () => {
   })
 
   it('blocks startWorkers during shutdown', async () => {
-    // Start shutdown but don't await
-    const shutdownPromise = orch.shutdown()
+    // Inject a hanging promise so shutdown stays in-flight
+    const neverResolve = new Promise<void>(() => {})
+    ;(orch as any).workerLoopPromises.set('agent-fake', neverResolve)
 
-    // This sets shuttingDown = true synchronously
-    // Try to start workers — should be blocked
     const logs: string[] = []
     orch.on('log', (_level: string, msg: string) => logs.push(msg))
 
-    // shuttingDown is reset after shutdown completes, so we need to check
-    // during shutdown. Since shutdown on idle swarm is basically instant,
-    // we test the flag directly
-    assert.equal(orch.isShuttingDown(), false) // already completed synchronously? Let's await first
-    await shutdownPromise
+    // Start shutdown (will block on the fake promise until timeout)
+    const shutdownPromise = orch.shutdown(200)
 
-    // After shutdown completes, shuttingDown is reset. Verify startWorkers
-    // works again (or at least doesn't throw) — testing the guard requires
-    // calling during shutdown, which is hard without async workers.
-    // Instead, test the flag directly:
+    // shuttingDown is true synchronously after the call
+    assert.equal(orch.isShuttingDown(), true)
+
+    // Attempt to start workers during shutdown — should be rejected
+    orch.startWorkers(1)
+    assert.ok(
+      logs.some(m => m.includes('Cannot start workers during shutdown')),
+      'Should log a warning when startWorkers is called during shutdown'
+    )
+
+    await shutdownPromise
     assert.equal(orch.isShuttingDown(), false)
   })
 

@@ -184,13 +184,17 @@ export class SwarmOrchestrator extends EventEmitter {
     // with a timeout to avoid hanging indefinitely
     const loopPromises = [...this.workerLoopPromises.values()]
     if (loopPromises.length > 0) {
+      let timer: ReturnType<typeof setTimeout>
       await Promise.race([
         Promise.allSettled(loopPromises),
-        new Promise<void>(resolve => setTimeout(() => {
-          this._log('WARN', `Shutdown timeout (${timeoutMs}ms) — forcing cleanup`)
-          resolve()
-        }, timeoutMs))
+        new Promise<void>(resolve => {
+          timer = setTimeout(() => {
+            this._log('WARN', `Shutdown timeout (${timeoutMs}ms) — forcing cleanup`)
+            resolve()
+          }, timeoutMs)
+        })
       ])
+      clearTimeout(timer!)
     }
 
     this.workers.clear()
