@@ -21,6 +21,7 @@ import {
   validateBeadId,
   validateProjectPath,
 } from './loop/beadValidation'
+import { validateConfigRead, validateConfigWrite } from './loop/configValidation'
 import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
@@ -240,18 +241,20 @@ export function registerIpc(
 
   // ── File editor ─────────────────────────────────────────────────────────
 
-  const EDITABLE = ['.ralphrc', '.ralph/PROMPT.md', '.ralph/AGENT.md']
-
   ipcMain.handle('file:read', (_e, projectPath: string, relPath: string) => {
-    if (!EDITABLE.includes(relPath)) return { ok: false, error: 'Not an editable file' }
-    const c = readText(path.join(projectPath, relPath))
-    return c !== null ? { ok: true, content: c } : { ok: false, error: 'File not found' }
+    try {
+      const v = validateConfigRead(projectPath, relPath)
+      const c = readText(v.resolvedPath)
+      return c !== null ? { ok: true, content: c } : { ok: false, error: 'File not found' }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('file:write', (_e, projectPath: string, relPath: string, content: string) => {
-    if (!EDITABLE.includes(relPath)) return { ok: false, error: 'Not an editable file' }
     try {
-      fs.writeFileSync(path.join(projectPath, relPath), content)
+      const v = validateConfigWrite(projectPath, relPath, content)
+      fs.writeFileSync(v.resolvedPath, v.content)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
