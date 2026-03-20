@@ -92,4 +92,31 @@ describe('AsyncSemaphore', () => {
     assert.strictEqual(await second, 'got-it')
     sem.release()
   })
+
+  it('middle waiter times out, FIFO preserved for survivors', async () => {
+    const sem = new AsyncSemaphore()
+    const order: string[] = []
+
+    await sem.acquire() // holder
+
+    const w1 = sem.acquire(5000).then(() => { order.push('w1') })
+    const w2 = sem.acquire(30).catch(() => { order.push('w2-timeout') })
+    const w3 = sem.acquire(5000).then(() => { order.push('w3') })
+
+    // Wait for w2 to time out
+    await w2
+    assert.deepStrictEqual(order, ['w2-timeout'])
+
+    // Release holder → w1 gets it (w2 was removed from queue)
+    sem.release()
+    await w1
+    assert.deepStrictEqual(order, ['w2-timeout', 'w1'])
+
+    // Release w1 → w3 gets it
+    sem.release()
+    await w3
+    assert.deepStrictEqual(order, ['w2-timeout', 'w1', 'w3'])
+
+    sem.release()
+  })
 })
