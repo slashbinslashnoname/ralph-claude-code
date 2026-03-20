@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -39,11 +38,11 @@ describe('AgentCoordinator — atomic writes', () => {
   it('writeLocks is atomic — no .tmp file left behind', () => {
     coord.writeLocks([{ file: 'a.ts', agentId: 'agent-0', beadId: 'b1', reservedAt: new Date().toISOString() }])
     const lockFile = path.join(ralphDir, 'file_locks.json')
-    assert.ok(fs.existsSync(lockFile), 'lock file should exist')
-    assert.ok(!fs.existsSync(lockFile + '.tmp'), 'tmp file should not remain')
+    expect(fs.existsSync(lockFile)).toBe(true)
+    expect(fs.existsSync(lockFile + '.tmp')).toBe(false)
     const locks = JSON.parse(fs.readFileSync(lockFile, 'utf8'))
-    assert.equal(locks.length, 1)
-    assert.equal(locks[0].file, 'a.ts')
+    expect(locks.length).toBe(1)
+    expect(locks[0].file).toBe('a.ts')
   })
 
   it('writeAgents is atomic — no .tmp file left behind', () => {
@@ -53,10 +52,10 @@ describe('AgentCoordinator — atomic writes', () => {
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     }])
     const agentsFile = path.join(ralphDir, 'agents.json')
-    assert.ok(fs.existsSync(agentsFile), 'agents file should exist')
-    assert.ok(!fs.existsSync(agentsFile + '.tmp'), 'tmp file should not remain')
+    expect(fs.existsSync(agentsFile)).toBe(true)
+    expect(fs.existsSync(agentsFile + '.tmp')).toBe(false)
     const agents = JSON.parse(fs.readFileSync(agentsFile, 'utf8'))
-    assert.equal(agents.length, 1)
+    expect(agents.length).toBe(1)
   })
 
   it('read immediately after write returns consistent data', () => {
@@ -64,8 +63,8 @@ describe('AgentCoordinator — atomic writes', () => {
       const locks = [{ file: `f${i}.ts`, agentId: 'agent-0', beadId: `b${i}`, reservedAt: new Date().toISOString() }]
       coord.writeLocks(locks)
       const read = coord.readLocks()
-      assert.equal(read.length, 1)
-      assert.equal(read[0].file, `f${i}.ts`)
+      expect(read.length).toBe(1)
+      expect(read[0].file).toBe(`f${i}.ts`)
     }
   })
 })
@@ -82,110 +81,75 @@ describe('AgentCoordinator — merge retry', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('merges a worktree branch successfully on first try', () => {
-    // Create worktree
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
+
+  it('merges a worktree branch successfully on first try', async () => {
     const wt = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt, 'worktree should be created')
+    expect(wt).toBeTruthy()
 
-    // Make a change in the worktree
     fs.writeFileSync(path.join(wt!.worktreePath, 'new-file.txt'), 'hello')
-    execSync('git add . && git commit -m "add file"', {
-      cwd: wt!.worktreePath, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "add file"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
-    const result = coord.mergeWorktree('agent-0', 'b1', wt!.branch, wt!.worktreePath)
-    assert.equal(result.merged, true)
-    assert.ok(result.filesChanged.includes('new-file.txt'))
-    assert.ok(fs.existsSync(path.join(tmpDir, 'new-file.txt')), 'merged file should exist in main')
+    const result = await coord.mergeWorktree('agent-0', 'b1', wt!.branch, wt!.worktreePath)
+    expect(result.merged).toBe(true)
+    expect(result.filesChanged).toContain('new-file.txt')
+    expect(fs.existsSync(path.join(tmpDir, 'new-file.txt'))).toBe(true)
   })
 
-  it('retries merge after conflict and succeeds when conflict is resolved', () => {
-    // Create worktree
+  it('retries merge after conflict and succeeds when conflict is resolved', async () => {
     const wt = coord.createWorktree('agent-0', 'b2')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
 
-    // Make conflicting change on main branch
     fs.writeFileSync(path.join(tmpDir, 'conflict.txt'), 'main version')
-    execSync('git add . && git commit -m "main change"', {
-      cwd: tmpDir, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "main change"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
 
-    // Make conflicting change in worktree
     fs.writeFileSync(path.join(wt!.worktreePath, 'conflict.txt'), 'agent version')
-    execSync('git add . && git commit -m "agent change"', {
-      cwd: wt!.worktreePath, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "agent change"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
-    // Merge will conflict — retries won't help since conflict is on same file, so it should fail after retries
-    const result = coord.mergeWorktree('agent-0', 'b2', wt!.branch, wt!.worktreePath, { maxRetries: 1 })
-    assert.equal(result.merged, false)
-    assert.ok(result.error, 'should have an error message')
+    const result = await coord.mergeWorktree('agent-0', 'b2', wt!.branch, wt!.worktreePath, { maxRetries: 1 })
+    expect(result.merged).toBe(false)
+    expect(result.error).toBeTruthy()
   })
 
-  it('respects maxRetries=0 — no retry on failure', () => {
+  it('respects maxRetries=0 — no retry on failure', async () => {
     const wt = coord.createWorktree('agent-0', 'b3')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
 
-    // Create conflict
     fs.writeFileSync(path.join(tmpDir, 'x.txt'), 'main')
-    execSync('git add . && git commit -m "main"', {
-      cwd: tmpDir, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "main"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     fs.writeFileSync(path.join(wt!.worktreePath, 'x.txt'), 'agent')
-    execSync('git add . && git commit -m "agent"', {
-      cwd: wt!.worktreePath, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "agent"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
-    const result = coord.mergeWorktree('agent-0', 'b3', wt!.branch, wt!.worktreePath, { maxRetries: 0 })
-    assert.equal(result.merged, false)
+    const result = await coord.mergeWorktree('agent-0', 'b3', wt!.branch, wt!.worktreePath, { maxRetries: 0 })
+    expect(result.merged).toBe(false)
   })
 
-  it('skips retry when stoppedFn returns true', () => {
+  it('skips retry when stoppedFn returns true', async () => {
     const wt = coord.createWorktree('agent-0', 'b4')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
 
-    // Create conflict
     fs.writeFileSync(path.join(tmpDir, 'y.txt'), 'main')
-    execSync('git add . && git commit -m "main"', {
-      cwd: tmpDir, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "main"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     fs.writeFileSync(path.join(wt!.worktreePath, 'y.txt'), 'agent')
-    execSync('git add . && git commit -m "agent"', {
-      cwd: wt!.worktreePath, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "agent"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
-    // stoppedFn returns true — should not retry
-    const result = coord.mergeWorktree('agent-0', 'b4', wt!.branch, wt!.worktreePath, {
+    const result = await coord.mergeWorktree('agent-0', 'b4', wt!.branch, wt!.worktreePath, {
       maxRetries: 5, stoppedFn: () => true
     })
-    assert.equal(result.merged, false)
+    expect(result.merged).toBe(false)
   })
 
-  it('cleans up worktree even on failure', () => {
+  it('cleans up worktree even on failure', async () => {
     const wt = coord.createWorktree('agent-0', 'b5')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
 
     fs.writeFileSync(path.join(tmpDir, 'z.txt'), 'main')
-    execSync('git add . && git commit -m "main"', {
-      cwd: tmpDir, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "main"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     fs.writeFileSync(path.join(wt!.worktreePath, 'z.txt'), 'agent')
-    execSync('git add . && git commit -m "agent"', {
-      cwd: wt!.worktreePath, stdio: 'pipe',
-      env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
-    })
+    execSync('git add . && git commit -m "agent"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
-    coord.mergeWorktree('agent-0', 'b5', wt!.branch, wt!.worktreePath, { maxRetries: 0 })
-    // Worktree directory should be cleaned up
-    assert.ok(!fs.existsSync(wt!.worktreePath), 'worktree should be removed after failed merge')
+    await coord.mergeWorktree('agent-0', 'b5', wt!.branch, wt!.worktreePath, { maxRetries: 0 })
+    expect(fs.existsSync(wt!.worktreePath)).toBe(false)
   })
 })
 
@@ -202,28 +166,24 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
   })
 
   it('removes orphaned worktree not owned by any agent', () => {
-    // Create a worktree as if agent-0 made it
     const worktreesDir = path.join(tmpDir, '.worktrees')
     fs.mkdirSync(worktreesDir, { recursive: true })
     const fakePath = path.join(worktreesDir, 'agent-0-orphan1')
     fs.mkdirSync(fakePath)
     fs.writeFileSync(path.join(fakePath, 'file.txt'), 'leftover')
 
-    // No agents registered — all worktrees are orphans
     const removed = coord.cleanOrphanedWorktrees()
-    assert.ok(removed.includes('agent-0-orphan1'))
-    assert.ok(!fs.existsSync(fakePath), 'orphaned worktree dir should be removed')
+    expect(removed).toContain('agent-0-orphan1')
+    expect(fs.existsSync(fakePath)).toBe(false)
   })
 
   it('preserves worktree owned by an active agent', () => {
-    // Register an agent
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'executing',
       currentBeadId: 'b1', currentBeadTitle: 'test', loopCount: 1,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
 
-    // Create its worktree dir
     const worktreesDir = path.join(tmpDir, '.worktrees')
     fs.mkdirSync(worktreesDir, { recursive: true })
     const ownedPath = path.join(worktreesDir, 'agent-0-b1')
@@ -231,8 +191,8 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
     fs.writeFileSync(path.join(ownedPath, 'file.txt'), 'in-progress')
 
     const removed = coord.cleanOrphanedWorktrees()
-    assert.equal(removed.length, 0)
-    assert.ok(fs.existsSync(ownedPath), 'owned worktree should still exist')
+    expect(removed.length).toBe(0)
+    expect(fs.existsSync(ownedPath)).toBe(true)
   })
 
   it('removes orphans but preserves owned in mixed set', () => {
@@ -245,24 +205,22 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
     const worktreesDir = path.join(tmpDir, '.worktrees')
     fs.mkdirSync(worktreesDir, { recursive: true })
 
-    // Owned by active agent
     const owned = path.join(worktreesDir, 'agent-0-b1')
     fs.mkdirSync(owned)
 
-    // Orphan — agent-1 not registered
     const orphan = path.join(worktreesDir, 'agent-1-b2')
     fs.mkdirSync(orphan)
 
     const removed = coord.cleanOrphanedWorktrees()
-    assert.ok(removed.includes('agent-1-b2'))
-    assert.ok(!removed.includes('agent-0-b1'))
-    assert.ok(fs.existsSync(owned))
-    assert.ok(!fs.existsSync(orphan))
+    expect(removed).toContain('agent-1-b2')
+    expect(removed).not.toContain('agent-0-b1')
+    expect(fs.existsSync(owned)).toBe(true)
+    expect(fs.existsSync(orphan)).toBe(false)
   })
 
   it('returns empty array when .worktrees dir does not exist', () => {
     const removed = coord.cleanOrphanedWorktrees()
-    assert.deepEqual(removed, [])
+    expect(removed).toEqual([])
   })
 })
 
@@ -279,17 +237,17 @@ describe('AgentCoordinator — file locks and agent registry', () => {
 
   it('reserveFiles then releaseFiles round-trips correctly', () => {
     coord.reserveFiles('agent-0', 'b1', ['a.ts', 'b.ts'])
-    assert.equal(coord.readLocks().length, 2)
+    expect(coord.readLocks().length).toBe(2)
     coord.releaseFiles('agent-0', 'b1')
-    assert.equal(coord.readLocks().length, 0)
+    expect(coord.readLocks().length).toBe(0)
   })
 
   it('lockedFilesByOthers excludes own locks', () => {
     coord.reserveFiles('agent-0', 'b1', ['shared.ts'])
     coord.reserveFiles('agent-1', 'b2', ['other.ts'])
     const locked = coord.lockedFilesByOthers('agent-0')
-    assert.ok(locked.includes('other.ts'))
-    assert.ok(!locked.includes('shared.ts'))
+    expect(locked).toContain('other.ts')
+    expect(locked).not.toContain('shared.ts')
   })
 
   it('deregisterAgent removes agent and releases its locks', () => {
@@ -301,46 +259,45 @@ describe('AgentCoordinator — file locks and agent registry', () => {
     coord.reserveFiles('agent-0', 'b1', ['file.ts'])
 
     coord.deregisterAgent('agent-0')
-    assert.equal(coord.readAgents().length, 0)
-    assert.equal(coord.readLocks().length, 0)
+    expect(coord.readAgents().length).toBe(0)
+    expect(coord.readLocks().length).toBe(0)
   })
 
   it('activity log appends and reads in order', () => {
     coord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'hello' })
     coord.postActivity({ agentId: 'agent-0', type: 'stopped', summary: 'bye' })
     const events = coord.readActivity()
-    assert.equal(events.length, 2)
-    assert.equal(events[0].type, 'started')
-    assert.equal(events[1].type, 'stopped')
+    expect(events.length).toBe(2)
+    expect(events[0].type).toBe('started')
+    expect(events[1].type).toBe('stopped')
   })
 
   it('reserveFiles replaces previous locks for the same agent+bead', () => {
     coord.reserveFiles('agent-0', 'b1', ['a.ts', 'b.ts'])
-    assert.equal(coord.readLocks().length, 2)
-    // Reserve again with different files — old locks for same agent+bead should be gone
+    expect(coord.readLocks().length).toBe(2)
     coord.reserveFiles('agent-0', 'b1', ['c.ts'])
     const locks = coord.readLocks()
-    assert.equal(locks.length, 1)
-    assert.equal(locks[0].file, 'c.ts')
+    expect(locks.length).toBe(1)
+    expect(locks[0].file).toBe('c.ts')
   })
 
   it('releaseAllForAgent removes all locks for that agent across beads', () => {
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
     coord.reserveFiles('agent-0', 'b2', ['b.ts'])
     coord.reserveFiles('agent-1', 'b3', ['c.ts'])
-    assert.equal(coord.readLocks().length, 3)
+    expect(coord.readLocks().length).toBe(3)
     coord.releaseAllForAgent('agent-0')
     const locks = coord.readLocks()
-    assert.equal(locks.length, 1)
-    assert.equal(locks[0].agentId, 'agent-1')
+    expect(locks.length).toBe(1)
+    expect(locks[0].agentId).toBe('agent-1')
   })
 
   it('readLocks returns empty array when file does not exist', () => {
-    assert.deepEqual(coord.readLocks(), [])
+    expect(coord.readLocks()).toEqual([])
   })
 
   it('readAgents returns empty array when file does not exist', () => {
-    assert.deepEqual(coord.readAgents(), [])
+    expect(coord.readAgents()).toEqual([])
   })
 })
 
@@ -365,40 +322,40 @@ describe('AgentCoordinator — agent registration', () => {
   it('registerAgent adds a new agent', () => {
     coord.registerAgent(makeAgent())
     const agents = coord.getAgents()
-    assert.equal(agents.length, 1)
-    assert.equal(agents[0].id, 'agent-0')
+    expect(agents.length).toBe(1)
+    expect(agents[0].id).toBe('agent-0')
   })
 
   it('registerAgent replaces an existing agent with the same id', () => {
     coord.registerAgent(makeAgent({ phase: 'idle' }))
     coord.registerAgent(makeAgent({ phase: 'executing' }))
     const agents = coord.getAgents()
-    assert.equal(agents.length, 1)
-    assert.equal(agents[0].phase, 'executing')
+    expect(agents.length).toBe(1)
+    expect(agents[0].phase).toBe('executing')
   })
 
   it('registerAgent supports multiple agents', () => {
     coord.registerAgent(makeAgent({ id: 'agent-0', index: 0 }))
     coord.registerAgent(makeAgent({ id: 'agent-1', index: 1 }))
     coord.registerAgent(makeAgent({ id: 'agent-2', index: 2 }))
-    assert.equal(coord.getAgents().length, 3)
+    expect(coord.getAgents().length).toBe(3)
   })
 
   it('updateAgent patches fields and updates lastActivity', () => {
     coord.registerAgent(makeAgent({ phase: 'idle', loopCount: 0 }))
     coord.updateAgent('agent-0', { phase: 'executing', loopCount: 5, currentBeadId: 'b1' })
     const agents = coord.getAgents()
-    assert.equal(agents[0].phase, 'executing')
-    assert.equal(agents[0].loopCount, 5)
-    assert.equal(agents[0].currentBeadId, 'b1')
+    expect(agents[0].phase).toBe('executing')
+    expect(agents[0].loopCount).toBe(5)
+    expect(agents[0].currentBeadId).toBe('b1')
   })
 
   it('updateAgent is a no-op for unknown agent id', () => {
     coord.registerAgent(makeAgent())
     coord.updateAgent('agent-99', { phase: 'executing' })
     const agents = coord.getAgents()
-    assert.equal(agents.length, 1)
-    assert.equal(agents[0].phase, 'idle')
+    expect(agents.length).toBe(1)
+    expect(agents[0].phase).toBe('idle')
   })
 
   it('deregisterAgent removes agent and releases all its locks', () => {
@@ -408,12 +365,11 @@ describe('AgentCoordinator — agent registration', () => {
     coord.reserveFiles('agent-1', 'b2', ['b.ts'])
 
     coord.deregisterAgent('agent-0')
-    assert.equal(coord.getAgents().length, 1)
-    assert.equal(coord.getAgents()[0].id, 'agent-1')
-    // Only agent-1's locks remain
+    expect(coord.getAgents().length).toBe(1)
+    expect(coord.getAgents()[0].id).toBe('agent-1')
     const locks = coord.readLocks()
-    assert.equal(locks.length, 1)
-    assert.equal(locks[0].agentId, 'agent-1')
+    expect(locks.length).toBe(1)
+    expect(locks[0].agentId).toBe('agent-1')
   })
 })
 
@@ -429,17 +385,17 @@ describe('AgentCoordinator — activity log', () => {
   })
 
   it('readActivity returns empty array when file does not exist', () => {
-    assert.deepEqual(coord.readActivity(), [])
+    expect(coord.readActivity()).toEqual([])
   })
 
   it('postActivity includes a timestamp', () => {
     const before = new Date().toISOString()
     coord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'go' })
     const events = coord.readActivity()
-    assert.equal(events.length, 1)
-    assert.ok(events[0].ts >= before)
-    assert.equal(events[0].agentId, 'agent-0')
-    assert.equal(events[0].type, 'started')
+    expect(events.length).toBe(1)
+    expect(events[0].ts >= before).toBe(true)
+    expect(events[0].agentId).toBe('agent-0')
+    expect(events[0].type).toBe('started')
   })
 
   it('readActivity respects the limit parameter', () => {
@@ -447,32 +403,27 @@ describe('AgentCoordinator — activity log', () => {
       coord.postActivity({ agentId: 'agent-0', type: 'executing', summary: `step ${i}` })
     }
     const events = coord.readActivity(3)
-    assert.equal(events.length, 3)
-    // Should return the last 3 events
-    assert.equal(events[0].summary, 'step 7')
-    assert.equal(events[2].summary, 'step 9')
+    expect(events.length).toBe(3)
+    expect(events[0].summary).toBe('step 7')
+    expect(events[2].summary).toBe('step 9')
   })
 
   it('readActivity skips corrupt lines and returns valid entries', () => {
     const activityFile = path.join(ralphDir, 'activity.jsonl')
     const validEvent = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'ok' })
-    // Write a mix of valid and corrupt lines
     fs.writeFileSync(activityFile, validEvent + '\n' + 'NOT_JSON{{{corrupt\n' + validEvent + '\n')
     const events = coord.readActivity()
-    assert.equal(events.length, 2)
-    assert.equal(events[0].summary, 'ok')
-    assert.equal(events[1].summary, 'ok')
+    expect(events.length).toBe(2)
+    expect(events[0].summary).toBe('ok')
+    expect(events[1].summary).toBe('ok')
   })
 
   it('postActivity does not throw when directory does not exist', () => {
-    // Point coordinator at a non-existent directory
     const badCoord = new AgentCoordinator(path.join(tmpDir, 'nonexistent', '.ralph'), tmpDir)
-    // Manually set the activityFile to a path whose parent doesn't exist
     ;(badCoord as any).activityFile = path.join(tmpDir, 'no', 'such', 'dir', 'activity.jsonl')
-    // Should not throw
-    assert.doesNotThrow(() => {
+    expect(() => {
       badCoord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'test' })
-    })
+    }).not.toThrow()
   })
 
   it('postActivity preserves optional fields', () => {
@@ -482,10 +433,10 @@ describe('AgentCoordinator — activity log', () => {
       filesChanged: ['a.ts', 'b.ts'], branch: 'agent/agent-0/b1'
     })
     const events = coord.readActivity()
-    assert.equal(events[0].beadId, 'b1')
-    assert.equal(events[0].beadTitle, 'Fix bug')
-    assert.deepEqual(events[0].filesChanged, ['a.ts', 'b.ts'])
-    assert.equal(events[0].branch, 'agent/agent-0/b1')
+    expect(events[0].beadId).toBe('b1')
+    expect(events[0].beadTitle).toBe('Fix bug')
+    expect(events[0].filesChanged).toEqual(['a.ts', 'b.ts'])
+    expect(events[0].branch).toBe('agent/agent-0/b1')
   })
 })
 
@@ -503,63 +454,61 @@ describe('AgentCoordinator — worktree creation', () => {
 
   it('creates worktree with correct path and branch name', () => {
     const wt = coord.createWorktree('agent-0', 'sb-abc')
-    assert.ok(wt)
-    assert.equal(wt!.branch, 'agent/agent-0/sb-abc')
-    assert.equal(wt!.worktreePath, path.join(tmpDir, '.worktrees', 'agent-0-sb-abc'))
-    assert.ok(fs.existsSync(wt!.worktreePath))
+    expect(wt).toBeTruthy()
+    expect(wt!.branch).toBe('agent/agent-0/sb-abc')
+    expect(wt!.worktreePath).toBe(path.join(tmpDir, '.worktrees', 'agent-0-sb-abc'))
+    expect(fs.existsSync(wt!.worktreePath)).toBe(true)
   })
 
   it('worktree has .beads symlink when .beads dir exists', () => {
     const wt = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
     const beadsLink = path.join(wt!.worktreePath, '.beads')
-    assert.ok(fs.existsSync(beadsLink))
-    const stat = fs.lstatSync(beadsLink)
-    assert.ok(stat.isSymbolicLink())
+    expect(fs.existsSync(beadsLink)).toBe(true)
+    expect(fs.lstatSync(beadsLink).isSymbolicLink()).toBe(true)
   })
 
   it('worktree has .ralph symlink', () => {
     const wt = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
     const ralphLink = path.join(wt!.worktreePath, '.ralph')
-    assert.ok(fs.existsSync(ralphLink))
-    assert.ok(fs.lstatSync(ralphLink).isSymbolicLink())
+    expect(fs.existsSync(ralphLink)).toBe(true)
+    expect(fs.lstatSync(ralphLink).isSymbolicLink()).toBe(true)
   })
 
   it('worktree has .ralphrc symlink when .ralphrc exists', () => {
     fs.writeFileSync(path.join(tmpDir, '.ralphrc'), 'maxCallsPerHour=10')
     const wt = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
     const rcLink = path.join(wt!.worktreePath, '.ralphrc')
-    assert.ok(fs.existsSync(rcLink))
-    assert.ok(fs.lstatSync(rcLink).isSymbolicLink())
+    expect(fs.existsSync(rcLink)).toBe(true)
+    expect(fs.lstatSync(rcLink).isSymbolicLink()).toBe(true)
   })
 
   it('worktree .gitignore contains required entries', () => {
     const wt = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
     const gitignore = fs.readFileSync(path.join(wt!.worktreePath, '.gitignore'), 'utf8')
-    assert.ok(gitignore.includes('.ralph/'))
-    assert.ok(gitignore.includes('.ralphrc'))
-    assert.ok(gitignore.includes('.beads/'))
-    assert.ok(gitignore.includes('.worktrees/'))
+    expect(gitignore).toContain('.ralph/')
+    expect(gitignore).toContain('.ralphrc')
+    expect(gitignore).toContain('.beads/')
+    expect(gitignore).toContain('.worktrees/')
   })
 
   it('recreates worktree if path already exists (stale worktree)', () => {
     const wt1 = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt1)
-    // Create again — should succeed by cleaning up the old one
+    expect(wt1).toBeTruthy()
     const wt2 = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt2)
-    assert.ok(fs.existsSync(wt2!.worktreePath))
+    expect(wt2).toBeTruthy()
+    expect(fs.existsSync(wt2!.worktreePath)).toBe(true)
   })
 
   it('worktree branch is on the same commit as current HEAD', () => {
     const mainHead = execSync('git rev-parse HEAD', { cwd: tmpDir }).toString().trim()
     const wt = coord.createWorktree('agent-0', 'b1')
-    assert.ok(wt)
+    expect(wt).toBeTruthy()
     const wtHead = execSync('git rev-parse HEAD', { cwd: wt!.worktreePath }).toString().trim()
-    assert.equal(wtHead, mainHead)
+    expect(wtHead).toBe(mainHead)
   })
 })
 
@@ -581,12 +530,11 @@ describe('AgentCoordinator — bead claiming with contention', () => {
   })
 
   it('claimBestBead returns null when no beads are available', async () => {
-    // Mock bd.ready and bd.listByStatus to return empty
-    mock.method(coord.bd, 'ready', () => [])
-    mock.method(coord.bd, 'listByStatus', () => [])
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
 
     const result = await coord.claimBestBead('agent-0')
-    assert.equal(result, null)
+    expect(result).toBeNull()
   })
 
   it('claimBestBead claims the highest-priority bead', async () => {
@@ -595,13 +543,15 @@ describe('AgentCoordinator — bead claiming with contention', () => {
       makeBead({ id: 'b2', priority: 0 }),
       makeBead({ id: 'b3', priority: 1 }),
     ]
-    mock.method(coord.bd, 'ready', () => beads)
-    mock.method(coord.bd, 'assignTo', () => true)
-    mock.method(coord.bd, 'show', (_id: string) => makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
 
     const result = await coord.claimBestBead('agent-0')
-    assert.ok(result)
-    assert.equal(result!.id, 'b2')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
   })
 
   it('claimBestBead skips beads with files locked by others', async () => {
@@ -610,13 +560,15 @@ describe('AgentCoordinator — bead claiming with contention', () => {
       makeBead({ id: 'b1', priority: 0, files: ['locked.ts'] }),
       makeBead({ id: 'b2', priority: 1, files: ['free.ts'] }),
     ]
-    mock.method(coord.bd, 'ready', () => beads)
-    mock.method(coord.bd, 'assignTo', () => true)
-    mock.method(coord.bd, 'show', () => makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
 
     const result = await coord.claimBestBead('agent-0')
-    assert.ok(result)
-    assert.equal(result!.id, 'b2')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
   })
 
   it('claimBestBead skips beads claimed by other agents', async () => {
@@ -624,24 +576,27 @@ describe('AgentCoordinator — bead claiming with contention', () => {
       makeBead({ id: 'b1', priority: 0, claimedBy: 'agent-1' }),
       makeBead({ id: 'b2', priority: 1 }),
     ]
-    mock.method(coord.bd, 'ready', () => beads)
-    mock.method(coord.bd, 'assignTo', () => true)
-    mock.method(coord.bd, 'show', () => makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
 
     const result = await coord.claimBestBead('agent-0')
-    assert.ok(result)
-    assert.equal(result!.id, 'b2')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
   })
 
   it('claimBestBead falls back to open beads when ready is empty', async () => {
-    mock.method(coord.bd, 'ready', () => [])
-    mock.method(coord.bd, 'listByStatus', () => [makeBead({ id: 'b1', status: 'ready' })])
-    mock.method(coord.bd, 'assignTo', () => true)
-    mock.method(coord.bd, 'show', () => makeBead({ id: 'b1', status: 'claimed', claimedBy: 'agent-0' }))
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([makeBead({ id: 'b1', status: 'ready' })])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b1', status: 'claimed', claimedBy: 'agent-0' }))
 
     const result = await coord.claimBestBead('agent-0')
-    assert.ok(result)
-    assert.equal(result!.id, 'b1')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b1')
   })
 
   it('claimBestBead skips beads where assignTo fails', async () => {
@@ -650,31 +605,35 @@ describe('AgentCoordinator — bead claiming with contention', () => {
       makeBead({ id: 'b2', priority: 1 }),
     ]
     let callCount = 0
-    mock.method(coord.bd, 'ready', () => beads)
-    mock.method(coord.bd, 'assignTo', () => {
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockImplementation(() => {
       callCount++
-      return callCount > 1 // first call fails, second succeeds
+      return callCount > 1
     })
-    mock.method(coord.bd, 'show', () => makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
 
     const result = await coord.claimBestBead('agent-0')
-    assert.ok(result)
-    assert.equal(result!.id, 'b2')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
   })
 
   it('claimBestBead posts activity and reserves files on success', async () => {
     const bead = makeBead({ id: 'b1', files: ['src/main.ts'] })
-    mock.method(coord.bd, 'ready', () => [bead])
-    mock.method(coord.bd, 'assignTo', () => true)
-    mock.method(coord.bd, 'show', () => makeBead({ id: 'b1', status: 'claimed', claimedBy: 'agent-0' }))
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([bead])
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b1', status: 'claimed', claimedBy: 'agent-0' }))
 
     await coord.claimBestBead('agent-0')
     const locks = coord.readLocks()
-    assert.equal(locks.length, 1)
-    assert.equal(locks[0].file, 'src/main.ts')
+    expect(locks.length).toBe(1)
+    expect(locks[0].file).toBe('src/main.ts')
     const events = coord.readActivity()
-    assert.equal(events.length, 1)
-    assert.equal(events[0].type, 'claimed')
+    expect(events.length).toBe(1)
+    expect(events[0].type).toBe('claimed')
   })
 
   it('concurrent claimBestBead calls are serialized by semaphore', async () => {
@@ -685,28 +644,26 @@ describe('AgentCoordinator — bead claiming with contention', () => {
       makeBead({ id: 'b2', priority: 1 }),
     ]
 
-    mock.method(coord.bd, 'ready', () => {
+    vi.spyOn(coord.bd, 'ready').mockImplementation(() => {
       callNum++
       order.push(`ready-${callNum}`)
-      // First call sees both; second call sees only b2 (b1 already claimed)
       if (callNum === 1) return [beads[0], beads[1]]
       return [beads[1]]
     })
-    mock.method(coord.bd, 'assignTo', () => true)
-    mock.method(coord.bd, 'show', (id: string) => makeBead({ id, status: 'claimed' }))
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockImplementation((_id: string) => makeBead({ id: _id, status: 'claimed' }))
 
-    // Launch two claims concurrently
     const [r1, r2] = await Promise.all([
       coord.claimBestBead('agent-0'),
       coord.claimBestBead('agent-1'),
     ])
 
-    // Both should have resolved
-    assert.ok(r1)
-    assert.ok(r2)
-    // Semaphore ensures ready calls happen sequentially (ready-1 before ready-2)
-    assert.equal(order[0], 'ready-1')
-    assert.equal(order[1], 'ready-2')
+    expect(r1).toBeTruthy()
+    expect(r2).toBeTruthy()
+    expect(order[0]).toBe('ready-1')
+    expect(order[1]).toBe('ready-2')
   })
 })
 
@@ -722,35 +679,32 @@ describe('AgentCoordinator — completeBead and failBead', () => {
   })
 
   it('completeBead calls bd.close, releases files, and logs activity', () => {
-    let closedId = ''
-    mock.method(coord.bd, 'close', (id: string) => { closedId = id })
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
     coord.completeBead('agent-0', 'b1', ['a.ts'])
 
-    assert.equal(closedId, 'b1')
-    assert.equal(coord.readLocks().length, 0)
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+    expect(coord.readLocks().length).toBe(0)
     const events = coord.readActivity()
-    assert.equal(events.length, 1)
-    assert.equal(events[0].type, 'completed')
-    assert.ok(events[0].summary!.includes('b1'))
+    expect(events.length).toBeGreaterThanOrEqual(1)
+    expect(events[0].type).toBe('completed')
+    expect(events[0].summary).toContain('b1')
   })
 
   it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', () => {
-    let addedLabel = ''
-    let closedId = ''
-    mock.method(coord.bd, 'addLabel', (_id: string, label: string) => { addedLabel = label })
-    mock.method(coord.bd, 'close', (id: string) => { closedId = id })
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
     coord.failBead('agent-0', 'b1', 'merge conflict')
 
-    assert.equal(addedLabel, 'failed')
-    assert.equal(closedId, 'b1')
-    assert.equal(coord.readLocks().length, 0)
+    expect(addLabelSpy).toHaveBeenCalledWith('b1', 'failed')
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+    expect(coord.readLocks().length).toBe(0)
     const events = coord.readActivity()
-    assert.equal(events[0].type, 'failed')
-    assert.equal(events[0].summary, 'merge conflict')
+    expect(events[0].type).toBe('failed')
+    expect(events[0].summary).toBe('merge conflict')
   })
 })
 
@@ -766,30 +720,30 @@ describe('AgentCoordinator — hasOpenWork and getStats', () => {
   })
 
   it('hasOpenWork returns true when open beads exist', () => {
-    mock.method(coord.bd, 'listByStatus', (status: string) => {
-      if (status === 'open') return [{ id: 'b1' }]
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+      if (status === 'open') return [{ id: 'b1' }] as any
       return []
     })
-    assert.equal(coord.hasOpenWork(), true)
+    expect(coord.hasOpenWork()).toBe(true)
   })
 
   it('hasOpenWork returns true when in_progress beads exist', () => {
-    mock.method(coord.bd, 'listByStatus', (status: string) => {
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
       if (status === 'open') return []
-      if (status === 'in_progress') return [{ id: 'b1' }]
+      if (status === 'in_progress') return [{ id: 'b1' }] as any
       return []
     })
-    assert.equal(coord.hasOpenWork(), true)
+    expect(coord.hasOpenWork()).toBe(true)
   })
 
   it('hasOpenWork returns false when no open or in_progress beads', () => {
-    mock.method(coord.bd, 'listByStatus', () => [])
-    assert.equal(coord.hasOpenWork(), false)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    expect(coord.hasOpenWork()).toBe(false)
   })
 
   it('getStats delegates to bd.stats()', () => {
     const expected = { total: 5, pending: 1, ready: 2, claimed: 1, done: 1, failed: 0, pct: 20 }
-    mock.method(coord.bd, 'stats', () => expected)
-    assert.deepEqual(coord.getStats(), expected)
+    vi.spyOn(coord.bd, 'stats').mockReturnValue(expected)
+    expect(coord.getStats()).toEqual(expected)
   })
 })

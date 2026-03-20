@@ -65,9 +65,12 @@ export function createMockSpawn() {
     lastProcess = createMockChildProcess()
     return lastProcess as unknown as ChildProcess
   })
-  return Object.assign(mockSpawn, {
-    get lastProcess() { return lastProcess },
+  Object.defineProperty(mockSpawn, 'lastProcess', {
+    get() { return lastProcess },
+    enumerable: true,
+    configurable: true,
   })
+  return mockSpawn as typeof mockSpawn & { readonly lastProcess: MockChildProcess | null }
 }
 
 // ── fs mock helpers ────────────────────────────────────────────────────────

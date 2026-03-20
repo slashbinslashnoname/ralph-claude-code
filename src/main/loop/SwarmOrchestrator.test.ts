@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -180,5 +180,203 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
 
     orch = new SwarmOrchestrator(tmpDir)
     expect(() => orch.startWorkers(1)).toThrow('Health check failed')
+  })
+})
+
+describe('SwarmOrchestrator — plan queue management', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('getPlanQueue returns a copy', () => {
+    // Directly manipulate queue to avoid triggering _drainQueue
+    ;(orch as any).planQueue = [{ id: 'plan-1', request: 'A' }]
+    const q1 = orch.getPlanQueue()
+    const q2 = orch.getPlanQueue()
+    expect(q1).toEqual([{ id: 'plan-1', request: 'A' }])
+    expect(q1).not.toBe(q2)
+  })
+
+  it('removeQueuedPlan removes an existing plan', () => {
+    ;(orch as any).planQueue = [
+      { id: 'plan-1', request: 'A' },
+      { id: 'plan-2', request: 'B' },
+    ]
+    const removed = orch.removeQueuedPlan('plan-2')
+    expect(removed).toBe(true)
+    expect(orch.getPlanQueue().length).toBe(1)
+  })
+
+  it('removeQueuedPlan returns false for non-existent id', () => {
+    expect(orch.removeQueuedPlan('plan-nonexistent')).toBe(false)
+  })
+
+  it('removeQueuedPlan emits planQueue event', () => {
+    ;(orch as any).planQueue = [{ id: 'plan-1', request: 'A' }]
+    const queues: any[] = []
+    orch.on('planQueue', (q: any) => queues.push(q))
+    orch.removeQueuedPlan('plan-1')
+    expect(queues.length).toBe(1)
+    expect(queues[0]).toEqual([])
+  })
+})
+
+describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('stopWorkers emits stopped event', () => {
+    let stopped = false
+    orch.on('stopped', () => { stopped = true })
+    orch.stopWorkers()
+    expect(stopped).toBe(true)
+  })
+
+  it('stopWorkers deregisters all agents from coordinator', () => {
+    // Register a fake agent
+    orch.coordinator.registerAgent({
+      id: 'agent-0', index: 0, phase: 'idle',
+      currentBeadId: null, currentBeadTitle: null, loopCount: 0,
+      lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
+    })
+    expect(orch.coordinator.getAgents().length).toBe(1)
+    orch.stopWorkers()
+    expect(orch.coordinator.getAgents().length).toBe(0)
+  })
+
+  it('stopAll clears plan queue', () => {
+    // Directly set queue to avoid triggering async _drainQueue
+    ;(orch as any).planQueue = [{ id: 'plan-1', request: 'A' }]
+    orch.stopAll()
+    expect(orch.getPlanQueue()).toEqual([])
+    expect(orch.isPlanning()).toBe(false)
+  })
+
+  it('stopAll emits stopped event', () => {
+    let stopped = false
+    orch.on('stopped', () => { stopped = true })
+    orch.stopAll()
+    expect(stopped).toBe(true)
+  })
+
+  it('gracefulStopWorkers sets stoppingGracefully flag', () => {
+    orch.gracefulStopWorkers()
+    expect(orch.stoppingGracefully).toBe(true)
+  })
+})
+
+describe('SwarmOrchestrator — status queries', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('workerCount returns 0 initially', () => {
+    expect(orch.workerCount()).toBe(0)
+  })
+
+  it('isPlanning returns false initially', () => {
+    expect(orch.isPlanning()).toBe(false)
+  })
+
+  it('isShuttingDown returns false initially', () => {
+    expect(orch.isShuttingDown()).toBe(false)
+  })
+
+  it('getAgents returns empty array initially', () => {
+    expect(orch.getAgents()).toEqual([])
+  })
+
+  it('getActivity returns empty array initially', () => {
+    expect(orch.getActivity()).toEqual([])
+  })
+
+  it('sessionStartedAt is null initially', () => {
+    expect(orch.sessionStartedAt).toBeNull()
+  })
+})
+
+describe('SwarmOrchestrator — agent output buffer', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('getAgentOutput returns empty string for unknown agent', () => {
+    expect(orch.getAgentOutput('agent-99')).toBe('')
+  })
+
+  it('getAgentOutput reads from disk log file', () => {
+    const logDir = path.join(tmpDir, '.ralph', 'logs')
+    fs.writeFileSync(path.join(logDir, 'agent-0.log'), 'hello world')
+    expect(orch.getAgentOutput('agent-0')).toBe('hello world')
+  })
+
+  it('_bufferOutput caps at 50KB', () => {
+    // Access private method for testing
+    const buf = (orch as any)
+    const bigChunk = 'x'.repeat(60_000)
+    buf._bufferOutput('agent-0', bigChunk)
+    const output = orch.getAgentOutput('agent-0')
+    expect(output.length).toBe(50_000)
+  })
+
+  it('_bufferOutput also persists to disk', () => {
+    const buf = (orch as any)
+    buf._bufferOutput('agent-test', 'disk-check')
+    const logFile = path.join(tmpDir, '.ralph', 'logs', 'agent-test.log')
+    expect(fs.existsSync(logFile)).toBe(true)
+    expect(fs.readFileSync(logFile, 'utf8')).toBe('disk-check')
+  })
+})
+
+describe('SwarmOrchestrator — logging', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('_log writes to ralph.log on disk', () => {
+    ;(orch as any)._log('INFO', 'test message')
+    const logFile = path.join(tmpDir, '.ralph', 'logs', 'ralph.log')
+    const content = fs.readFileSync(logFile, 'utf8')
+    expect(content).toContain('test message')
+    expect(content).toContain('[INFO]')
+  })
+
+  it('_log emits log event with level, message, and optional agentId', () => {
+    const logs: any[] = []
+    orch.on('log', (...args: any[]) => logs.push(args))
+    ;(orch as any)._log('WARN', 'warning msg', 'agent-0')
+    expect(logs.length).toBe(1)
+    expect(logs[0]).toEqual(['WARN', 'warning msg', 'agent-0'])
   })
 })
