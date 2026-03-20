@@ -1,0 +1,359 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as fs from 'fs'
+import { WorkerLoop } from './WorkerLoop'
+import { RalphConfig, Bead } from '../types'
+
+vi.mock('fs')
+vi.mock('child_process', () => ({
+  spawn: vi.fn(),
+  execSync: vi.fn(() => Buffer.from('/usr/local/bin/claude'))
+}))
+
+function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
+  return {
+    maxCallsPerHour: 100,
+    claudeTimeoutMinutes: 10,
+    claudeOutputFormat: 'json',
+    claudeCodeCmd: 'claude',
+    allowedTools: '*',
+    sleepDuration: 1,
+    continueSession: false,
+    cbNoProgressThreshold: 3,
+    cbSameErrorThreshold: 3,
+    cbPermissionDenialThreshold: 3,
+    cbCooldownMinutes: 30,
+    autoPush: false,
+    maxRetries: 2,
+    ...overrides
+  }
+}
+
+function makeBead(overrides: Partial<Bead> = {}): Bead {
+  return {
+    id: 'sb-abc',
+    title: 'Test bead',
+    description: 'A test bead',
+    type: 'task',
+    status: 'ready',
+    deps: [],
+    files: ['src/foo.ts'],
+    priority: 2,
+    tags: ['test'],
+    ...overrides
+  }
+}
+
+function makeCoordinator() {
+  return {
+    registerAgent: vi.fn(),
+    deregisterAgent: vi.fn(),
+    updateAgent: vi.fn(),
+    postActivity: vi.fn(),
+    releaseAllForAgent: vi.fn(),
+    claimBestBead: vi.fn(async () => null),
+    hasOpenWork: vi.fn(() => false),
+    createWorktree: vi.fn(() => null),
+    mergeWorktree: vi.fn(async () => ({ merged: true, filesChanged: ['src/foo.ts'], error: undefined })),
+    completeBead: vi.fn(),
+    reopenBead: vi.fn(),
+    failBead: vi.fn(),
+    bd: {
+      getState: vi.fn(() => ''),
+      setState: vi.fn()
+    }
+  } as any
+}
+
+describe('WorkerLoop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(fs.mkdirSync).mockReturnValue(undefined as any)
+    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
+    vi.mocked(fs.appendFileSync).mockReturnValue(undefined)
+    vi.mocked(fs.readFileSync).mockReturnValue('')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('can be constructed without errors', () => {
+    const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+    expect(worker).toBeDefined()
+    expect(worker.running).toBe(false)
+    expect(worker.stopped).toBe(false)
+    expect(worker.loopCount).toBe(0)
+  })
+
+  it('creates log directory on construction', () => {
+    new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.ralph/logs', { recursive: true })
+  })
+
+  describe('stop', () => {
+    it('sets stopped and running flags', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.stop()
+      expect(worker.stopped).toBe(true)
+      expect(worker.running).toBe(false)
+    })
+
+    it('releases file locks and posts stopped activity', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.stop()
+      expect(coord.releaseAllForAgent).toHaveBeenCalledWith('agent-0')
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0',
+        type: 'stopped'
+      }))
+    })
+  })
+
+  describe('gracefulStop', () => {
+    it('sets stopped without killing process', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.gracefulStop()
+      expect(worker.stopped).toBe(true)
+      expect(worker.running).toBe(false)
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'stopped',
+        summary: expect.stringContaining('Graceful stop')
+      }))
+    })
+  })
+
+  describe('_backoffMs', () => {
+    it('returns 3000ms for attempt 0', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      expect(worker._backoffMs(0)).toBe(3000)
+    })
+
+    it('returns 6000ms for attempt 1', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      expect(worker._backoffMs(1)).toBe(6000)
+    })
+
+    it('returns 12000ms for attempt 2', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      expect(worker._backoffMs(2)).toBe(12000)
+    })
+
+    it('returns 24000ms for attempt 3', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      expect(worker._backoffMs(3)).toBe(24000)
+    })
+
+    it('caps at 60000ms', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      expect(worker._backoffMs(10)).toBe(60000)
+      expect(worker._backoffMs(100)).toBe(60000)
+    })
+  })
+
+  describe('_getBeadAttempt', () => {
+    it('returns 0 when no state set', () => {
+      const coord = makeCoordinator()
+      coord.bd.getState.mockReturnValue('')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      expect(worker._getBeadAttempt('sb-abc')).toBe(0)
+    })
+
+    it('parses stored attempt number', () => {
+      const coord = makeCoordinator()
+      coord.bd.getState.mockReturnValue('3')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      expect(worker._getBeadAttempt('sb-abc')).toBe(3)
+    })
+
+    it('returns 0 for NaN state', () => {
+      const coord = makeCoordinator()
+      coord.bd.getState.mockReturnValue('not-a-number')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      expect(worker._getBeadAttempt('sb-abc')).toBe(0)
+    })
+  })
+
+  describe('_incrementBeadAttempt', () => {
+    it('increments from 0 to 1', () => {
+      const coord = makeCoordinator()
+      coord.bd.getState.mockReturnValue('')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker._incrementBeadAttempt('sb-abc')
+      expect(coord.bd.setState).toHaveBeenCalledWith('sb-abc', 'retry_attempt', '1', 'Retry after failure')
+    })
+
+    it('increments existing value', () => {
+      const coord = makeCoordinator()
+      coord.bd.getState.mockReturnValue('2')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker._incrementBeadAttempt('sb-abc')
+      expect(coord.bd.setState).toHaveBeenCalledWith('sb-abc', 'retry_attempt', '3', 'Retry after failure')
+    })
+  })
+
+  describe('start (loop behavior)', () => {
+    it('registers agent and posts started activity', async () => {
+      const coord = makeCoordinator()
+      // No beads available, no open work → exits immediately
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+      const exitPromise = new Promise<string>(resolve => worker.on('exit', resolve))
+      await worker.start()
+      const reason = await exitPromise
+
+      expect(coord.registerAgent).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'agent-0',
+        index: 0,
+        phase: 'idle'
+      }))
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0',
+        type: 'started'
+      }))
+      expect(reason).toBe('all_beads_done')
+    })
+
+    it('does not start if already running', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      await worker.start()
+      expect(coord.registerAgent).not.toHaveBeenCalled()
+    })
+
+    it('deregisters agent on exit', async () => {
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      await worker.start()
+      expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
+    })
+
+    it('waits and retries when beads are claimed but open work exists', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.claimBestBead.mockImplementation(async () => {
+        callCount++
+        if (callCount >= 3) {
+          // On third call, stop the worker
+          worker.stopped = true
+          worker.running = false
+        }
+        return null
+      })
+      coord.hasOpenWork.mockReturnValue(true)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const startPromise = worker.start()
+
+      // Advance timers to allow sleep to resolve (5s wait + 250ms poll)
+      for (let i = 0; i < 25; i++) {
+        await vi.advanceTimersByTimeAsync(500)
+      }
+
+      await startPromise
+
+      // Should have called claimBestBead multiple times
+      expect(callCount).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('_extractThinkingSummary (via integration)', () => {
+    // Test the summary extraction indirectly through the class
+    it('extracts structured sections from thinking output', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      // Access private method via bracket notation for testing
+      const summary = (worker as any)._extractThinkingSummary(
+        '### Understanding\nThis bead requires X\n\n### Approach\nStep 1: do Y\n\nSome other text'
+      )
+      expect(summary).toContain('### Understanding')
+      expect(summary).toContain('This bead requires X')
+      expect(summary).toContain('### Approach')
+      expect(summary).toContain('Step 1: do Y')
+    })
+
+    it('falls back to tail of output when no structured sections found', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const text = 'Just some unstructured output about the analysis'
+      const summary = (worker as any)._extractThinkingSummary(text)
+      expect(summary).toBe(text)
+    })
+
+    it('truncates summary to 2000 chars', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const longText = '### Understanding\n' + 'x'.repeat(3000)
+      const summary = (worker as any)._extractThinkingSummary(longText)
+      expect(summary.length).toBeLessThanOrEqual(2000)
+    })
+  })
+
+  describe('prompt building', () => {
+    it('_buildThinkingPrompt includes bead details', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const bead = makeBead({ id: 'sb-xyz', title: 'Fix login bug', description: 'Auth fails on edge case' })
+      const prompt = (worker as any)._buildThinkingPrompt(bead)
+      expect(prompt).toContain('sb-xyz')
+      expect(prompt).toContain('Fix login bug')
+      expect(prompt).toContain('Auth fails on edge case')
+      expect(prompt).toContain('ULTRATHINK')
+      expect(prompt).toContain('agent-0')
+    })
+
+    it('_buildThinkingPrompt includes files list', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const bead = makeBead({ files: ['src/auth.ts', 'src/login.ts'] })
+      const prompt = (worker as any)._buildThinkingPrompt(bead)
+      expect(prompt).toContain('src/auth.ts')
+      expect(prompt).toContain('src/login.ts')
+    })
+
+    it('_buildThinkingPrompt includes AGENT.md when it exists', () => {
+      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+        String(p).endsWith('AGENT.md')
+      )
+      vi.mocked(fs.readFileSync).mockReturnValue('## Test\nnpm test')
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('npm test')
+    })
+
+    it('_buildExecutePrompt includes thinking summary', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const bead = makeBead()
+      const thinkingCtx = '### Understanding\nWe need to fix X\n\n### Approach\nModify file Y'
+      const prompt = (worker as any)._buildExecutePrompt(bead, thinkingCtx)
+      expect(prompt).toContain('Understanding')
+      expect(prompt).toContain('RALPH_STATUS')
+      expect(prompt).toContain('Do NOT run `bd close`')
+    })
+
+    it('_buildExecutePrompt works with empty thinking context', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+      expect(prompt).toContain('sb-abc')
+      expect(prompt).not.toContain('prior analysis')
+    })
+
+    it('_buildReviewPrompt references bead', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildReviewPrompt(makeBead({ id: 'sb-rev', title: 'Review me' }))
+      expect(prompt).toContain('sb-rev')
+      expect(prompt).toContain('Review me')
+      expect(prompt).toContain('Fresh-eyes Review')
+      expect(prompt).toContain('Do NOT run any `bd` commands')
+    })
+  })
+})

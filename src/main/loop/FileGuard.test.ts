@@ -1,0 +1,53 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import * as fs from 'fs'
+import { validateIntegrity } from './FileGuard'
+
+vi.mock('fs')
+
+describe('FileGuard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns ok when all required files exist', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    const result = validateIntegrity('/project')
+    expect(result.ok).toBe(true)
+    expect(result.missing).toEqual([])
+    expect(result.report).toBe('All required Ralph files present.')
+  })
+
+  it('reports missing files when none exist', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    const result = validateIntegrity('/project')
+    expect(result.ok).toBe(false)
+    expect(result.missing).toEqual(['.ralph', '.ralph/PROMPT.md', '.ralph/AGENT.md', '.ralphrc'])
+  })
+
+  it('report contains remediation instruction', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    const result = validateIntegrity('/project')
+    expect(result.report).toContain('ralph-enable --force')
+    expect(result.report).toContain('Missing Ralph files:')
+  })
+
+  it('reports only the specific missing files', () => {
+    vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      const s = String(p)
+      return s.endsWith('.ralph') || s.endsWith('.ralphrc')
+    })
+    const result = validateIntegrity('/project')
+    expect(result.ok).toBe(false)
+    expect(result.missing).toEqual(['.ralph/PROMPT.md', '.ralph/AGENT.md'])
+  })
+
+  it('checks files with correct paths relative to projectPath', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    validateIntegrity('/my/project')
+    const calls = vi.mocked(fs.existsSync).mock.calls.map(c => c[0])
+    expect(calls).toContain('/my/project/.ralph')
+    expect(calls).toContain('/my/project/.ralph/PROMPT.md')
+    expect(calls).toContain('/my/project/.ralph/AGENT.md')
+    expect(calls).toContain('/my/project/.ralphrc')
+  })
+})
