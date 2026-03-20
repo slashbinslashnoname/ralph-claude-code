@@ -15,13 +15,13 @@ afterEach(() => {
 })
 
 function writeRc(content: string): void {
-  fs.writeFileSync(path.join(tmpDir, '.ralphrc'), content, 'utf8')
+  fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), content, 'utf8')
 }
 
 // ── parseRcFile ──────────────────────────────────────────────────────────────
 
 describe('parseRcFile', () => {
-  it('returns empty object when .ralphrc is missing', () => {
+  it('returns empty object when .slashbotrc is missing', () => {
     const result = parseRcFile(tmpDir)
     expect(result).toEqual({})
   })
@@ -233,7 +233,7 @@ describe('validateConfig', () => {
 // ── loadConfig ───────────────────────────────────────────────────────────────
 
 describe('loadConfig', () => {
-  it('returns defaults when .ralphrc is missing', () => {
+  it('returns defaults when .slashbotrc is missing', () => {
     const config = loadConfig(tmpDir)
     expect(config).toEqual(DEFAULT_CONFIG)
   })
@@ -258,7 +258,7 @@ describe('loadConfig', () => {
     }
   })
 
-  it('falls back to defaults for invalid values in .ralphrc', () => {
+  it('falls back to defaults for invalid values in .slashbotrc', () => {
     writeRc(
       'MAX_CALLS_PER_HOUR=0\nCLAUDE_OUTPUT_FORMAT=yaml\nCLAUDE_TIMEOUT_MINUTES=5\nSLEEP_DURATION=-1'
     )

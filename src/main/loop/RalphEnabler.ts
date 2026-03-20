@@ -37,7 +37,7 @@ export function detectProjectContext(projectPath: string): ProjectContext {
   }
 }
 
-const REQUIRED = ['.ralphrc', '.ralph', '.ralph/PROMPT.md', '.ralph/AGENT.md']
+const REQUIRED = ['.slashbotrc', '.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md']
 
 export function checkEnabled(projectPath: string): {
   enabled: boolean; missing: string[]; hasRalphrc: boolean; hasRalphDir: boolean
@@ -46,8 +46,8 @@ export function checkEnabled(projectPath: string): {
   return {
     enabled: missing.length === 0,
     missing,
-    hasRalphrc: fs.existsSync(path.join(projectPath, '.ralphrc')),
-    hasRalphDir: fs.existsSync(path.join(projectPath, '.ralph'))
+    hasRalphrc: fs.existsSync(path.join(projectPath, '.slashbotrc')),
+    hasRalphDir: fs.existsSync(path.join(projectPath, '.slashbot'))
   }
 }
 
@@ -102,8 +102,8 @@ bd create "title" -t task -p 2 -d "desc" # Create if you discover new work
 - Close the bead via bd when done
 
 ## Protected files (DO NOT modify or delete)
-- \`.ralph/\` directory and all its contents
-- \`.ralphrc\`
+- \`.slashbot/\` directory and all its contents
+- \`.slashbotrc\`
 
 ## Status reporting
 End every response with:
@@ -124,7 +124,7 @@ function generateAgentMd(ctx: ProjectContext): string {
 }
 
 function generateGitignoreAdditions(): string {
-  return '\n# Ralph\n.ralph/logs/\n.ralph/.call_count\n.ralph/.exit_signals\n.ralph/.response_analysis\n.ralph/.circuit_breaker_state\n.ralph/.claude_session_id\n.ralph/progress.json\n'
+  return '\n# Ralph\n.slashbot/logs/\n.slashbot/.call_count\n.slashbot/.exit_signals\n.slashbot/.response_analysis\n.slashbot/.circuit_breaker_state\n.slashbot/.claude_session_id\n.slashbot/progress.json\n'
 }
 
 const DEFAULT_ENABLE_OPTIONS: EnableOptions = {
@@ -139,7 +139,7 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
   const ctx = detectProjectContext(projectPath)
   const created: string[] = []
   try {
-    const ralphDir = path.join(projectPath, '.ralph')
+    const ralphDir = path.join(projectPath, '.slashbot')
     fs.mkdirSync(ralphDir, { recursive: true })
     fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
     const write = (relPath: string, content: string) => {
@@ -149,9 +149,9 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
         created.push(relPath)
       }
     }
-    write('.ralphrc', generateRalphrc(ctx, opts))
-    write('.ralph/PROMPT.md', generatePromptMd(ctx))
-    write('.ralph/AGENT.md', generateAgentMd(ctx))
+    write('.slashbotrc', generateRalphrc(ctx, opts))
+    write('.slashbot/PROMPT.md', generatePromptMd(ctx))
+    write('.slashbot/AGENT.md', generateAgentMd(ctx))
     const gitignorePath = path.join(projectPath, '.gitignore')
     const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : ''
     if (!existing.includes('# Ralph')) {

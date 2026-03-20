@@ -136,14 +136,14 @@ describe('RalphEnabler', () => {
     it('correctly reports partial state', () => {
       vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
         const s = String(p)
-        return s.endsWith('.ralphrc') || s.endsWith('.ralph')
+        return s.endsWith('.slashbotrc') || s.endsWith('.slashbot')
       })
       const status = checkEnabled('/project')
       expect(status.enabled).toBe(false)
       expect(status.hasRalphrc).toBe(true)
       expect(status.hasRalphDir).toBe(true)
-      expect(status.missing).toContain('.ralph/PROMPT.md')
-      expect(status.missing).toContain('.ralph/AGENT.md')
+      expect(status.missing).toContain('.slashbot/PROMPT.md')
+      expect(status.missing).toContain('.slashbot/AGENT.md')
     })
   })
 
@@ -162,16 +162,16 @@ describe('RalphEnabler', () => {
       const result = enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       expect(result.ok).toBe(true)
       expect(result.alreadyEnabled).toBe(false)
-      expect(result.filesCreated).toContain('.ralphrc')
-      expect(result.filesCreated).toContain('.ralph/PROMPT.md')
-      expect(result.filesCreated).toContain('.ralph/AGENT.md')
+      expect(result.filesCreated).toContain('.slashbotrc')
+      expect(result.filesCreated).toContain('.slashbot/PROMPT.md')
+      expect(result.filesCreated).toContain('.slashbot/AGENT.md')
     })
 
     it('creates directories with recursive:true', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project')
-      expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.ralph', { recursive: true })
-      expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.ralph/logs', { recursive: true })
+      expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot', { recursive: true })
+      expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot/logs', { recursive: true })
     })
 
     it('force overwrites existing files', () => {
@@ -188,7 +188,7 @@ describe('RalphEnabler', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 200, useBeads: false, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.ralphrc'))
+      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
       expect(ralphrcCall).toBeDefined()
       expect(String(ralphrcCall![1])).toContain('MAX_CALLS_PER_HOUR=200')
     })
@@ -197,7 +197,7 @@ describe('RalphEnabler', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: true, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.ralphrc'))
+      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
       expect(String(ralphrcCall![1])).toContain('TASK_SOURCES="beads"')
     })
 
@@ -205,7 +205,7 @@ describe('RalphEnabler', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.ralphrc'))
+      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
       expect(String(ralphrcCall![1])).toContain('TASK_SOURCES="local"')
     })
 
@@ -216,7 +216,7 @@ describe('RalphEnabler', () => {
       vi.mocked(fs.readFileSync).mockReturnValue('{"name":"test"}')
       enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.ralphrc'))
+      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
       expect(String(ralphrcCall![1])).toContain('Bash(npm *)')
     })
 
@@ -231,7 +231,7 @@ describe('RalphEnabler', () => {
       const gitignoreCall = calls.find(c => String(c[0]).endsWith('.gitignore'))
       expect(gitignoreCall).toBeDefined()
       expect(String(gitignoreCall![1])).toContain('# Ralph')
-      expect(String(gitignoreCall![1])).toContain('.ralph/logs/')
+      expect(String(gitignoreCall![1])).toContain('.slashbot/logs/')
     })
 
     it('does not duplicate gitignore entries when # Ralph already present', () => {
@@ -239,7 +239,7 @@ describe('RalphEnabler', () => {
         const s = String(p)
         return s.endsWith('.gitignore')
       })
-      vi.mocked(fs.readFileSync).mockReturnValue('# Ralph\n.ralph/logs/\n')
+      vi.mocked(fs.readFileSync).mockReturnValue('# Ralph\n.slashbot/logs/\n')
       enableRalph('/project')
       const calls = vi.mocked(fs.writeFileSync).mock.calls
       const gitignoreCall = calls.find(c => String(c[0]).endsWith('.gitignore'))

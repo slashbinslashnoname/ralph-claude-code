@@ -1,25 +1,25 @@
-# Ralph generated files (inside .ralph/ subfolder)
-.ralph/.call_count
-.ralph/.last_reset
-.ralph/.exit_signals
-.ralph/status.json
-.ralph/.ralph_session
-.ralph/.ralph_session_history
-.ralph/.claude_session_id
-.ralph/.response_analysis
-.ralph/.circuit_breaker_state
-.ralph/.circuit_breaker_history
-.ralph/.json_parse_result
-.ralph/.last_output_length
+# Ralph generated files (inside .slashbot/ subfolder)
+.slashbot/.call_count
+.slashbot/.last_reset
+.slashbot/.exit_signals
+.slashbot/status.json
+.slashbot/.slashbot_session
+.slashbot/.slashbot_session_history
+.slashbot/.claude_session_id
+.slashbot/.response_analysis
+.slashbot/.circuit_breaker_state
+.slashbot/.circuit_breaker_history
+.slashbot/.json_parse_result
+.slashbot/.last_output_length
 
 # Ralph logs and generated docs
-.ralph/logs/*
-!.ralph/logs/.gitkeep
-.ralph/docs/generated/*
-!.ralph/docs/generated/.gitkeep
+.slashbot/logs/*
+!.slashbot/logs/.gitkeep
+.slashbot/docs/generated/*
+!.slashbot/docs/generated/.gitkeep
 .beads
-.ralph
-.ralphrc
+.slashbot
+.slashbotrc
 .worktrees
 # General logs
 *.log
@@ -52,7 +52,7 @@ target/
 .claude/settings.local.json
 
 # Ralph backup directories (created by migration)
-.ralph_backup_*
+.slashbot_backup_*
 
 # Agent worktrees
 .worktrees/
@@ -61,9 +61,9 @@ target/
 *.__merge_tmp/
 
 # Ralph coordination files
-.ralph/file_locks.json
-.ralph/agents.json
-.ralph/activity.jsonl
+.slashbot/file_locks.json
+.slashbot/agents.json
+.slashbot/activity.jsonl
 
 # Electron build output
 out/

@@ -172,22 +172,22 @@ export class AgentCoordinator {
         fs.symlinkSync(beadsDir, beadsLink, 'dir')
       }
 
-      // Symlink .ralph into worktree so agent context is available
-      const ralphLink = path.join(worktreePath, '.ralph')
-      if (fs.existsSync(this.ralphDir) && !fs.existsSync(ralphLink)) {
-        fs.symlinkSync(this.ralphDir, ralphLink, 'dir')
+      // Symlink .slashbot into worktree so agent context is available
+      const ralphLink = path.join(worktreePath, '.slashbot')
+      if (fs.existsSync(this.slashbotDir) && !fs.existsSync(ralphLink)) {
+        fs.symlinkSync(this.slashbotDir, ralphLink, 'dir')
       }
 
-      // Symlink .ralphrc
-      const ralphrcSrc = path.join(this.projectPath, '.ralphrc')
-      const ralphrcLink = path.join(worktreePath, '.ralphrc')
+      // Symlink .slashbotrc
+      const ralphrcSrc = path.join(this.projectPath, '.slashbotrc')
+      const ralphrcLink = path.join(worktreePath, '.slashbotrc')
       if (fs.existsSync(ralphrcSrc) && !fs.existsSync(ralphrcLink)) {
         fs.symlinkSync(ralphrcSrc, ralphrcLink, 'file')
       }
 
       // Ensure symlinks are not committed by the agent
       const wtGitignore = path.join(worktreePath, '.gitignore')
-      const ignoreEntries = ['.ralph/', '.ralphrc', '.beads/', '.worktrees/', '*.__merge_tmp/']
+      const ignoreEntries = ['.slashbot/', '.slashbotrc', '.beads/', '.worktrees/', '*.__merge_tmp/']
       if (fs.existsSync(wtGitignore)) {
         const existing = fs.readFileSync(wtGitignore, 'utf8')
         const missing = ignoreEntries.filter(e => !existing.includes(e))
@@ -322,7 +322,7 @@ export class AgentCoordinator {
 
       // Move untracked files/symlinks that would conflict with the merge
       const movedItems: { path: string; symlinkTarget?: string }[] = []
-      for (const name of ['.ralph', '.ralphrc', '.beads', '.worktrees']) {
+      for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
         const fullPath = path.join(this.projectPath, name)
         let stat: fs.Stats | null = null
         try { stat = fs.lstatSync(fullPath) } catch { continue }

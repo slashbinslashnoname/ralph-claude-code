@@ -9,7 +9,7 @@ import ConfigEditor from './pages/ConfigEditor'
 import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 
-const ralph = window.ralph
+const ralph = window.slashbot
 
 type Page = 'dashboard' | 'beads' | 'swarm' | 'logs' | 'config' | 'setup'
 

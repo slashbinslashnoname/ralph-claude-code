@@ -89,7 +89,7 @@ describe('WorkerLoop', () => {
 
   it('creates log directory on construction', () => {
     new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
-    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.ralph/logs', { recursive: true })
+    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot/logs', { recursive: true })
   })
 
   describe('stop', () => {

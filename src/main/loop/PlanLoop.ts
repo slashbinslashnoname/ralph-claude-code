@@ -43,8 +43,8 @@ export class PlanLoop extends EventEmitter {
     private agentId = 'planner'
   ) {
     super()
-    this.ralphDir = path.join(projectPath, '.ralph')
-    this.logDir = path.join(this.ralphDir, 'logs')
+    this.slashbotDir = path.join(projectPath, '.slashbot')
+    this.logDir = path.join(this.slashbotDir, 'logs')
     this.env = buildEnv()
     this.resolvedCmd = resolveCmd(config.claudeCodeCmd, this.env)
     fs.mkdirSync(this.logDir, { recursive: true })
@@ -141,8 +141,8 @@ export class PlanLoop extends EventEmitter {
   }
 
   private _buildPlanPrompt(request: string): string {
-    const agentMd = path.join(this.ralphDir, 'AGENT.md')
-    const promptMd = path.join(this.ralphDir, 'PROMPT.md')
+    const agentMd = path.join(this.slashbotDir, 'AGENT.md')
+    const promptMd = path.join(this.slashbotDir, 'PROMPT.md')
     const context = [
       fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : '',
       fs.existsSync(promptMd) ? fs.readFileSync(promptMd, 'utf8') : ''

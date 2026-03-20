@@ -136,10 +136,10 @@ describe('RcParser maxRetries validation', () => {
 })
 
 describe('RcParser maxRetries parsing', () => {
-  it('parses MAX_RETRIES from .ralphrc', () => {
+  it('parses MAX_RETRIES from .slashbotrc', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retry-test-'))
     try {
-      fs.writeFileSync(path.join(tmpDir, '.ralphrc'), 'MAX_RETRIES=3\n', 'utf8')
+      fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), 'MAX_RETRIES=3\n', 'utf8')
       const result = parseRcFile(tmpDir)
       expect(result.maxRetries).toBe(3)
     } finally {

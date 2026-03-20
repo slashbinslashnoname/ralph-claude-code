@@ -89,7 +89,7 @@ describe('PlanLoop', () => {
 
   it('creates log directory on construction', () => {
     new PlanLoop('/project', makeConfig(), makeCoordinator())
-    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.ralph/logs', { recursive: true })
+    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot/logs', { recursive: true })
   })
 
   it('stop() sets stopped flag', () => {

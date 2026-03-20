@@ -52,7 +52,7 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
     })
   }
 
-  // 3. Check required Ralph files (.ralph/, .ralph/PROMPT.md, .ralph/AGENT.md, .ralphrc)
+  // 3. Check required Ralph files (.slashbot/, .slashbot/PROMPT.md, .slashbot/AGENT.md, .slashbotrc)
   const integrity = validateIntegrity(projectPath)
   if (!integrity.ok) {
     errors.push({

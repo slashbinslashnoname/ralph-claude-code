@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
-const ralph = window.ralph
+const ralph = window.slashbot
 
 interface Props { projectPath: string }
 

@@ -58,8 +58,8 @@ export class WorkerLoop extends EventEmitter {
     private coordinator: AgentCoordinator
   ) {
     super()
-    this.ralphDir = path.join(projectPath, '.ralph')
-    this.logDir = path.join(this.ralphDir, 'logs')
+    this.slashbotDir = path.join(projectPath, '.slashbot')
+    this.logDir = path.join(this.slashbotDir, 'logs')
     this.env = buildEnv()
     this.resolvedCmd = resolveCmd(config.claudeCodeCmd, this.env)
     fs.mkdirSync(this.logDir, { recursive: true })
@@ -380,7 +380,7 @@ export class WorkerLoop extends EventEmitter {
 
   /** Phase 1: Think deeply before acting. Analyze the bead, understand context, plan approach. */
   private _buildThinkingPrompt(bead: Bead): string {
-    const agentMd = path.join(this.ralphDir, 'AGENT.md')
+    const agentMd = path.join(this.slashbotDir, 'AGENT.md')
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
 
     let currentBranch = ''
@@ -432,7 +432,7 @@ DO NOT write any implementation code. Analysis only.`
 
   /** Phase 2: Execute with the thinking context */
   private _buildExecutePrompt(bead: Bead, thinkingContext: string): string {
-    const agentMd = path.join(this.ralphDir, 'AGENT.md')
+    const agentMd = path.join(this.slashbotDir, 'AGENT.md')
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(thinkingContext)) : ''
 

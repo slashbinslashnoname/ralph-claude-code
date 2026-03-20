@@ -13,13 +13,13 @@
   Add a mandatory test phase between review and merge. Run the project's test suite (npm test, cargo test, etc. — already detected by RalphEnabler). If tests fail, the bead gets retried with the failure output as context. Tests pass?
   Proceed to merge.
 
-  Why it's transformative: Right now nothing verifies that agent code actually works. This single addition would dramatically reduce broken merges. The test command is already in .ralphrc from project detection — just add a _runTests()
+  Why it's transformative: Right now nothing verifies that agent code actually works. This single addition would dramatically reduce broken merges. The test command is already in .slashbotrc from project detection — just add a _runTests()
   step in WorkerLoop between review and merge. ~80 lines.
 
   ---
   3. Per-Phase Model Routing
 
-  The thinking and review phases don't need Opus. Use Sonnet for thinking + review, Opus for execution only. Add to .ralphrc:
+  The thinking and review phases don't need Opus. Use Sonnet for thinking + review, Opus for execution only. Add to .slashbotrc:
 
   CLAUDE_MODEL_THINK=sonnet
   CLAUDE_MODEL_EXECUTE=opus

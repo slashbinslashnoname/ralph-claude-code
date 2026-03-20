@@ -12,15 +12,15 @@ import {
 
 describe('validateRelPath', () => {
   it('accepts allowed config files', () => {
-    expect(validateRelPath('.ralphrc')).toBe('.ralphrc')
-    expect(validateRelPath('.ralph/PROMPT.md')).toBe('.ralph/PROMPT.md')
-    expect(validateRelPath('.ralph/AGENT.md')).toBe('.ralph/AGENT.md')
+    expect(validateRelPath('.slashbotrc')).toBe('.slashbotrc')
+    expect(validateRelPath('.slashbot/PROMPT.md')).toBe('.slashbot/PROMPT.md')
+    expect(validateRelPath('.slashbot/AGENT.md')).toBe('.slashbot/AGENT.md')
   })
 
   it('rejects non-allowed files', () => {
     expect(() => validateRelPath('package.json')).toThrow(/Not an editable file/)
     expect(() => validateRelPath('.env')).toThrow(/Not an editable file/)
-    expect(() => validateRelPath('.ralph/status.json')).toThrow(/Not an editable file/)
+    expect(() => validateRelPath('.slashbot/status.json')).toThrow(/Not an editable file/)
   })
 
   it('rejects empty string', () => {
@@ -38,13 +38,13 @@ describe('validateRelPath', () => {
 
 describe('validateContainment', () => {
   it('allows paths within project', () => {
-    const resolved = validateContainment('/home/user/project', '.ralphrc')
-    expect(resolved).toBe('/home/user/project/.ralphrc')
+    const resolved = validateContainment('/home/user/project', '.slashbotrc')
+    expect(resolved).toBe('/home/user/project/.slashbotrc')
   })
 
   it('allows nested paths within project', () => {
-    const resolved = validateContainment('/home/user/project', '.ralph/PROMPT.md')
-    expect(resolved).toBe('/home/user/project/.ralph/PROMPT.md')
+    const resolved = validateContainment('/home/user/project', '.slashbot/PROMPT.md')
+    expect(resolved).toBe('/home/user/project/.slashbot/PROMPT.md')
   })
 
   it('rejects path traversal with ../', () => {
@@ -55,7 +55,7 @@ describe('validateContainment', () => {
 
   it('rejects path traversal with embedded ..', () => {
     expect(
-      () => validateContainment('/home/user/project', '.ralph/../../etc/passwd')
+      () => validateContainment('/home/user/project', '.slashbot/../../etc/passwd')
     ).toThrow(/Path traversal detected/)
   })
 })
@@ -114,10 +114,10 @@ describe('validateConfigProjectPath', () => {
 
 describe('validateConfigRead', () => {
   it('validates and resolves allowed path', () => {
-    const r = validateConfigRead('/proj', '.ralphrc')
+    const r = validateConfigRead('/proj', '.slashbotrc')
     expect(r.projectPath).toBe('/proj')
-    expect(r.relPath).toBe('.ralphrc')
-    expect(r.resolvedPath).toBe('/proj/.ralphrc')
+    expect(r.relPath).toBe('.slashbotrc')
+    expect(r.resolvedPath).toBe('/proj/.slashbotrc')
   })
 
   it('throws on disallowed file', () => {
@@ -125,7 +125,7 @@ describe('validateConfigRead', () => {
   })
 
   it('throws on invalid projectPath', () => {
-    expect(() => validateConfigRead('', '.ralphrc')).toThrow(/non-empty/)
+    expect(() => validateConfigRead('', '.slashbotrc')).toThrow(/non-empty/)
   })
 
   it('throws on non-string relPath', () => {
@@ -137,10 +137,10 @@ describe('validateConfigRead', () => {
 
 describe('validateConfigWrite', () => {
   it('validates all inputs', () => {
-    const r = validateConfigWrite('/proj', '.ralph/AGENT.md', '# Agent config')
+    const r = validateConfigWrite('/proj', '.slashbot/AGENT.md', '# Agent config')
     expect(r.projectPath).toBe('/proj')
-    expect(r.relPath).toBe('.ralph/AGENT.md')
-    expect(r.resolvedPath).toBe('/proj/.ralph/AGENT.md')
+    expect(r.relPath).toBe('.slashbot/AGENT.md')
+    expect(r.resolvedPath).toBe('/proj/.slashbot/AGENT.md')
     expect(r.content).toBe('# Agent config')
   })
 
@@ -152,19 +152,19 @@ describe('validateConfigWrite', () => {
 
   it('throws on non-string content', () => {
     expect(
-      () => validateConfigWrite('/proj', '.ralphrc', 123)
+      () => validateConfigWrite('/proj', '.slashbotrc', 123)
     ).toThrow(/must be a string/)
   })
 
   it('throws on oversized content', () => {
     expect(
-      () => validateConfigWrite('/proj', '.ralphrc', 'x'.repeat(1_000_001))
+      () => validateConfigWrite('/proj', '.slashbotrc', 'x'.repeat(1_000_001))
     ).toThrow(/1000000 characters/)
   })
 
   it('throws on invalid projectPath', () => {
     expect(
-      () => validateConfigWrite(null, '.ralphrc', 'content')
+      () => validateConfigWrite(null, '.slashbotrc', 'content')
     ).toThrow(/non-empty string/)
   })
 })

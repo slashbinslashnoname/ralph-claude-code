@@ -134,7 +134,7 @@ const readJson = (filePath: string): unknown => {
 const readText = (filePath: string): string | null => {
   try { return fs.readFileSync(filePath, 'utf8') } catch { return null }
 }
-const ralphDir = (p: string): string => path.join(p, '.ralph')
+const ralphDir = (p: string): string => path.join(p, '.slashbot')
 
 export function registerIpc(
   getMainWindow: () => BrowserWindow | null,
@@ -215,7 +215,7 @@ export function registerIpc(
     const watcher = chokidar.watch(rd, {
       ignoreInitial: true,
       depth: 1,
-      ignored: ['**/.claude_session_id', '**/.ralph_session_history']
+      ignored: ['**/.claude_session_id', '**/.slashbot_session_history']
     })
 
     const push = (channel: string, file: string): void => {

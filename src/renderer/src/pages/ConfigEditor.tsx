@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react'
 
-const ralph = window.ralph
+const ralph = window.slashbot
 
 interface Props { projectPath: string }
 
 const EDITABLE_FILES = [
-  { path: '.ralphrc', label: 'Configuration (.ralphrc)' },
-  { path: '.ralph/PROMPT.md', label: 'Prompt (PROMPT.md)' },
-  { path: '.ralph/AGENT.md', label: 'Agent (AGENT.md)' },
+  { path: '.slashbotrc', label: 'Configuration (.slashbotrc)' },
+  { path: '.slashbot/PROMPT.md', label: 'Prompt (PROMPT.md)' },
+  { path: '.slashbot/AGENT.md', label: 'Agent (AGENT.md)' },
 ]
 
 export default function ConfigEditor({ projectPath }: Props) {
-  const [activeFile, setActiveFile] = useState('.ralphrc')
+  const [activeFile, setActiveFile] = useState('.slashbotrc')
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
   const [error, setError] = useState('')

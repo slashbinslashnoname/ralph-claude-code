@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
-const ralph = window.ralph
+const ralph = window.slashbot
 
 interface Props {
   projectPath: string

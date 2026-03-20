@@ -16,10 +16,10 @@ let orch: SwarmOrchestrator
 
 function makeTmpProject(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-  const ralphDir = path.join(dir, '.ralph')
+  const ralphDir = path.join(dir, '.slashbot')
   fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
-  // Minimal .ralphrc so loadConfig doesn't throw
-  fs.writeFileSync(path.join(dir, '.ralphrc'), JSON.stringify({
+  // Minimal .slashbotrc so loadConfig doesn't throw
+  fs.writeFileSync(path.join(dir, '.slashbotrc'), JSON.stringify({
     claudeCodeCmd: 'false', // will fail immediately
     claudeTimeoutMinutes: 1,
     claudeOutputFormat: 'text',
@@ -145,9 +145,9 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
 
   it('throws when required Ralph files are missing', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-    const ralphDir = path.join(tmpDir, '.ralph')
+    const ralphDir = path.join(tmpDir, '.slashbot')
     fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
-    fs.writeFileSync(path.join(tmpDir, '.ralphrc'), JSON.stringify({
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), JSON.stringify({
       claudeCodeCmd: 'false',
       claudeTimeoutMinutes: 1,
       claudeOutputFormat: 'text',
@@ -164,11 +164,11 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
 
   it('throws when .beads directory is missing', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-    const ralphDir = path.join(tmpDir, '.ralph')
+    const ralphDir = path.join(tmpDir, '.slashbot')
     fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
     fs.writeFileSync(path.join(ralphDir, 'PROMPT.md'), '# Prompt')
     fs.writeFileSync(path.join(ralphDir, 'AGENT.md'), '# Agent')
-    fs.writeFileSync(path.join(tmpDir, '.ralphrc'), JSON.stringify({
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), JSON.stringify({
       claudeCodeCmd: 'false',
       claudeTimeoutMinutes: 1,
       claudeOutputFormat: 'text',
@@ -330,7 +330,7 @@ describe('SwarmOrchestrator — agent output buffer', () => {
   })
 
   it('getAgentOutput reads from disk log file', () => {
-    const logDir = path.join(tmpDir, '.ralph', 'logs')
+    const logDir = path.join(tmpDir, '.slashbot', 'logs')
     fs.writeFileSync(path.join(logDir, 'agent-0.log'), 'hello world')
     expect(orch.getAgentOutput('agent-0')).toBe('hello world')
   })
@@ -347,7 +347,7 @@ describe('SwarmOrchestrator — agent output buffer', () => {
   it('_bufferOutput also persists to disk', () => {
     const buf = (orch as any)
     buf._bufferOutput('agent-test', 'disk-check')
-    const logFile = path.join(tmpDir, '.ralph', 'logs', 'agent-test.log')
+    const logFile = path.join(tmpDir, '.slashbot', 'logs', 'agent-test.log')
     expect(fs.existsSync(logFile)).toBe(true)
     expect(fs.readFileSync(logFile, 'utf8')).toBe('disk-check')
   })
@@ -366,7 +366,7 @@ describe('SwarmOrchestrator — logging', () => {
 
   it('_log writes to ralph.log on disk', () => {
     ;(orch as any)._log('INFO', 'test message')
-    const logFile = path.join(tmpDir, '.ralph', 'logs', 'ralph.log')
+    const logFile = path.join(tmpDir, '.slashbot', 'logs', 'ralph.log')
     const content = fs.readFileSync(logFile, 'utf8')
     expect(content).toContain('test message')
     expect(content).toContain('[INFO]')

@@ -34,7 +34,7 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
 }
 
 export function parseRcFile(projectPath: string): Partial<RalphConfig> {
-  const rcPath = path.join(projectPath, '.ralphrc')
+  const rcPath = path.join(projectPath, '.slashbotrc')
   if (!fs.existsSync(rcPath)) return {}
   const lines = fs.readFileSync(rcPath, 'utf8').split('\n')
   const result: Record<string, unknown> = {}

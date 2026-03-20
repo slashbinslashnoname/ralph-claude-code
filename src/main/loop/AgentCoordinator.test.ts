@@ -18,7 +18,7 @@ function makeTmpGitProject(): string {
   fs.writeFileSync(path.join(dir, 'README.md'), '# test')
   execSync('git add . && git commit -m "init"', { cwd: dir, stdio: 'pipe' })
 
-  const ralph = path.join(dir, '.ralph')
+  const ralph = path.join(dir, '.slashbot')
   fs.mkdirSync(path.join(ralph, 'logs'), { recursive: true })
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   return dir
@@ -27,7 +27,7 @@ function makeTmpGitProject(): string {
 describe('AgentCoordinator — atomic writes', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -72,7 +72,7 @@ describe('AgentCoordinator — atomic writes', () => {
 describe('AgentCoordinator — merge retry', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -156,7 +156,7 @@ describe('AgentCoordinator — merge retry', () => {
 describe('AgentCoordinator — orphaned worktree cleanup', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -227,7 +227,7 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
 describe('AgentCoordinator — file locks and agent registry', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -304,7 +304,7 @@ describe('AgentCoordinator — file locks and agent registry', () => {
 describe('AgentCoordinator — agent registration', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -376,7 +376,7 @@ describe('AgentCoordinator — agent registration', () => {
 describe('AgentCoordinator — activity log', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -419,7 +419,7 @@ describe('AgentCoordinator — activity log', () => {
   })
 
   it('postActivity does not throw when directory does not exist', () => {
-    const badCoord = new AgentCoordinator(path.join(tmpDir, 'nonexistent', '.ralph'), tmpDir)
+    const badCoord = new AgentCoordinator(path.join(tmpDir, 'nonexistent', '.slashbot'), tmpDir)
     ;(badCoord as any).activityFile = path.join(tmpDir, 'no', 'such', 'dir', 'activity.jsonl')
     expect(() => {
       badCoord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'test' })
@@ -443,7 +443,7 @@ describe('AgentCoordinator — activity log', () => {
 describe('AgentCoordinator — worktree creation', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -468,19 +468,19 @@ describe('AgentCoordinator — worktree creation', () => {
     expect(fs.lstatSync(beadsLink).isSymbolicLink()).toBe(true)
   })
 
-  it('worktree has .ralph symlink', () => {
+  it('worktree has .slashbot symlink', () => {
     const wt = coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
-    const ralphLink = path.join(wt!.worktreePath, '.ralph')
+    const ralphLink = path.join(wt!.worktreePath, '.slashbot')
     expect(fs.existsSync(ralphLink)).toBe(true)
     expect(fs.lstatSync(ralphLink).isSymbolicLink()).toBe(true)
   })
 
-  it('worktree has .ralphrc symlink when .ralphrc exists', () => {
-    fs.writeFileSync(path.join(tmpDir, '.ralphrc'), 'maxCallsPerHour=10')
+  it('worktree has .slashbotrc symlink when .slashbotrc exists', () => {
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), 'maxCallsPerHour=10')
     const wt = coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
-    const rcLink = path.join(wt!.worktreePath, '.ralphrc')
+    const rcLink = path.join(wt!.worktreePath, '.slashbotrc')
     expect(fs.existsSync(rcLink)).toBe(true)
     expect(fs.lstatSync(rcLink).isSymbolicLink()).toBe(true)
   })
@@ -489,8 +489,8 @@ describe('AgentCoordinator — worktree creation', () => {
     const wt = coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const gitignore = fs.readFileSync(path.join(wt!.worktreePath, '.gitignore'), 'utf8')
-    expect(gitignore).toContain('.ralph/')
-    expect(gitignore).toContain('.ralphrc')
+    expect(gitignore).toContain('.slashbot/')
+    expect(gitignore).toContain('.slashbotrc')
     expect(gitignore).toContain('.beads/')
     expect(gitignore).toContain('.worktrees/')
   })
@@ -515,7 +515,7 @@ describe('AgentCoordinator — worktree creation', () => {
 describe('AgentCoordinator — bead claiming with contention', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -670,7 +670,7 @@ describe('AgentCoordinator — bead claiming with contention', () => {
 describe('AgentCoordinator — completeBead and failBead', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 
@@ -711,7 +711,7 @@ describe('AgentCoordinator — completeBead and failBead', () => {
 describe('AgentCoordinator — hasOpenWork and getStats', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.ralph')
+    ralphDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(ralphDir, tmpDir)
   })
 

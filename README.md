@@ -31,7 +31,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Session expiration with configurable timeout (default: 24 hours)**
 - **Modern CLI flags: `--output-format`, `--allowed-tools`, `--no-continue`**
 - **Interactive project enablement with `ralph-enable` wizard**
-- **`.ralphrc` configuration file for project settings**
+- **`.slashbotrc` configuration file for project settings**
 - **Live streaming output with `--live` flag for real-time Claude Code visibility**
 - Multi-line error matching for accurate stuck loop detection
 - 5-hour API limit handling with user prompts
@@ -68,9 +68,9 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Added 12 new tests for live streaming and beads import improvements
 
 **v0.11.2 - Setup Permissions Fix**
-- Fixed issue #136: `ralph-setup` now creates `.ralphrc` with consistent tool permissions
+- Fixed issue #136: `ralph-setup` now creates `.slashbotrc` with consistent tool permissions
 - Updated default `ALLOWED_TOOLS` to include `Edit`, `Bash(npm *)`, and `Bash(pytest)`
-- Both `ralph-setup` and `ralph-enable` now create identical `.ralphrc` configurations
+- Both `ralph-setup` and `ralph-enable` now create identical `.slashbotrc` configurations
 - Monitor now forwards all CLI parameters to inner ralph loop (#126)
 - Added 16 new tests for permissions and parameter forwarding
 
@@ -93,8 +93,8 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - Added safety circuit breaker (force exit after 5 consecutive completion indicators)
 - Fixed checkbox parsing for indented markdown
 
-**v0.10.0 - .ralph/ Subfolder Structure (BREAKING CHANGE)**
-- **Breaking**: Moved all Ralph-specific files to `.ralph/` subfolder
+**v0.10.0 - .slashbot/ Subfolder Structure (BREAKING CHANGE)**
+- **Breaking**: Moved all Ralph-specific files to `.slashbot/` subfolder
 - Project root stays clean: only `src/`, `README.md`, and user files remain
 - Added `ralph-migrate` command for upgrading existing projects
 
@@ -144,7 +144,7 @@ Ralph is an implementation of the Geoffrey Huntley's technique for Claude Code t
 - **Task Management** - Structured approach with prioritized task lists and progress tracking
 - **Project Templates** - Quick setup for new projects with best-practice structure
 - **Interactive Project Setup** - `ralph-enable` wizard for existing projects with task import
-- **Configuration Files** - `.ralphrc` for project-specific settings and tool permissions
+- **Configuration Files** - `.slashbotrc` for project-specific settings and tool permissions
 - **Comprehensive Logging** - Detailed execution logs with timestamps and status tracking
 - **Configurable Timeouts** - Set execution timeout for Claude Code operations (1-120 minutes)
 - **Verbose Progress Mode** - Optional detailed progress updates during execution
@@ -207,9 +207,9 @@ ralph-import my-requirements.md my-project
 cd my-project
 
 # Review and adjust the generated files:
-# - .ralph/PROMPT.md (Ralph instructions)
-# - .ralph/fix_plan.md (task priorities)
-# - .ralph/specs/requirements.md (technical specs)
+# - .slashbot/PROMPT.md (Ralph instructions)
+# - .slashbot/fix_plan.md (task priorities)
+# - .slashbot/specs/requirements.md (technical specs)
 
 # Start autonomous development
 ralph --monitor
@@ -222,9 +222,9 @@ ralph-setup my-awesome-project
 cd my-awesome-project
 
 # Configure your project requirements manually
-# Edit .ralph/PROMPT.md with your project goals
-# Edit .ralph/specs/ with detailed specifications
-# Edit .ralph/fix_plan.md with initial priorities
+# Edit .slashbot/PROMPT.md with your project goals
+# Edit .slashbot/specs/ with detailed specifications
+# Edit .slashbot/fix_plan.md with initial priorities
 
 # Start autonomous development
 ralph --monitor
@@ -257,16 +257,16 @@ curl -sL https://raw.githubusercontent.com/frankbria/ralph-claude-code/main/unin
 
 ## Understanding Ralph Files
 
-After running `ralph-enable` or `ralph-import`, you'll have a `.ralph/` directory with several files. Here's what each file does and whether you need to edit it:
+After running `ralph-enable` or `ralph-import`, you'll have a `.slashbot/` directory with several files. Here's what each file does and whether you need to edit it:
 
 | File | Auto-Generated? | You Should... |
 |------|-----------------|---------------|
-| `.ralph/PROMPT.md` | Yes (smart defaults) | **Review & customize** project goals and principles |
-| `.ralph/fix_plan.md` | Yes (can import tasks) | **Add/modify** specific implementation tasks |
-| `.ralph/AGENT.md` | Yes (detects build commands) | Rarely edit (auto-maintained by Ralph) |
-| `.ralph/specs/` | Empty directory | Add files when PROMPT.md isn't detailed enough |
-| `.ralph/specs/stdlib/` | Empty directory | Add reusable patterns and conventions |
-| `.ralphrc` | Yes (project-aware) | Rarely edit (sensible defaults) |
+| `.slashbot/PROMPT.md` | Yes (smart defaults) | **Review & customize** project goals and principles |
+| `.slashbot/fix_plan.md` | Yes (can import tasks) | **Add/modify** specific implementation tasks |
+| `.slashbot/AGENT.md` | Yes (detects build commands) | Rarely edit (auto-maintained by Ralph) |
+| `.slashbot/specs/` | Empty directory | Add files when PROMPT.md isn't detailed enough |
+| `.slashbot/specs/stdlib/` | Empty directory | Add reusable patterns and conventions |
+| `.slashbotrc` | Yes (project-aware) | Rarely edit (sensible defaults) |
 
 ### Key File Relationships
 
@@ -320,7 +320,7 @@ Loop 8: Claude outputs "All tasks complete, project ready"
 ```
 
 **Other exit conditions:**
-- All tasks in `.ralph/fix_plan.md` marked complete
+- All tasks in `.slashbot/fix_plan.md` marked complete
 - Multiple consecutive "done" signals from Claude Code
 - Too many test-focused loops (indicating feature completeness)
 - Claude API 5-hour usage limit reached (with user prompt to wait or exit)
@@ -338,7 +338,7 @@ ralph-enable
 1. **Detects Environment** - Identifies project type (TypeScript, Python, etc.) and framework
 2. **Selects Task Sources** - Choose from beads, GitHub Issues, or PRD documents
 3. **Configures Settings** - Set tool permissions and loop parameters
-4. **Generates Files** - Creates `.ralph/` directory and `.ralphrc` configuration
+4. **Generates Files** - Creates `.slashbot/` directory and `.slashbotrc` configuration
 5. **Verifies Setup** - Confirms all files are created correctly
 
 **Non-interactive mode for CI/automation:**
@@ -381,22 +381,22 @@ ralph-import design-doc.pdf
 
 Ralph-import creates a complete project with:
 
-- **.ralph/PROMPT.md** - Converted into Ralph development instructions
-- **.ralph/fix_plan.md** - Requirements broken down into prioritized tasks
-- **.ralph/specs/requirements.md** - Technical specifications extracted from your document
-- **.ralphrc** - Project configuration file with tool permissions
-- **Standard Ralph structure** - All necessary directories and template files in `.ralph/`
+- **.slashbot/PROMPT.md** - Converted into Ralph development instructions
+- **.slashbot/fix_plan.md** - Requirements broken down into prioritized tasks
+- **.slashbot/specs/requirements.md** - Technical specifications extracted from your document
+- **.slashbotrc** - Project configuration file with tool permissions
+- **Standard Ralph structure** - All necessary directories and template files in `.slashbot/`
 
 The conversion is intelligent and preserves your original requirements while making them actionable for autonomous development.
 
 ## Configuration
 
-### Project Configuration (.ralphrc)
+### Project Configuration (.slashbotrc)
 
-Each Ralph project can have a `.ralphrc` configuration file:
+Each Ralph project can have a `.slashbotrc` configuration file:
 
 ```bash
-# .ralphrc - Ralph project configuration
+# .slashbotrc - Ralph project configuration
 PROJECT_NAME="my-project"
 PROJECT_TYPE="typescript"
 
@@ -448,11 +448,11 @@ The circuit breaker automatically:
 **Auto-recovery options:**
 ```bash
 # Default: 30-minute cooldown before auto-recovery attempt
-CB_COOLDOWN_MINUTES=30     # Set in .ralphrc (0 = immediate)
+CB_COOLDOWN_MINUTES=30     # Set in .slashbotrc (0 = immediate)
 
 # Auto-reset on startup (for fully unattended operation)
 ralph --auto-reset-circuit
-# Or set in .ralphrc: CB_AUTO_RESET=true
+# Or set in .slashbotrc: CB_AUTO_RESET=true
 ```
 
 ### Claude API 5-Hour Limit
@@ -507,8 +507,8 @@ ralph --live
 # Combine with monitoring for best experience
 ralph --monitor --live
 
-# Live output is written to .ralph/live.log
-tail -f .ralph/live.log  # Watch in another terminal
+# Live output is written to .slashbot/live.log
+tail -f .slashbot/live.log  # Watch in another terminal
 ```
 
 Live streaming mode shows Claude Code's output in real-time as it works, providing visibility into what's happening during each loop iteration.
@@ -528,8 +528,8 @@ ralph --no-continue             # Isolated iterations
 ralph --reset-session           # Clears current session
 
 # Check session status
-cat .ralph/.ralph_session              # View current session file
-cat .ralph/.ralph_session_history      # View session transition history
+cat .slashbot/.slashbot_session              # View current session file
+cat .slashbot/.slashbot_session_history      # View session transition history
 ```
 
 **Session Auto-Reset Triggers:**
@@ -539,11 +539,11 @@ cat .ralph/.ralph_session_history      # View session transition history
 - Manual circuit breaker reset (`--reset-circuit`)
 - Session expiration (default: 24 hours)
 
-Sessions are persisted to `.ralph/.ralph_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.ralph/.ralph_session_history` for debugging.
+Sessions are persisted to `.slashbot/.slashbot_session` with a configurable expiration (default: 24 hours). The last 50 session transitions are logged to `.slashbot/.slashbot_session_history` for debugging.
 
 ### Exit Thresholds
 
-Modify these variables in `~/.ralph/ralph_loop.sh`:
+Modify these variables in `~/.slashbot/ralph_loop.sh`:
 
 **Exit Detection Thresholds:**
 ```bash
@@ -572,11 +572,11 @@ CB_AUTO_RESET=false              # true = reset to CLOSED on startup (bypasses c
 
 ## Project Structure
 
-Ralph creates a standardized structure for each project with a `.ralph/` subfolder for configuration:
+Ralph creates a standardized structure for each project with a `.slashbot/` subfolder for configuration:
 
 ```
 my-project/
-├── .ralph/                 # Ralph configuration and state (hidden folder)
+├── .slashbot/                 # Ralph configuration and state (hidden folder)
 │   ├── PROMPT.md           # Main development instructions for Ralph
 │   ├── fix_plan.md        # Prioritized task list
 │   ├── AGENT.md           # Build and run instructions
@@ -585,39 +585,39 @@ my-project/
 │   ├── examples/           # Usage examples and test cases
 │   ├── logs/               # Ralph execution logs
 │   └── docs/generated/     # Auto-generated documentation
-├── .ralphrc                # Ralph configuration file (tool permissions, settings)
+├── .slashbotrc                # Ralph configuration file (tool permissions, settings)
 └── src/                    # Source code implementation (at project root)
 ```
 
-> **Migration**: If you have existing Ralph projects using the old flat structure, run `ralph-migrate` to automatically move files to the `.ralph/` subfolder.
+> **Migration**: If you have existing Ralph projects using the old flat structure, run `ralph-migrate` to automatically move files to the `.slashbot/` subfolder.
 
 ## Best Practices
 
 ### Writing Effective Prompts
 
 1. **Be Specific** - Clear requirements lead to better results
-2. **Prioritize** - Use `.ralph/fix_plan.md` to guide Ralph's focus
+2. **Prioritize** - Use `.slashbot/fix_plan.md` to guide Ralph's focus
 3. **Set Boundaries** - Define what's in/out of scope
 4. **Include Examples** - Show expected inputs/outputs
 
 ### Project Specifications
 
-- Place detailed requirements in `.ralph/specs/`
-- Use `.ralph/fix_plan.md` for prioritized task tracking
-- Keep `.ralph/AGENT.md` updated with build instructions
+- Place detailed requirements in `.slashbot/specs/`
+- Use `.slashbot/fix_plan.md` for prioritized task tracking
+- Keep `.slashbot/AGENT.md` updated with build instructions
 - Document key decisions and architecture
 
 ### Monitoring Progress
 
 - Use `ralph-monitor` for live status updates
-- Check logs in `.ralph/logs/` for detailed execution history
-- Monitor `.ralph/status.json` for programmatic access
+- Check logs in `.slashbot/logs/` for detailed execution history
+- Monitor `.slashbot/status.json` for programmatic access
 - Watch for exit condition signals
 
 ## System Requirements
 
 - **Bash 4.0+** - For script execution
-- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code` (or use npx — set `CLAUDE_CODE_CMD` in `.ralphrc`)
+- **Claude Code CLI** - `npm install -g @anthropic-ai/claude-code` (or use npx — set `CLAUDE_CODE_CMD` in `.slashbotrc`)
 - **tmux** - Terminal multiplexer for integrated monitoring (recommended)
 - **jq** - JSON processing for status tracking
 - **Git** - Version control (projects are initialized as git repos)
@@ -727,12 +727,12 @@ Shows real-time:
 ralph --status
 
 # Manual log inspection
-tail -f .ralph/logs/ralph.log
+tail -f .slashbot/logs/ralph.log
 ```
 
 ### Common Issues
 
-- **Ralph exits silently on first loop** - Claude Code CLI may not be installed or not in PATH. Ralph validates the command at startup and shows installation instructions. If using npx, add `CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"` to `.ralphrc`
+- **Ralph exits silently on first loop** - Claude Code CLI may not be installed or not in PATH. Ralph validates the command at startup and shows installation instructions. If using npx, add `CLAUDE_CODE_CMD="npx @anthropic-ai/claude-code"` to `.slashbotrc`
 - **Rate Limits** - Ralph automatically waits and displays countdown
 - **5-Hour API Limit** - Ralph detects and prompts for user action (wait or exit)
 - **Stuck Loops** - Check `fix_plan.md` for unclear or conflicting tasks
@@ -744,9 +744,9 @@ tail -f .ralph/logs/ralph.log
 - **Session Expired** - Sessions expire after 24 hours by default; use `--reset-session` to start fresh
 - **timeout: command not found (macOS)** - Install GNU coreutils: `brew install coreutils`
 - **Permission Denied** - Ralph halts when Claude Code is denied permission for commands:
-  1. Edit `.ralphrc` and update `ALLOWED_TOOLS` to include required tools
+  1. Edit `.slashbotrc` and update `ALLOWED_TOOLS` to include required tools
   2. Common patterns: `Bash(npm *)`, `Bash(git *)`, `Bash(pytest)`
-  3. Run `ralph --reset-session` after updating `.ralphrc`
+  3. Run `ralph --reset-session` after updating `.slashbotrc`
   4. Restart with `ralph --monitor`
 
 ## Contributing
@@ -807,7 +807,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ./uninstall.sh            # Remove Ralph from system (dedicated script)
 ./install.sh uninstall    # Alternative: Remove Ralph from system
 ./install.sh --help       # Show installation help
-ralph-migrate             # Migrate existing project to .ralph/ structure
+ralph-migrate             # Migrate existing project to .slashbot/ structure
 ```
 
 ### Ralph Loop Options
@@ -874,7 +874,7 @@ Ralph is under active development with a clear path to v1.0.0. See [IMPLEMENTATI
 - Modern CLI commands with JSON output support
 - CI/CD pipeline with GitHub Actions
 - **Interactive `ralph-enable` wizard for existing projects**
-- **`.ralphrc` configuration file support**
+- **`.slashbotrc` configuration file support**
 - Session lifecycle management with auto-reset triggers
 - Session expiration with configurable timeout
 - Dedicated uninstall script

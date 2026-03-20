@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-const REQUIRED = ['.ralph', '.ralph/PROMPT.md', '.ralph/AGENT.md', '.ralphrc']
+const REQUIRED = ['.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md', '.slashbotrc']
 
 export function validateIntegrity(projectPath: string): {
   ok: boolean

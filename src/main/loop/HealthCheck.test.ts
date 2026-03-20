@@ -9,13 +9,13 @@ let tmpDir: string
 function makeProject(opts: { beads?: boolean; ralph?: boolean; ralphrc?: boolean } = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'healthcheck-test-'))
   if (opts.beads !== false) fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
-  if (opts.ralph !== false) {
-    fs.mkdirSync(path.join(dir, '.ralph'), { recursive: true })
-    fs.writeFileSync(path.join(dir, '.ralph', 'PROMPT.md'), '# Prompt')
-    fs.writeFileSync(path.join(dir, '.ralph', 'AGENT.md'), '# Agent')
+  if (opts.slashbot !== false) {
+    fs.mkdirSync(path.join(dir, '.slashbot'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.slashbot', 'PROMPT.md'), '# Prompt')
+    fs.writeFileSync(path.join(dir, '.slashbot', 'AGENT.md'), '# Agent')
   }
-  if (opts.ralphrc !== false) {
-    fs.writeFileSync(path.join(dir, '.ralphrc'), 'CLAUDE_CODE_CMD=claude')
+  if (opts.slashbotrc !== false) {
+    fs.writeFileSync(path.join(dir, '.slashbotrc'), 'CLAUDE_CODE_CMD=claude')
   }
   return dir
 }
@@ -66,17 +66,17 @@ describe('HealthCheck', () => {
     expect(result.ok).toBe(false)
     const filesError = result.errors.find(e => e.check === 'ralph-files')
     expect(filesError).toBeDefined()
-    expect(filesError!.message).toContain('.ralph')
+    expect(filesError!.message).toContain('.slashbot')
     expect(filesError!.remediation).toContain('ralph-enable')
   })
 
-  it('reports missing .ralphrc', () => {
+  it('reports missing .slashbotrc', () => {
     tmpDir = makeProject({ ralphrc: false })
     const result = runHealthCheck(tmpDir, 'node')
     expect(result.ok).toBe(false)
     const filesError = result.errors.find(e => e.check === 'ralph-files')
     expect(filesError).toBeDefined()
-    expect(filesError!.message).toContain('.ralphrc')
+    expect(filesError!.message).toContain('.slashbotrc')
   })
 
   it('collects multiple errors without short-circuiting', () => {

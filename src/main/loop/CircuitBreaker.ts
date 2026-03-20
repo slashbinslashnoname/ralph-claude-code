@@ -20,7 +20,7 @@ export class CircuitBreaker {
   ) {}
 
   load(): void {
-    const file = path.join(this.ralphDir, '.circuit_breaker_state')
+    const file = path.join(this.slashbotDir, '.circuit_breaker_state')
     if (!fs.existsSync(file)) return
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -57,7 +57,7 @@ export class CircuitBreaker {
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
     fs.writeFileSync(
-      path.join(this.ralphDir, '.circuit_breaker_state'),
+      path.join(this.slashbotDir, '.circuit_breaker_state'),
       JSON.stringify(snapshot, null, 2)
     )
   }

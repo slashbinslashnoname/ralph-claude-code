@@ -14,7 +14,7 @@ export class RateLimit {
   }
 
   private _load(): void {
-    const f = path.join(this.ralphDir, '.call_count')
+    const f = path.join(this.slashbotDir, '.call_count')
     if (!fs.existsSync(f)) return
     try {
       const d = JSON.parse(fs.readFileSync(f, 'utf8'))
@@ -25,7 +25,7 @@ export class RateLimit {
 
   private _save(): void {
     fs.writeFileSync(
-      path.join(this.ralphDir, '.call_count'),
+      path.join(this.slashbotDir, '.call_count'),
       JSON.stringify({ count: this.count, hourStart: this.hourStart.toISOString() })
     )
   }

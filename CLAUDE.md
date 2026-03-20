@@ -20,7 +20,7 @@ Slashbot — an Electron desktop app for autonomous AI development orchestration
     - `RateLimit.ts` — API call quota tracking
     - `ResponseAnalyzer.ts` — Claude output parsing
     - `FileGuard.ts` — Required file integrity checks
-    - `RcParser.ts` — `.ralphrc` configuration parser
+    - `RcParser.ts` — `.slashbotrc` configuration parser
     - `RalphEnabler.ts` — Project setup/enablement
     - `RalphLoop.ts` — Single-agent loop (legacy, pre-swarm)
 - **Preload** (`src/preload/`): Context bridge exposing APIs to renderer
@@ -30,7 +30,7 @@ Slashbot — an Electron desktop app for autonomous AI development orchestration
   - `src/pages/SwarmPage.tsx` — Agent flywheel: plan injection, live output, activity feed
   - `src/pages/BeadsPage.tsx` — Task management with tabbed filtering (Open/In Progress/Closed)
   - `src/pages/LogViewer.tsx` — Real-time log streaming
-  - `src/pages/ConfigEditor.tsx` — Edit .ralphrc, PROMPT.md, AGENT.md
+  - `src/pages/ConfigEditor.tsx` — Edit .slashbotrc, PROMPT.md, AGENT.md
   - `src/pages/SetupWizard.tsx` — Project enablement flow
 
 ## Key Design Decisions
@@ -39,7 +39,7 @@ Slashbot — an Electron desktop app for autonomous AI development orchestration
 Each worker agent creates a git worktree (`git worktree add`) for isolated work. After completion, the branch is merged back to the main branch. This replaces the old mail-based coordination system.
 
 - Worktrees live in `.worktrees/<agent>-<bead>/`
-- `.beads/`, `.ralph/`, `.ralphrc` are symlinked into each worktree
+- `.beads/`, `.slashbot/`, `.slashbotrc` are symlinked into each worktree
 - Merge conflicts cause bead failure (agent moves to next bead)
 
 ### Think-Before-Act Pattern

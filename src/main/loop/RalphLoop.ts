@@ -64,8 +64,8 @@ export class RalphLoop extends EventEmitter {
 
   constructor(private projectPath: string) {
     super()
-    this.ralphDir = path.join(projectPath, '.ralph')
-    this.logDir = path.join(this.ralphDir, 'logs')
+    this.slashbotDir = path.join(projectPath, '.slashbot')
+    this.logDir = path.join(this.slashbotDir, 'logs')
   }
 
   async start(): Promise<void> {
@@ -100,8 +100,8 @@ export class RalphLoop extends EventEmitter {
     fs.mkdirSync(this.logDir, { recursive: true })
     this._rotateLog()
     this.config = loadConfig(this.projectPath)
-    this.circuit = new CircuitBreaker(this.ralphDir, this.config)
-    this.rate = new RateLimit(this.ralphDir, this.config.maxCallsPerHour)
+    this.circuit = new CircuitBreaker(this.slashbotDir, this.config)
+    this.rate = new RateLimit(this.slashbotDir, this.config.maxCallsPerHour)
     this.bd = new BdClient(this.projectPath)
     this.circuit.load()
     this.circuit.save()
@@ -120,9 +120,9 @@ export class RalphLoop extends EventEmitter {
   }
 
   private _clearStaleState(): void {
-    const exitSignals = path.join(this.ralphDir, '.exit_signals')
+    const exitSignals = path.join(this.slashbotDir, '.exit_signals')
     if (fs.existsSync(exitSignals)) fs.writeFileSync(exitSignals, '0')
-    const analysis = path.join(this.ralphDir, '.response_analysis')
+    const analysis = path.join(this.slashbotDir, '.response_analysis')
     if (fs.existsSync(analysis)) fs.writeFileSync(analysis, '{}')
   }
 
@@ -303,7 +303,7 @@ export class RalphLoop extends EventEmitter {
   }
 
   private _buildPrompt(): string {
-    const promptFile = path.join(this.ralphDir, 'PROMPT.md')
+    const promptFile = path.join(this.slashbotDir, 'PROMPT.md')
     const promptContent = fs.existsSync(promptFile) ? fs.readFileSync(promptFile, 'utf8') : ''
 
     // Get pending beads from bd
@@ -341,7 +341,7 @@ export class RalphLoop extends EventEmitter {
       exit_reason: exitReason,
       next_reset: resetIn
     }
-    fs.writeFileSync(path.join(this.ralphDir, 'status.json'), JSON.stringify(s, null, 2))
+    fs.writeFileSync(path.join(this.slashbotDir, 'status.json'), JSON.stringify(s, null, 2))
     this.emit('status', s)
   }
 

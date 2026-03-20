@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 
-const ralph = window.ralph
+const ralph = window.slashbot
 
 interface Props {
   projectPath: string

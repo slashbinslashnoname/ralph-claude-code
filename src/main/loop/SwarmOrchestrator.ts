@@ -26,10 +26,10 @@ export class SwarmOrchestrator extends EventEmitter {
 
   constructor(private projectPath: string) {
     super()
-    this.ralphDir = path.join(projectPath, '.ralph')
-    this.logDir = path.join(this.ralphDir, 'logs')
+    this.slashbotDir = path.join(projectPath, '.slashbot')
+    this.logDir = path.join(this.slashbotDir, 'logs')
     fs.mkdirSync(this.logDir, { recursive: true })
-    this.coordinator = new AgentCoordinator(this.ralphDir, projectPath)
+    this.coordinator = new AgentCoordinator(this.slashbotDir, projectPath)
   }
 
   // ── Public API ─────────────────────────────────────────────────────────

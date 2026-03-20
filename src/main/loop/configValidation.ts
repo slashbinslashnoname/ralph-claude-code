@@ -7,7 +7,7 @@
 import * as path from 'path'
 
 // ── Allowlist ────────────────────────────────────────────────────────────────
-const EDITABLE_FILES = new Set(['.ralphrc', '.ralph/PROMPT.md', '.ralph/AGENT.md'])
+const EDITABLE_FILES = new Set(['.slashbotrc', '.slashbot/PROMPT.md', '.slashbot/AGENT.md'])
 
 // ── Content limits ───────────────────────────────────────────────────────────
 const MAX_CONTENT_LENGTH = 1_000_000 // 1 MB

@@ -21,7 +21,7 @@ describe('FileGuard', () => {
     vi.mocked(fs.existsSync).mockReturnValue(false)
     const result = validateIntegrity('/project')
     expect(result.ok).toBe(false)
-    expect(result.missing).toEqual(['.ralph', '.ralph/PROMPT.md', '.ralph/AGENT.md', '.ralphrc'])
+    expect(result.missing).toEqual(['.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md', '.slashbotrc'])
   })
 
   it('report contains remediation instruction', () => {
@@ -34,20 +34,20 @@ describe('FileGuard', () => {
   it('reports only the specific missing files', () => {
     vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
       const s = String(p)
-      return s.endsWith('.ralph') || s.endsWith('.ralphrc')
+      return s.endsWith('.slashbot') || s.endsWith('.slashbotrc')
     })
     const result = validateIntegrity('/project')
     expect(result.ok).toBe(false)
-    expect(result.missing).toEqual(['.ralph/PROMPT.md', '.ralph/AGENT.md'])
+    expect(result.missing).toEqual(['.slashbot/PROMPT.md', '.slashbot/AGENT.md'])
   })
 
   it('checks files with correct paths relative to projectPath', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true)
     validateIntegrity('/my/project')
     const calls = vi.mocked(fs.existsSync).mock.calls.map(c => c[0])
-    expect(calls).toContain('/my/project/.ralph')
-    expect(calls).toContain('/my/project/.ralph/PROMPT.md')
-    expect(calls).toContain('/my/project/.ralph/AGENT.md')
-    expect(calls).toContain('/my/project/.ralphrc')
+    expect(calls).toContain('/my/project/.slashbot')
+    expect(calls).toContain('/my/project/.slashbot/PROMPT.md')
+    expect(calls).toContain('/my/project/.slashbot/AGENT.md')
+    expect(calls).toContain('/my/project/.slashbotrc')
   })
 })

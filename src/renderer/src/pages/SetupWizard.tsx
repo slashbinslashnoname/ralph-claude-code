@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 
-const ralph = window.ralph
+const ralph = window.slashbot
 
 interface Props {
   projectPath: string
@@ -61,9 +61,9 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
             <h3>Ready to initialize</h3>
             <p>This will create:</p>
             <ul className="setup-files">
-              <li><code>.ralphrc</code> - Configuration</li>
-              <li><code>.ralph/PROMPT.md</code> - AI instructions</li>
-              <li><code>.ralph/AGENT.md</code> - Build commands</li>
+              <li><code>.slashbotrc</code> - Configuration</li>
+              <li><code>.slashbot/PROMPT.md</code> - AI instructions</li>
+              <li><code>.slashbot/AGENT.md</code> - Build commands</li>
             </ul>
             <div className="setup-actions">
               <button className="btn btn-ghost" onClick={() => setStep(0)}>Back</button>
