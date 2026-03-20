@@ -1,79 +1,76 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import { validatePath, validateString, validateNumber, validateEnum } from './ipcValidation'
 
 // ── validatePath ────────────────────────────────────────────────────────────
 
 describe('validatePath', () => {
   it('accepts a simple path', () => {
-    assert.equal(validatePath('/home/user/file.txt'), '/home/user/file.txt')
+    expect(validatePath('/home/user/file.txt')).toBe('/home/user/file.txt')
   })
 
   it('accepts a relative path by default', () => {
-    assert.equal(validatePath('src/index.ts'), 'src/index.ts')
+    expect(validatePath('src/index.ts')).toBe('src/index.ts')
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validatePath(123), /must be a non-empty string/)
-    assert.throws(() => validatePath(null), /must be a non-empty string/)
-    assert.throws(() => validatePath(undefined), /must be a non-empty string/)
+    expect(() => validatePath(123)).toThrow(/must be a non-empty string/)
+    expect(() => validatePath(null)).toThrow(/must be a non-empty string/)
+    expect(() => validatePath(undefined)).toThrow(/must be a non-empty string/)
   })
 
   it('rejects empty string', () => {
-    assert.throws(() => validatePath(''), /must be a non-empty string/)
+    expect(() => validatePath('')).toThrow(/must be a non-empty string/)
   })
 
   it('rejects null bytes', () => {
-    assert.throws(() => validatePath('/home/user\0/file'), /null bytes/)
+    expect(() => validatePath('/home/user\0/file')).toThrow(/null bytes/)
   })
 
   it('rejects paths exceeding max length', () => {
-    assert.throws(() => validatePath('x'.repeat(4097)), /4096 characters/)
+    expect(() => validatePath('x'.repeat(4097))).toThrow(/4096 characters/)
   })
 
   it('accepts paths at the default max length', () => {
     const p = '/'.padEnd(4096, 'a')
-    assert.equal(validatePath(p), p)
+    expect(validatePath(p)).toBe(p)
   })
 
   it('respects custom maxLength', () => {
-    assert.throws(() => validatePath('abcdef', { maxLength: 5 }), /5 characters/)
-    assert.equal(validatePath('abcde', { maxLength: 5 }), 'abcde')
+    expect(() => validatePath('abcdef', { maxLength: 5 })).toThrow(/5 characters/)
+    expect(validatePath('abcde', { maxLength: 5 })).toBe('abcde')
   })
 
   it('enforces absolute when requested', () => {
-    assert.throws(() => validatePath('relative/path', { absolute: true }), /absolute path/)
-    assert.equal(validatePath('/absolute/path', { absolute: true }), '/absolute/path')
+    expect(() => validatePath('relative/path', { absolute: true })).toThrow(/absolute path/)
+    expect(validatePath('/absolute/path', { absolute: true })).toBe('/absolute/path')
   })
 
   it('uses custom field name in errors', () => {
-    assert.throws(() => validatePath('', { field: 'projectDir' }), /projectDir/)
+    expect(() => validatePath('', { field: 'projectDir' })).toThrow(/projectDir/)
   })
 
   // ── containment ──────────────────────────────────────────────────────────
 
   it('resolves path within container', () => {
     const result = validatePath('.ralphrc', { containIn: '/home/project' })
-    assert.equal(result, '/home/project/.ralphrc')
+    expect(result).toBe('/home/project/.ralphrc')
   })
 
   it('resolves nested path within container', () => {
     const result = validatePath('sub/dir/file.txt', { containIn: '/home/project' })
-    assert.equal(result, '/home/project/sub/dir/file.txt')
+    expect(result).toBe('/home/project/sub/dir/file.txt')
   })
 
   it('rejects traversal outside container', () => {
-    assert.throws(
-      () => validatePath('../../../etc/passwd', { containIn: '/home/project' }),
-      /path traversal detected/
-    )
+    expect(
+      () => validatePath('../../../etc/passwd', { containIn: '/home/project' })
+    ).toThrow(/path traversal detected/)
   })
 
   it('rejects embedded traversal outside container', () => {
-    assert.throws(
-      () => validatePath('sub/../../../../../../etc/passwd', { containIn: '/home/project' }),
-      /path traversal detected/
-    )
+    expect(
+      () => validatePath('sub/../../../../../../etc/passwd', { containIn: '/home/project' })
+    ).toThrow(/path traversal detected/)
   })
 })
 
@@ -81,57 +78,57 @@ describe('validatePath', () => {
 
 describe('validateString', () => {
   it('accepts a valid string', () => {
-    assert.equal(validateString('hello'), 'hello')
+    expect(validateString('hello')).toBe('hello')
   })
 
   it('rejects non-string types', () => {
-    assert.throws(() => validateString(42), /must be a string/)
-    assert.throws(() => validateString(true), /must be a string/)
-    assert.throws(() => validateString([]), /must be a string/)
+    expect(() => validateString(42)).toThrow(/must be a string/)
+    expect(() => validateString(true)).toThrow(/must be a string/)
+    expect(() => validateString([])).toThrow(/must be a string/)
   })
 
   it('rejects null/undefined when required', () => {
-    assert.throws(() => validateString(null), /is required/)
-    assert.throws(() => validateString(undefined), /is required/)
+    expect(() => validateString(null)).toThrow(/is required/)
+    expect(() => validateString(undefined)).toThrow(/is required/)
   })
 
   it('returns undefined for null/undefined when optional', () => {
-    assert.equal(validateString(null, { optional: true }), undefined)
-    assert.equal(validateString(undefined, { optional: true }), undefined)
+    expect(validateString(null, { optional: true })).toBe(undefined)
+    expect(validateString(undefined, { optional: true })).toBe(undefined)
   })
 
   it('rejects empty string by default (minLength=1)', () => {
-    assert.throws(() => validateString(''), /at least 1/)
+    expect(() => validateString('')).toThrow(/at least 1/)
   })
 
   it('accepts empty string when minLength=0', () => {
-    assert.equal(validateString('', { minLength: 0 }), '')
+    expect(validateString('', { minLength: 0 })).toBe('')
   })
 
   it('rejects strings exceeding maxLength', () => {
-    assert.throws(() => validateString('abcdef', { maxLength: 5 }), /5 characters/)
+    expect(() => validateString('abcdef', { maxLength: 5 })).toThrow(/5 characters/)
   })
 
   it('accepts strings at the maxLength boundary', () => {
-    assert.equal(validateString('abcde', { maxLength: 5 }), 'abcde')
+    expect(validateString('abcde', { maxLength: 5 })).toBe('abcde')
   })
 
   it('trims whitespace when trim=true', () => {
-    assert.equal(validateString('  hello  ', { trim: true }), 'hello')
+    expect(validateString('  hello  ', { trim: true })).toBe('hello')
   })
 
   it('rejects trimmed-to-empty string when minLength=1', () => {
-    assert.throws(() => validateString('   ', { trim: true }), /at least 1/)
+    expect(() => validateString('   ', { trim: true })).toThrow(/at least 1/)
   })
 
   it('validates pattern', () => {
     const alphaNum = /^[a-zA-Z0-9]+$/
-    assert.equal(validateString('abc123', { pattern: alphaNum }), 'abc123')
-    assert.throws(() => validateString('abc 123', { pattern: alphaNum }), /invalid characters/)
+    expect(validateString('abc123', { pattern: alphaNum })).toBe('abc123')
+    expect(() => validateString('abc 123', { pattern: alphaNum })).toThrow(/invalid characters/)
   })
 
   it('uses custom field name', () => {
-    assert.throws(() => validateString(null, { field: 'username' }), /username/)
+    expect(() => validateString(null, { field: 'username' })).toThrow(/username/)
   })
 })
 
@@ -139,74 +136,74 @@ describe('validateString', () => {
 
 describe('validateNumber', () => {
   it('accepts a valid integer', () => {
-    assert.equal(validateNumber(5), 5)
+    expect(validateNumber(5)).toBe(5)
   })
 
   it('accepts zero', () => {
-    assert.equal(validateNumber(0), 0)
+    expect(validateNumber(0)).toBe(0)
   })
 
   it('accepts negative integers', () => {
-    assert.equal(validateNumber(-3), -3)
+    expect(validateNumber(-3)).toBe(-3)
   })
 
   it('coerces string to number', () => {
-    assert.equal(validateNumber('42'), 42)
+    expect(validateNumber('42')).toBe(42)
   })
 
   it('rejects non-numeric string', () => {
-    assert.throws(() => validateNumber('abc'), /must be a number/)
+    expect(() => validateNumber('abc')).toThrow(/must be a number/)
   })
 
   it('rejects NaN', () => {
-    assert.throws(() => validateNumber(NaN), /must be a number/)
+    expect(() => validateNumber(NaN)).toThrow(/must be a number/)
   })
 
   it('rejects null/undefined when required', () => {
-    assert.throws(() => validateNumber(null), /is required/)
-    assert.throws(() => validateNumber(undefined), /is required/)
+    expect(() => validateNumber(null)).toThrow(/is required/)
+    expect(() => validateNumber(undefined)).toThrow(/is required/)
   })
 
   it('returns undefined when optional', () => {
-    assert.equal(validateNumber(null, { optional: true }), undefined)
-    assert.equal(validateNumber(undefined, { optional: true }), undefined)
+    expect(validateNumber(null, { optional: true })).toBe(undefined)
+    expect(validateNumber(undefined, { optional: true })).toBe(undefined)
   })
 
   it('returns defaultValue for undefined/null input', () => {
-    assert.equal(validateNumber(null, { defaultValue: 10 }), 10)
-    assert.equal(validateNumber(undefined, { defaultValue: 0 }), 0)
+    expect(validateNumber(null, { defaultValue: 10 })).toBe(10)
+    expect(validateNumber(undefined, { defaultValue: 0 })).toBe(0)
   })
 
   it('still validates when a value is provided even with defaultValue', () => {
-    assert.throws(() => validateNumber('abc', { defaultValue: 10 }), /must be a number/)
+    expect(() => validateNumber('abc', { defaultValue: 10 })).toThrow(/must be a number/)
   })
 
   it('rejects floats when integer=true (default)', () => {
-    assert.throws(() => validateNumber(3.14), /must be an integer/)
+    expect(() => validateNumber(3.14)).toThrow(/must be an integer/)
   })
 
   it('accepts floats when integer=false', () => {
-    assert.equal(validateNumber(3.14, { integer: false }), 3.14)
+    expect(validateNumber(3.14, { integer: false })).toBe(3.14)
   })
 
   it('enforces min', () => {
-    assert.equal(validateNumber(5, { min: 5 }), 5)
-    assert.throws(() => validateNumber(4, { min: 5 }), /at least 5/)
+    expect(validateNumber(5, { min: 5 })).toBe(5)
+    expect(() => validateNumber(4, { min: 5 })).toThrow(/at least 5/)
   })
 
   it('enforces max', () => {
-    assert.equal(validateNumber(10, { max: 10 }), 10)
-    assert.throws(() => validateNumber(11, { max: 10 }), /at most 10/)
+    expect(validateNumber(10, { max: 10 })).toBe(10)
+    expect(() => validateNumber(11, { max: 10 })).toThrow(/at most 10/)
   })
 
   it('enforces min and max together', () => {
-    assert.equal(validateNumber(5, { min: 1, max: 10 }), 5)
-    assert.throws(() => validateNumber(0, { min: 1, max: 10 }), /at least 1/)
-    assert.throws(() => validateNumber(11, { min: 1, max: 10 }), /at most 10/)
+    expect(validateNumber(5, { min: 1, max: 10 })).toBe(5)
+    expect(() => validateNumber(0, { min: 1, max: 10 })).toThrow(/at least 1/)
+    expect(() => validateNumber(11, { min: 1, max: 10 })).toThrow(/at most 10/)
   })
 
   it('uses custom field name', () => {
-    assert.throws(() => validateNumber('abc', { field: 'priority' }), /priority/)
+    expect(() => validateNumber('abc', { field: 'priority' })).toThrow(/priority/)
   })
 })
 
@@ -216,43 +213,43 @@ describe('validateEnum', () => {
   const STATUSES = ['open', 'closed', 'pending'] as const
 
   it('accepts a valid enum value', () => {
-    assert.equal(validateEnum('open', STATUSES), 'open')
-    assert.equal(validateEnum('closed', STATUSES), 'closed')
+    expect(validateEnum('open', STATUSES)).toBe('open')
+    expect(validateEnum('closed', STATUSES)).toBe('closed')
   })
 
   it('rejects an invalid enum value', () => {
-    assert.throws(() => validateEnum('unknown', STATUSES), /must be one of: open, closed, pending/)
+    expect(() => validateEnum('unknown', STATUSES)).toThrow(/must be one of: open, closed, pending/)
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateEnum(42, STATUSES), /must be a string/)
-    assert.throws(() => validateEnum(true, STATUSES), /must be a string/)
+    expect(() => validateEnum(42, STATUSES)).toThrow(/must be a string/)
+    expect(() => validateEnum(true, STATUSES)).toThrow(/must be a string/)
   })
 
   it('rejects null/undefined when required', () => {
-    assert.throws(() => validateEnum(null, STATUSES), /is required/)
-    assert.throws(() => validateEnum(undefined, STATUSES), /is required/)
+    expect(() => validateEnum(null, STATUSES)).toThrow(/is required/)
+    expect(() => validateEnum(undefined, STATUSES)).toThrow(/is required/)
   })
 
   it('returns undefined when optional', () => {
-    assert.equal(validateEnum(null, STATUSES, { optional: true }), undefined)
-    assert.equal(validateEnum(undefined, STATUSES, { optional: true }), undefined)
+    expect(validateEnum(null, STATUSES, { optional: true })).toBe(undefined)
+    expect(validateEnum(undefined, STATUSES, { optional: true })).toBe(undefined)
   })
 
   it('returns defaultValue for undefined/null', () => {
-    assert.equal(validateEnum(null, STATUSES, { defaultValue: 'open' }), 'open')
+    expect(validateEnum(null, STATUSES, { defaultValue: 'open' })).toBe('open')
   })
 
   it('normalizes with trim + lowercase when normalize=true', () => {
-    assert.equal(validateEnum(' Open ', STATUSES, { normalize: true }), 'open')
-    assert.equal(validateEnum('CLOSED', STATUSES, { normalize: true }), 'closed')
+    expect(validateEnum(' Open ', STATUSES, { normalize: true })).toBe('open')
+    expect(validateEnum('CLOSED', STATUSES, { normalize: true })).toBe('closed')
   })
 
   it('does not normalize by default', () => {
-    assert.throws(() => validateEnum('Open', STATUSES), /must be one of/)
+    expect(() => validateEnum('Open', STATUSES)).toThrow(/must be one of/)
   })
 
   it('uses custom field name', () => {
-    assert.throws(() => validateEnum('bad', STATUSES, { field: 'status' }), /status/)
+    expect(() => validateEnum('bad', STATUSES, { field: 'status' })).toThrow(/status/)
   })
 })

@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import {
   validateBeadId,
   validateStatusFilter,
@@ -20,46 +19,46 @@ import {
 
 describe('validateBeadId', () => {
   it('accepts simple slug IDs', () => {
-    assert.equal(validateBeadId('sb-abc.1'), 'sb-abc.1')
-    assert.equal(validateBeadId('task_42'), 'task_42')
-    assert.equal(validateBeadId('a'), 'a')
-    assert.equal(validateBeadId('ABC-123'), 'ABC-123')
+    expect(validateBeadId('sb-abc.1')).toBe('sb-abc.1')
+    expect(validateBeadId('task_42')).toBe('task_42')
+    expect(validateBeadId('a')).toBe('a')
+    expect(validateBeadId('ABC-123')).toBe('ABC-123')
   })
 
   it('rejects empty string', () => {
-    assert.throws(() => validateBeadId(''), /non-empty/)
+    expect(() => validateBeadId('')).toThrow(/non-empty/)
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateBeadId(123), /non-empty string/)
-    assert.throws(() => validateBeadId(null), /non-empty string/)
-    assert.throws(() => validateBeadId(undefined), /non-empty string/)
+    expect(() => validateBeadId(123)).toThrow(/non-empty string/)
+    expect(() => validateBeadId(null)).toThrow(/non-empty string/)
+    expect(() => validateBeadId(undefined)).toThrow(/non-empty string/)
   })
 
   it('rejects IDs starting with non-alphanumeric', () => {
-    assert.throws(() => validateBeadId('-abc'), /invalid characters/)
-    assert.throws(() => validateBeadId('.abc'), /invalid characters/)
-    assert.throws(() => validateBeadId('_abc'), /invalid characters/)
+    expect(() => validateBeadId('-abc')).toThrow(/invalid characters/)
+    expect(() => validateBeadId('.abc')).toThrow(/invalid characters/)
+    expect(() => validateBeadId('_abc')).toThrow(/invalid characters/)
   })
 
   it('rejects IDs with shell metacharacters', () => {
-    assert.throws(() => validateBeadId('abc;rm'), /invalid characters/)
-    assert.throws(() => validateBeadId('abc$(cmd)'), /invalid characters/)
-    assert.throws(() => validateBeadId('abc`cmd`'), /invalid characters/)
-    assert.throws(() => validateBeadId('abc|pipe'), /invalid characters/)
-    assert.throws(() => validateBeadId('abc&bg'), /invalid characters/)
+    expect(() => validateBeadId('abc;rm')).toThrow(/invalid characters/)
+    expect(() => validateBeadId('abc$(cmd)')).toThrow(/invalid characters/)
+    expect(() => validateBeadId('abc`cmd`')).toThrow(/invalid characters/)
+    expect(() => validateBeadId('abc|pipe')).toThrow(/invalid characters/)
+    expect(() => validateBeadId('abc&bg')).toThrow(/invalid characters/)
   })
 
   it('rejects IDs longer than 128 chars', () => {
-    assert.throws(() => validateBeadId('a'.repeat(129)), /invalid characters/)
+    expect(() => validateBeadId('a'.repeat(129))).toThrow(/invalid characters/)
   })
 
   it('accepts IDs up to 128 chars', () => {
-    assert.equal(validateBeadId('a'.repeat(128)), 'a'.repeat(128))
+    expect(validateBeadId('a'.repeat(128))).toBe('a'.repeat(128))
   })
 
   it('uses custom field name in error', () => {
-    assert.throws(() => validateBeadId('', 'beadId'), /beadId/)
+    expect(() => validateBeadId('', 'beadId')).toThrow(/beadId/)
   })
 })
 
@@ -67,28 +66,28 @@ describe('validateBeadId', () => {
 
 describe('validateStatusFilter', () => {
   it('defaults to open for undefined/null', () => {
-    assert.equal(validateStatusFilter(undefined), 'open')
-    assert.equal(validateStatusFilter(null), 'open')
+    expect(validateStatusFilter(undefined)).toBe('open')
+    expect(validateStatusFilter(null)).toBe('open')
   })
 
   it('accepts valid filters', () => {
-    assert.equal(validateStatusFilter('open'), 'open')
-    assert.equal(validateStatusFilter('closed'), 'closed')
-    assert.equal(validateStatusFilter('in_progress'), 'in_progress')
-    assert.equal(validateStatusFilter('all'), 'all')
+    expect(validateStatusFilter('open')).toBe('open')
+    expect(validateStatusFilter('closed')).toBe('closed')
+    expect(validateStatusFilter('in_progress')).toBe('in_progress')
+    expect(validateStatusFilter('all')).toBe('all')
   })
 
   it('normalizes case and whitespace', () => {
-    assert.equal(validateStatusFilter('OPEN'), 'open')
-    assert.equal(validateStatusFilter(' All '), 'all')
+    expect(validateStatusFilter('OPEN')).toBe('open')
+    expect(validateStatusFilter(' All ')).toBe('all')
   })
 
   it('rejects invalid filter', () => {
-    assert.throws(() => validateStatusFilter('invalid'), /Invalid filter/)
+    expect(() => validateStatusFilter('invalid')).toThrow(/Invalid filter/)
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateStatusFilter(42), /must be a string/)
+    expect(() => validateStatusFilter(42)).toThrow(/must be a string/)
   })
 })
 
@@ -96,29 +95,29 @@ describe('validateStatusFilter', () => {
 
 describe('validatePriority', () => {
   it('returns undefined for undefined/null', () => {
-    assert.equal(validatePriority(undefined), undefined)
-    assert.equal(validatePriority(null), undefined)
+    expect(validatePriority(undefined)).toBe(undefined)
+    expect(validatePriority(null)).toBe(undefined)
   })
 
   it('accepts valid priorities 0–4', () => {
     for (let i = 0; i <= 4; i++) {
-      assert.equal(validatePriority(i), i)
+      expect(validatePriority(i)).toBe(i)
     }
   })
 
   it('rejects out-of-range', () => {
-    assert.throws(() => validatePriority(-1), /between 0 and 4/)
-    assert.throws(() => validatePriority(5), /between 0 and 4/)
-    assert.throws(() => validatePriority(100), /between 0 and 4/)
+    expect(() => validatePriority(-1)).toThrow(/between 0 and 4/)
+    expect(() => validatePriority(5)).toThrow(/between 0 and 4/)
+    expect(() => validatePriority(100)).toThrow(/between 0 and 4/)
   })
 
   it('rejects non-integer', () => {
-    assert.throws(() => validatePriority(1.5), /must be an integer/)
-    assert.throws(() => validatePriority('abc'), /must be an integer/)
+    expect(() => validatePriority(1.5)).toThrow(/must be an integer/)
+    expect(() => validatePriority('abc')).toThrow(/must be an integer/)
   })
 
   it('coerces numeric string', () => {
-    assert.equal(validatePriority('3'), 3)
+    expect(validatePriority('3')).toBe(3)
   })
 })
 
@@ -126,31 +125,31 @@ describe('validatePriority', () => {
 
 describe('validateLabel', () => {
   it('accepts simple labels', () => {
-    assert.equal(validateLabel('frontend'), 'frontend')
-    assert.equal(validateLabel('high-priority'), 'high-priority')
-    assert.equal(validateLabel('v2.0'), 'v2.0')
-    assert.equal(validateLabel('my_label'), 'my_label')
+    expect(validateLabel('frontend')).toBe('frontend')
+    expect(validateLabel('high-priority')).toBe('high-priority')
+    expect(validateLabel('v2.0')).toBe('v2.0')
+    expect(validateLabel('my_label')).toBe('my_label')
   })
 
   it('rejects empty string', () => {
-    assert.throws(() => validateLabel(''), /non-empty/)
+    expect(() => validateLabel('')).toThrow(/non-empty/)
   })
 
   it('rejects spaces (would break shell args in BdClient)', () => {
-    assert.throws(() => validateLabel('my label'), /invalid/)
+    expect(() => validateLabel('my label')).toThrow(/invalid/)
   })
 
   it('rejects commas', () => {
-    assert.throws(() => validateLabel('a,b'), /invalid/)
+    expect(() => validateLabel('a,b')).toThrow(/invalid/)
   })
 
   it('rejects shell metacharacters', () => {
-    assert.throws(() => validateLabel('label;rm'), /invalid/)
-    assert.throws(() => validateLabel('$(cmd)'), /invalid/)
+    expect(() => validateLabel('label;rm')).toThrow(/invalid/)
+    expect(() => validateLabel('$(cmd)')).toThrow(/invalid/)
   })
 
   it('rejects labels over 64 chars', () => {
-    assert.throws(() => validateLabel('a'.repeat(65)), /invalid/)
+    expect(() => validateLabel('a'.repeat(65))).toThrow(/invalid/)
   })
 })
 
@@ -158,20 +157,20 @@ describe('validateLabel', () => {
 
 describe('validateLabels', () => {
   it('returns undefined for undefined/null', () => {
-    assert.equal(validateLabels(undefined), undefined)
-    assert.equal(validateLabels(null), undefined)
+    expect(validateLabels(undefined)).toBe(undefined)
+    expect(validateLabels(null)).toBe(undefined)
   })
 
   it('validates each label in array', () => {
-    assert.deepEqual(validateLabels(['a', 'b']), ['a', 'b'])
+    expect(validateLabels(['a', 'b'])).toEqual(['a', 'b'])
   })
 
   it('rejects non-array', () => {
-    assert.throws(() => validateLabels('notarray'), /must be an array/)
+    expect(() => validateLabels('notarray')).toThrow(/must be an array/)
   })
 
   it('rejects array with invalid label', () => {
-    assert.throws(() => validateLabels(['ok', 'bad;one']), /invalid/)
+    expect(() => validateLabels(['ok', 'bad;one'])).toThrow(/invalid/)
   })
 })
 
@@ -179,24 +178,24 @@ describe('validateLabels', () => {
 
 describe('validateTitle', () => {
   it('accepts valid titles', () => {
-    assert.equal(validateTitle('Fix login bug'), 'Fix login bug')
+    expect(validateTitle('Fix login bug')).toBe('Fix login bug')
   })
 
   it('rejects empty/whitespace', () => {
-    assert.throws(() => validateTitle(''), /non-empty/)
-    assert.throws(() => validateTitle('   '), /non-empty/)
+    expect(() => validateTitle('')).toThrow(/non-empty/)
+    expect(() => validateTitle('   ')).toThrow(/non-empty/)
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateTitle(42), /non-empty string/)
+    expect(() => validateTitle(42)).toThrow(/non-empty string/)
   })
 
   it('rejects titles over 512 chars', () => {
-    assert.throws(() => validateTitle('x'.repeat(513)), /512 characters/)
+    expect(() => validateTitle('x'.repeat(513))).toThrow(/512 characters/)
   })
 
   it('accepts title at limit', () => {
-    assert.equal(validateTitle('x'.repeat(512)), 'x'.repeat(512))
+    expect(validateTitle('x'.repeat(512))).toBe('x'.repeat(512))
   })
 })
 
@@ -204,18 +203,18 @@ describe('validateTitle', () => {
 
 describe('validateBeadType', () => {
   it('returns undefined for undefined/null', () => {
-    assert.equal(validateBeadType(undefined), undefined)
-    assert.equal(validateBeadType(null), undefined)
+    expect(validateBeadType(undefined)).toBe(undefined)
+    expect(validateBeadType(null)).toBe(undefined)
   })
 
   it('accepts valid types', () => {
     for (const t of ['epic', 'task', 'subtask', 'bug', 'feature']) {
-      assert.equal(validateBeadType(t), t)
+      expect(validateBeadType(t)).toBe(t)
     }
   })
 
   it('rejects invalid type', () => {
-    assert.throws(() => validateBeadType('invalid'), /Invalid type/)
+    expect(() => validateBeadType('invalid')).toThrow(/Invalid type/)
   })
 })
 
@@ -223,20 +222,20 @@ describe('validateBeadType', () => {
 
 describe('validateDescription', () => {
   it('returns undefined for undefined/null', () => {
-    assert.equal(validateDescription(undefined), undefined)
-    assert.equal(validateDescription(null), undefined)
+    expect(validateDescription(undefined)).toBe(undefined)
+    expect(validateDescription(null)).toBe(undefined)
   })
 
   it('accepts valid description', () => {
-    assert.equal(validateDescription('Some desc'), 'Some desc')
+    expect(validateDescription('Some desc')).toBe('Some desc')
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateDescription(42), /must be a string/)
+    expect(() => validateDescription(42)).toThrow(/must be a string/)
   })
 
   it('rejects over 10000 chars', () => {
-    assert.throws(() => validateDescription('x'.repeat(10_001)), /10000 characters/)
+    expect(() => validateDescription('x'.repeat(10_001))).toThrow(/10000 characters/)
   })
 })
 
@@ -244,17 +243,17 @@ describe('validateDescription', () => {
 
 describe('validateProjectPath', () => {
   it('accepts valid paths', () => {
-    assert.equal(validateProjectPath('/home/user/project'), '/home/user/project')
+    expect(validateProjectPath('/home/user/project')).toBe('/home/user/project')
   })
 
   it('rejects empty/non-string', () => {
-    assert.throws(() => validateProjectPath(''), /non-empty/)
-    assert.throws(() => validateProjectPath(null), /non-empty string/)
-    assert.throws(() => validateProjectPath(undefined), /non-empty string/)
+    expect(() => validateProjectPath('')).toThrow(/non-empty/)
+    expect(() => validateProjectPath(null)).toThrow(/non-empty string/)
+    expect(() => validateProjectPath(undefined)).toThrow(/non-empty string/)
   })
 
   it('rejects null bytes', () => {
-    assert.throws(() => validateProjectPath('/foo\0bar'), /null bytes/)
+    expect(() => validateProjectPath('/foo\0bar')).toThrow(/null bytes/)
   })
 })
 
@@ -263,17 +262,17 @@ describe('validateProjectPath', () => {
 describe('validateBeadsList', () => {
   it('returns validated projectPath and default filter', () => {
     const r = validateBeadsList('/proj', undefined)
-    assert.equal(r.projectPath, '/proj')
-    assert.equal(r.filter, 'open')
+    expect(r.projectPath).toBe('/proj')
+    expect(r.filter).toBe('open')
   })
 
   it('validates custom filter', () => {
     const r = validateBeadsList('/proj', 'all')
-    assert.equal(r.filter, 'all')
+    expect(r.filter).toBe('all')
   })
 
   it('throws on invalid filter', () => {
-    assert.throws(() => validateBeadsList('/proj', 'nope'), /Invalid filter/)
+    expect(() => validateBeadsList('/proj', 'nope')).toThrow(/Invalid filter/)
   })
 })
 
@@ -282,8 +281,8 @@ describe('validateBeadsList', () => {
 describe('validateBeadsCreate', () => {
   it('validates a minimal create', () => {
     const r = validateBeadsCreate('/proj', { title: 'Hello' })
-    assert.equal(r.opts.title, 'Hello')
-    assert.equal(r.opts.priority, undefined)
+    expect(r.opts.title).toBe('Hello')
+    expect(r.opts.priority).toBe(undefined)
   })
 
   it('validates full create opts', () => {
@@ -294,22 +293,22 @@ describe('validateBeadsCreate', () => {
       description: 'desc',
       labels: ['urgent'],
     })
-    assert.equal(r.opts.type, 'bug')
-    assert.equal(r.opts.priority, 1)
-    assert.deepEqual(r.opts.labels, ['urgent'])
+    expect(r.opts.type).toBe('bug')
+    expect(r.opts.priority).toBe(1)
+    expect(r.opts.labels).toEqual(['urgent'])
   })
 
   it('throws on missing title', () => {
-    assert.throws(() => validateBeadsCreate('/proj', {}), /title/)
+    expect(() => validateBeadsCreate('/proj', {})).toThrow(/title/)
   })
 
   it('throws on invalid priority', () => {
-    assert.throws(() => validateBeadsCreate('/proj', { title: 'x', priority: 9 }), /between/)
+    expect(() => validateBeadsCreate('/proj', { title: 'x', priority: 9 })).toThrow(/between/)
   })
 
   it('throws on non-object opts', () => {
-    assert.throws(() => validateBeadsCreate('/proj', 'bad'), /must be an object/)
-    assert.throws(() => validateBeadsCreate('/proj', null), /must be an object/)
+    expect(() => validateBeadsCreate('/proj', 'bad')).toThrow(/must be an object/)
+    expect(() => validateBeadsCreate('/proj', null)).toThrow(/must be an object/)
   })
 })
 
@@ -318,22 +317,22 @@ describe('validateBeadsCreate', () => {
 describe('validateBeadsUpdate', () => {
   it('validates a simple update', () => {
     const r = validateBeadsUpdate('/proj', 'bead-1', { priority: 2 })
-    assert.equal(r.id, 'bead-1')
-    assert.equal(r.opts.priority, 2)
+    expect(r.id).toBe('bead-1')
+    expect(r.opts.priority).toBe(2)
   })
 
   it('throws on invalid id', () => {
-    assert.throws(() => validateBeadsUpdate('/proj', ';rm -rf', {}), /invalid characters/)
+    expect(() => validateBeadsUpdate('/proj', ';rm -rf', {})).toThrow(/invalid characters/)
   })
 
   it('throws on invalid claim type', () => {
-    assert.throws(() => validateBeadsUpdate('/proj', 'b1', { claim: 'yes' }), /must be a boolean/)
+    expect(() => validateBeadsUpdate('/proj', 'b1', { claim: 'yes' })).toThrow(/must be a boolean/)
   })
 
   it('validates labels', () => {
     const r = validateBeadsUpdate('/proj', 'b1', { labelsAdd: ['ui'], labelsRemove: ['old'] })
-    assert.deepEqual(r.opts.labelsAdd, ['ui'])
-    assert.deepEqual(r.opts.labelsRemove, ['old'])
+    expect(r.opts.labelsAdd).toEqual(['ui'])
+    expect(r.opts.labelsRemove).toEqual(['old'])
   })
 })
 
@@ -342,22 +341,22 @@ describe('validateBeadsUpdate', () => {
 describe('validateBeadsReorder', () => {
   it('validates a list of IDs', () => {
     const r = validateBeadsReorder('/proj', ['a1', 'b2', 'c3'])
-    assert.deepEqual(r.ids, ['a1', 'b2', 'c3'])
+    expect(r.ids).toEqual(['a1', 'b2', 'c3'])
   })
 
   it('throws on non-array', () => {
-    assert.throws(() => validateBeadsReorder('/proj', 'abc'), /must be an array/)
+    expect(() => validateBeadsReorder('/proj', 'abc')).toThrow(/must be an array/)
   })
 
   it('throws on empty array', () => {
-    assert.throws(() => validateBeadsReorder('/proj', []), /must not be empty/)
+    expect(() => validateBeadsReorder('/proj', [])).toThrow(/must not be empty/)
   })
 
   it('throws on invalid ID in array', () => {
-    assert.throws(() => validateBeadsReorder('/proj', ['ok', ';bad']), /invalid characters/)
+    expect(() => validateBeadsReorder('/proj', ['ok', ';bad'])).toThrow(/invalid characters/)
   })
 
   it('includes index in error for invalid ID', () => {
-    assert.throws(() => validateBeadsReorder('/proj', ['ok', ';bad']), /ids\[1\]/)
+    expect(() => validateBeadsReorder('/proj', ['ok', ';bad'])).toThrow(/ids\[1\]/)
   })
 })

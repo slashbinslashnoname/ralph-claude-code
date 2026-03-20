@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import {
   validateRelPath,
   validateContainment,
@@ -13,25 +12,25 @@ import {
 
 describe('validateRelPath', () => {
   it('accepts allowed config files', () => {
-    assert.equal(validateRelPath('.ralphrc'), '.ralphrc')
-    assert.equal(validateRelPath('.ralph/PROMPT.md'), '.ralph/PROMPT.md')
-    assert.equal(validateRelPath('.ralph/AGENT.md'), '.ralph/AGENT.md')
+    expect(validateRelPath('.ralphrc')).toBe('.ralphrc')
+    expect(validateRelPath('.ralph/PROMPT.md')).toBe('.ralph/PROMPT.md')
+    expect(validateRelPath('.ralph/AGENT.md')).toBe('.ralph/AGENT.md')
   })
 
   it('rejects non-allowed files', () => {
-    assert.throws(() => validateRelPath('package.json'), /Not an editable file/)
-    assert.throws(() => validateRelPath('.env'), /Not an editable file/)
-    assert.throws(() => validateRelPath('.ralph/status.json'), /Not an editable file/)
+    expect(() => validateRelPath('package.json')).toThrow(/Not an editable file/)
+    expect(() => validateRelPath('.env')).toThrow(/Not an editable file/)
+    expect(() => validateRelPath('.ralph/status.json')).toThrow(/Not an editable file/)
   })
 
   it('rejects empty string', () => {
-    assert.throws(() => validateRelPath(''), /non-empty/)
+    expect(() => validateRelPath('')).toThrow(/non-empty/)
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateRelPath(123), /non-empty string/)
-    assert.throws(() => validateRelPath(null), /non-empty string/)
-    assert.throws(() => validateRelPath(undefined), /non-empty string/)
+    expect(() => validateRelPath(123)).toThrow(/non-empty string/)
+    expect(() => validateRelPath(null)).toThrow(/non-empty string/)
+    expect(() => validateRelPath(undefined)).toThrow(/non-empty string/)
   })
 })
 
@@ -40,26 +39,24 @@ describe('validateRelPath', () => {
 describe('validateContainment', () => {
   it('allows paths within project', () => {
     const resolved = validateContainment('/home/user/project', '.ralphrc')
-    assert.equal(resolved, '/home/user/project/.ralphrc')
+    expect(resolved).toBe('/home/user/project/.ralphrc')
   })
 
   it('allows nested paths within project', () => {
     const resolved = validateContainment('/home/user/project', '.ralph/PROMPT.md')
-    assert.equal(resolved, '/home/user/project/.ralph/PROMPT.md')
+    expect(resolved).toBe('/home/user/project/.ralph/PROMPT.md')
   })
 
   it('rejects path traversal with ../', () => {
-    assert.throws(
-      () => validateContainment('/home/user/project', '../../../etc/passwd'),
-      /Path traversal detected/
-    )
+    expect(
+      () => validateContainment('/home/user/project', '../../../etc/passwd')
+    ).toThrow(/Path traversal detected/)
   })
 
   it('rejects path traversal with embedded ..', () => {
-    assert.throws(
-      () => validateContainment('/home/user/project', '.ralph/../../etc/passwd'),
-      /Path traversal detected/
-    )
+    expect(
+      () => validateContainment('/home/user/project', '.ralph/../../etc/passwd')
+    ).toThrow(/Path traversal detected/)
   })
 })
 
@@ -67,26 +64,26 @@ describe('validateContainment', () => {
 
 describe('validateContent', () => {
   it('accepts valid content', () => {
-    assert.equal(validateContent('hello world'), 'hello world')
+    expect(validateContent('hello world')).toBe('hello world')
   })
 
   it('accepts empty string', () => {
-    assert.equal(validateContent(''), '')
+    expect(validateContent('')).toBe('')
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateContent(123), /must be a string/)
-    assert.throws(() => validateContent(null), /must be a string/)
-    assert.throws(() => validateContent(undefined), /must be a string/)
+    expect(() => validateContent(123)).toThrow(/must be a string/)
+    expect(() => validateContent(null)).toThrow(/must be a string/)
+    expect(() => validateContent(undefined)).toThrow(/must be a string/)
   })
 
   it('rejects content over 1MB', () => {
-    assert.throws(() => validateContent('x'.repeat(1_000_001)), /1000000 characters/)
+    expect(() => validateContent('x'.repeat(1_000_001))).toThrow(/1000000 characters/)
   })
 
   it('accepts content at the limit', () => {
     const content = 'x'.repeat(1_000_000)
-    assert.equal(validateContent(content), content)
+    expect(validateContent(content)).toBe(content)
   })
 })
 
@@ -94,22 +91,22 @@ describe('validateContent', () => {
 
 describe('validateConfigProjectPath', () => {
   it('accepts valid paths', () => {
-    assert.equal(validateConfigProjectPath('/home/user/project'), '/home/user/project')
+    expect(validateConfigProjectPath('/home/user/project')).toBe('/home/user/project')
   })
 
   it('rejects empty/whitespace', () => {
-    assert.throws(() => validateConfigProjectPath(''), /non-empty/)
-    assert.throws(() => validateConfigProjectPath('   '), /non-empty/)
+    expect(() => validateConfigProjectPath('')).toThrow(/non-empty/)
+    expect(() => validateConfigProjectPath('   ')).toThrow(/non-empty/)
   })
 
   it('rejects non-string', () => {
-    assert.throws(() => validateConfigProjectPath(null), /non-empty string/)
-    assert.throws(() => validateConfigProjectPath(undefined), /non-empty string/)
-    assert.throws(() => validateConfigProjectPath(42), /non-empty string/)
+    expect(() => validateConfigProjectPath(null)).toThrow(/non-empty string/)
+    expect(() => validateConfigProjectPath(undefined)).toThrow(/non-empty string/)
+    expect(() => validateConfigProjectPath(42)).toThrow(/non-empty string/)
   })
 
   it('rejects null bytes', () => {
-    assert.throws(() => validateConfigProjectPath('/foo\0bar'), /null bytes/)
+    expect(() => validateConfigProjectPath('/foo\0bar')).toThrow(/null bytes/)
   })
 })
 
@@ -118,21 +115,21 @@ describe('validateConfigProjectPath', () => {
 describe('validateConfigRead', () => {
   it('validates and resolves allowed path', () => {
     const r = validateConfigRead('/proj', '.ralphrc')
-    assert.equal(r.projectPath, '/proj')
-    assert.equal(r.relPath, '.ralphrc')
-    assert.equal(r.resolvedPath, '/proj/.ralphrc')
+    expect(r.projectPath).toBe('/proj')
+    expect(r.relPath).toBe('.ralphrc')
+    expect(r.resolvedPath).toBe('/proj/.ralphrc')
   })
 
   it('throws on disallowed file', () => {
-    assert.throws(() => validateConfigRead('/proj', 'secret.env'), /Not an editable file/)
+    expect(() => validateConfigRead('/proj', 'secret.env')).toThrow(/Not an editable file/)
   })
 
   it('throws on invalid projectPath', () => {
-    assert.throws(() => validateConfigRead('', '.ralphrc'), /non-empty/)
+    expect(() => validateConfigRead('', '.ralphrc')).toThrow(/non-empty/)
   })
 
   it('throws on non-string relPath', () => {
-    assert.throws(() => validateConfigRead('/proj', 42), /non-empty string/)
+    expect(() => validateConfigRead('/proj', 42)).toThrow(/non-empty string/)
   })
 })
 
@@ -141,37 +138,33 @@ describe('validateConfigRead', () => {
 describe('validateConfigWrite', () => {
   it('validates all inputs', () => {
     const r = validateConfigWrite('/proj', '.ralph/AGENT.md', '# Agent config')
-    assert.equal(r.projectPath, '/proj')
-    assert.equal(r.relPath, '.ralph/AGENT.md')
-    assert.equal(r.resolvedPath, '/proj/.ralph/AGENT.md')
-    assert.equal(r.content, '# Agent config')
+    expect(r.projectPath).toBe('/proj')
+    expect(r.relPath).toBe('.ralph/AGENT.md')
+    expect(r.resolvedPath).toBe('/proj/.ralph/AGENT.md')
+    expect(r.content).toBe('# Agent config')
   })
 
   it('throws on disallowed file', () => {
-    assert.throws(
-      () => validateConfigWrite('/proj', '../outside.txt', 'data'),
-      /Not an editable file/
-    )
+    expect(
+      () => validateConfigWrite('/proj', '../outside.txt', 'data')
+    ).toThrow(/Not an editable file/)
   })
 
   it('throws on non-string content', () => {
-    assert.throws(
-      () => validateConfigWrite('/proj', '.ralphrc', 123),
-      /must be a string/
-    )
+    expect(
+      () => validateConfigWrite('/proj', '.ralphrc', 123)
+    ).toThrow(/must be a string/)
   })
 
   it('throws on oversized content', () => {
-    assert.throws(
-      () => validateConfigWrite('/proj', '.ralphrc', 'x'.repeat(1_000_001)),
-      /1000000 characters/
-    )
+    expect(
+      () => validateConfigWrite('/proj', '.ralphrc', 'x'.repeat(1_000_001))
+    ).toThrow(/1000000 characters/)
   })
 
   it('throws on invalid projectPath', () => {
-    assert.throws(
-      () => validateConfigWrite(null, '.ralphrc', 'content'),
-      /non-empty string/
-    )
+    expect(
+      () => validateConfigWrite(null, '.ralphrc', 'content')
+    ).toThrow(/non-empty string/)
   })
 })
