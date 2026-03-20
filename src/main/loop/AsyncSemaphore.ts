@@ -32,6 +32,7 @@ export class AsyncSemaphore {
 
   /** Release the semaphore, passing it to the next waiter in FIFO order. */
   release(): void {
+    if (!this.locked) return // no-op if not held
     if (this.queue.length > 0) {
       const next = this.queue.shift()!
       if (next.timer) clearTimeout(next.timer)

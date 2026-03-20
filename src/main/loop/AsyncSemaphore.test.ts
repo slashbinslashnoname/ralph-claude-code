@@ -59,10 +59,33 @@ describe('AsyncSemaphore', () => {
     sem.release()
   })
 
-  it('release with no waiters is a no-op', () => {
+  it('release without acquire is a no-op', () => {
     const sem = new AsyncSemaphore()
     // Release without acquire should not crash
     sem.release()
+    sem.release()
+  })
+
+  it('double release does not corrupt state', async () => {
+    const sem = new AsyncSemaphore()
+    await sem.acquire()
+
+    // Queue a waiter
+    const second = sem.acquire(5000).then(() => 'got-it')
+
+    // First release hands lock to second waiter
+    sem.release()
+    assert.strictEqual(await second, 'got-it')
+
+    // Second release (accidental) while second waiter holds the lock
+    // should NOT unlock the semaphore — second waiter still holds it
+    sem.release() // legitimate release by second waiter
+
+    // Extra release — should be no-op since lock is now free
+    sem.release()
+
+    // Semaphore should still work correctly
+    await sem.acquire()
     sem.release()
   })
 
