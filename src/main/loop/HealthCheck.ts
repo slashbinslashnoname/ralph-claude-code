@@ -1,4 +1,5 @@
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
+import * as fs from 'fs'
 import { validateIntegrity } from './FileGuard'
 import { BdClient } from './BdClient'
 
@@ -37,12 +38,11 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
   // 2. Check Claude CLI
   try {
     if (claudeCmd.startsWith('/')) {
-      const fs = require('fs')
       if (!fs.existsSync(claudeCmd)) {
         throw new Error('not found')
       }
     } else {
-      execSync(`which ${claudeCmd}`, { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+      execFileSync('which', [claudeCmd], { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
     }
   } catch {
     errors.push({
