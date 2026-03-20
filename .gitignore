@@ -57,6 +57,9 @@ target/
 # Agent worktrees
 .worktrees/
 
+# Merge temporary directories (created during worktree merge)
+*.__merge_tmp/
+
 # Ralph coordination files
 .ralph/file_locks.json
 .ralph/agents.json

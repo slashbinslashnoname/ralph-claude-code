@@ -187,7 +187,7 @@ export class AgentCoordinator {
 
       // Ensure symlinks are not committed by the agent
       const wtGitignore = path.join(worktreePath, '.gitignore')
-      const ignoreEntries = ['.ralph/', '.ralphrc', '.beads/', '.worktrees/']
+      const ignoreEntries = ['.ralph/', '.ralphrc', '.beads/', '.worktrees/', '*.__merge_tmp/']
       if (fs.existsSync(wtGitignore)) {
         const existing = fs.readFileSync(wtGitignore, 'utf8')
         const missing = ignoreEntries.filter(e => !existing.includes(e))
@@ -356,6 +356,12 @@ export class AgentCoordinator {
           cwd: this.projectPath, timeout: 30000
         })
       } finally {
+        // Restore stash BEFORE restoring moved items — stash may contain the .__merge_tmp
+        // dirs (since --include-untracked stashes them), so they must be popped first.
+        if (stashed) {
+          try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+          stashed = false
+        }
         for (const item of movedItems) {
           try {
             try { fs.rmSync(item.path, { recursive: true, force: true }) } catch { /* ok */ }
@@ -370,11 +376,6 @@ export class AgentCoordinator {
         }
       }
 
-      // Restore stashed changes after merge + moved items are restored
-      if (stashed) {
-        try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
-      }
-
       return { merged: true, filesChanged }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -383,7 +384,7 @@ export class AgentCoordinator {
       if (!isConflict) {
         try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
       }
-      // Restore stashed changes even on failure
+      // Restore stashed changes even on failure (stash may already be popped by finally block)
       if (stashed) {
         try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
       }
