@@ -20,6 +20,8 @@
 .beads
 .slashbot
 .slashbotrc
+.ralph
+.ralphrc
 .worktrees
 # General logs
 *.log
