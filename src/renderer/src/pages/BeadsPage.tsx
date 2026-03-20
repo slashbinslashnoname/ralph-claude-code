@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 interface Props { projectPath: string }
 
@@ -41,10 +41,10 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const check = await ralph.beads.check(projectPath)
+    const check = await sb.beads.check(projectPath)
     setBdAvailable(check.available)
     if (check.available) {
-      const r = await ralph.beads.list(projectPath, filter === 'all' ? 'all' : filter)
+      const r = await sb.beads.list(projectPath, filter === 'all' ? 'all' : filter)
       if (r.ok) setBeads(r.tasks)
     }
     setLoading(false)
@@ -54,30 +54,30 @@ export default function BeadsPage({ projectPath }: Props) {
 
   // Plan inject listeners
   useEffect(() => {
-    ralph.swarm.status(projectPath).then(s => setIsPlanning(s.planning ?? false))
-    ralph.swarm.queue(projectPath).then(setPlanQueue)
+    sb.swarm.status(projectPath).then(s => setIsPlanning(s.planning ?? false))
+    sb.swarm.queue(projectPath).then(setPlanQueue)
     const unsubs = [
-      ralph.swarm.onPlanPhase((_p: string, phase: string) => {
+      sb.swarm.onPlanPhase((_p: string, phase: string) => {
         setPlanPhase(phase)
         setIsPlanning(phase !== '' && phase !== 'done')
         if (phase === 'done') setTimeout(refresh, 1000)
       }),
-      ralph.swarm.onPlanQueue((_p: string, q: any[]) => setPlanQueue(q)),
-      ralph.swarm.onStopped(() => { setIsPlanning(false); refresh() }),
+      sb.swarm.onPlanQueue((_p: string, q: any[]) => setPlanQueue(q)),
+      sb.swarm.onStopped(() => { setIsPlanning(false); refresh() }),
     ]
     return () => unsubs.forEach(u => u())
   }, [projectPath])
 
   const injectPlan = useCallback(async () => {
     if (!planPrompt.trim()) return
-    await ralph.swarm.inject(projectPath, planPrompt)
+    await sb.swarm.inject(projectPath, planPrompt)
     setPlanPrompt('')
     // Status updates come via onPlanPhase/onPlanQueue listeners
   }, [projectPath, planPrompt])
 
   const createBead = useCallback(async () => {
     if (!newTitle.trim()) return
-    const r = await ralph.beads.create(projectPath, {
+    const r = await sb.beads.create(projectPath, {
       title: newTitle, type: newType, priority: newPriority,
       description: newDesc || undefined
     })
@@ -88,22 +88,22 @@ export default function BeadsPage({ projectPath }: Props) {
   }, [projectPath, newTitle, newDesc, newType, newPriority, refresh])
 
   const claimBead = useCallback(async (id: string) => {
-    await ralph.beads.update(projectPath, id, { claim: true })
+    await sb.beads.update(projectPath, id, { claim: true })
     refresh()
   }, [projectPath, refresh])
 
   const closeBead = useCallback(async (id: string) => {
-    await ralph.beads.close(projectPath, id, 'Done')
+    await sb.beads.close(projectPath, id, 'Done')
     refresh()
   }, [projectPath, refresh])
 
   const reopenBead = useCallback(async (id: string) => {
-    await ralph.beads.reopen(projectPath, id, 'Back to open')
+    await sb.beads.reopen(projectPath, id, 'Back to open')
     refresh()
   }, [projectPath, refresh])
 
   const changePriority = useCallback(async (id: string, priority: number) => {
-    await ralph.beads.update(projectPath, id, { priority })
+    await sb.beads.update(projectPath, id, { priority })
     refresh()
   }, [projectPath, refresh])
 
@@ -119,7 +119,7 @@ export default function BeadsPage({ projectPath }: Props) {
     if (editTitle !== editing.title) updates.title = editTitle
     if (editDesc !== (editing.description ?? '')) updates.description = editDesc
     if (Object.keys(updates).length > 0) {
-      await ralph.beads.update(projectPath, editing.id, updates)
+      await sb.beads.update(projectPath, editing.id, updates)
     }
     setEditing(null)
     refresh()
@@ -139,12 +139,12 @@ export default function BeadsPage({ projectPath }: Props) {
     setBeadLogContent(null)
     setBeadLogFile(null)
     // Get activity events for this bead to find timestamps
-    const activity = await ralph.swarm.activity(projectPath, 500)
+    const activity = await sb.swarm.activity(projectPath, 500)
     const beadEvents = activity.filter((e: any) =>
       e.beadId === beadId && ['thinking', 'executing'].includes(e.type)
     )
     // Get all logs and match by agent+timestamp proximity
-    const allLogs = await ralph.swarm.agentLogs(projectPath)
+    const allLogs = await sb.swarm.agentLogs(projectPath)
     const matched: typeof allLogs = []
     for (const evt of beadEvents) {
       const evtTime = new Date(evt.ts).getTime()
@@ -226,7 +226,7 @@ export default function BeadsPage({ projectPath }: Props) {
       const bead = reordered[i]
       const newPriority = Math.min(i, 4)
       if (bead.priority !== newPriority) {
-        updates.push(ralph.beads.update(projectPath, bead.id, { priority: newPriority }))
+        updates.push(sb.beads.update(projectPath, bead.id, { priority: newPriority }))
       }
     }
     if (updates.length > 0) {
@@ -318,7 +318,7 @@ export default function BeadsPage({ projectPath }: Props) {
               <div key={q.id} className="queue-item">
                 <span className="badge badge-idle">#{i + 1}</span>
                 <span>{q.request.slice(0, 80)}{q.request.length > 80 ? '...' : ''}</span>
-                <button className="btn btn-sm btn-ghost" onClick={() => ralph.swarm.queueRemove(projectPath, q.id)}>
+                <button className="btn btn-sm btn-ghost" onClick={() => sb.swarm.queueRemove(projectPath, q.id)}>
                   {'\u2715'}
                 </button>
               </div>
@@ -511,7 +511,7 @@ export default function BeadsPage({ projectPath }: Props) {
                     {beadLogs.map(log => (
                       <div key={log.file} className="bead-log-item" onClick={() => {
                         setBeadLogFile(log.file)
-                        ralph.swarm.agentLogContent(projectPath, log.file).then(setBeadLogContent)
+                        sb.swarm.agentLogContent(projectPath, log.file).then(setBeadLogContent)
                       }}>
                         <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
                         <span>{log.agentId}</span>

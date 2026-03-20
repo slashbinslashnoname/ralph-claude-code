@@ -7,7 +7,7 @@ import { AgentCoordinator } from './AgentCoordinator'
 import { AgentInfo, Bead } from '../types'
 
 let tmpDir: string
-let ralphDir: string
+let slashbotDir: string
 let coord: AgentCoordinator
 
 function makeTmpGitProject(): string {
@@ -18,8 +18,8 @@ function makeTmpGitProject(): string {
   fs.writeFileSync(path.join(dir, 'README.md'), '# test')
   execSync('git add . && git commit -m "init"', { cwd: dir, stdio: 'pipe' })
 
-  const ralph = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(ralph, 'logs'), { recursive: true })
+  const sb = path.join(dir, '.slashbot')
+  fs.mkdirSync(path.join(sb, 'logs'), { recursive: true })
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   return dir
 }
@@ -27,8 +27,8 @@ function makeTmpGitProject(): string {
 describe('AgentCoordinator — atomic writes', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -37,7 +37,7 @@ describe('AgentCoordinator — atomic writes', () => {
 
   it('writeLocks is atomic — no .tmp file left behind', () => {
     coord.writeLocks([{ file: 'a.ts', agentId: 'agent-0', beadId: 'b1', reservedAt: new Date().toISOString() }])
-    const lockFile = path.join(ralphDir, 'file_locks.json')
+    const lockFile = path.join(slashbotDir, 'file_locks.json')
     expect(fs.existsSync(lockFile)).toBe(true)
     expect(fs.existsSync(lockFile + '.tmp')).toBe(false)
     const locks = JSON.parse(fs.readFileSync(lockFile, 'utf8'))
@@ -51,7 +51,7 @@ describe('AgentCoordinator — atomic writes', () => {
       currentBeadId: null, currentBeadTitle: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     }])
-    const agentsFile = path.join(ralphDir, 'agents.json')
+    const agentsFile = path.join(slashbotDir, 'agents.json')
     expect(fs.existsSync(agentsFile)).toBe(true)
     expect(fs.existsSync(agentsFile + '.tmp')).toBe(false)
     const agents = JSON.parse(fs.readFileSync(agentsFile, 'utf8'))
@@ -72,8 +72,8 @@ describe('AgentCoordinator — atomic writes', () => {
 describe('AgentCoordinator — merge retry', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -156,8 +156,8 @@ describe('AgentCoordinator — merge retry', () => {
 describe('AgentCoordinator — orphaned worktree cleanup', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -227,8 +227,8 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
 describe('AgentCoordinator — file locks and agent registry', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -304,8 +304,8 @@ describe('AgentCoordinator — file locks and agent registry', () => {
 describe('AgentCoordinator — agent registration', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -376,8 +376,8 @@ describe('AgentCoordinator — agent registration', () => {
 describe('AgentCoordinator — activity log', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -409,7 +409,7 @@ describe('AgentCoordinator — activity log', () => {
   })
 
   it('readActivity skips corrupt lines and returns valid entries', () => {
-    const activityFile = path.join(ralphDir, 'activity.jsonl')
+    const activityFile = path.join(slashbotDir, 'activity.jsonl')
     const validEvent = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'ok' })
     fs.writeFileSync(activityFile, validEvent + '\n' + 'NOT_JSON{{{corrupt\n' + validEvent + '\n')
     const events = coord.readActivity()
@@ -443,8 +443,8 @@ describe('AgentCoordinator — activity log', () => {
 describe('AgentCoordinator — worktree creation', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -471,9 +471,9 @@ describe('AgentCoordinator — worktree creation', () => {
   it('worktree has .slashbot symlink', () => {
     const wt = coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
-    const ralphLink = path.join(wt!.worktreePath, '.slashbot')
-    expect(fs.existsSync(ralphLink)).toBe(true)
-    expect(fs.lstatSync(ralphLink).isSymbolicLink()).toBe(true)
+    const slashbotLink = path.join(wt!.worktreePath, '.slashbot')
+    expect(fs.existsSync(slashbotLink)).toBe(true)
+    expect(fs.lstatSync(slashbotLink).isSymbolicLink()).toBe(true)
   })
 
   it('worktree has .slashbotrc symlink when .slashbotrc exists', () => {
@@ -515,8 +515,8 @@ describe('AgentCoordinator — worktree creation', () => {
 describe('AgentCoordinator — bead claiming with contention', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -670,8 +670,8 @@ describe('AgentCoordinator — bead claiming with contention', () => {
 describe('AgentCoordinator — completeBead and failBead', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {
@@ -711,8 +711,8 @@ describe('AgentCoordinator — completeBead and failBead', () => {
 describe('AgentCoordinator — hasOpenWork and getStats', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    ralphDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(ralphDir, tmpDir)
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
   })
 
   afterEach(() => {

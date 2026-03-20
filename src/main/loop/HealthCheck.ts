@@ -52,13 +52,13 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
     })
   }
 
-  // 3. Check required Ralph files (.slashbot/, .slashbot/PROMPT.md, .slashbot/AGENT.md, .slashbotrc)
+  // 3. Check required Slashbot files (.slashbot/, .slashbot/PROMPT.md, .slashbot/AGENT.md, .slashbotrc)
   const integrity = validateIntegrity(projectPath)
   if (!integrity.ok) {
     errors.push({
-      check: 'ralph-files',
-      message: `Missing Ralph files: ${integrity.missing.join(', ')}`,
-      remediation: 'Run `ralph-enable --force` to restore required files.',
+      check: 'slashbot-files',
+      message: `Missing Slashbot files: ${integrity.missing.join(', ')}`,
+      remediation: 'Run `slashbot-enable --force` to restore required files.',
     })
   }
 

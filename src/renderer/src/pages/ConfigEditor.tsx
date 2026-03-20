@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 interface Props { projectPath: string }
 
@@ -17,14 +17,14 @@ export default function ConfigEditor({ projectPath }: Props) {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    ralph.readFile(projectPath, activeFile).then(r => {
+    sb.readFile(projectPath, activeFile).then(r => {
       if (r.ok) { setContent(r.content!); setSaved(true); setError('') }
       else setError(r.error ?? 'Failed to read file')
     })
   }, [projectPath, activeFile])
 
   const save = useCallback(async () => {
-    const r = await ralph.writeFile(projectPath, activeFile, content)
+    const r = await sb.writeFile(projectPath, activeFile, content)
     if (r.ok) { setSaved(true); setError('') }
     else setError(r.error ?? 'Failed to save')
   }, [projectPath, activeFile, content])

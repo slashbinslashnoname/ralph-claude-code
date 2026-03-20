@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 interface Props {
   projectPath: string
@@ -32,11 +32,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
     const load = async () => {
-      const s = await ralph.swarm.status(projectPath)
+      const s = await sb.swarm.status(projectPath)
       setSwarmStatus(s)
       setAgents(s.agents ?? [])
       if (s.stats) setStats(s.stats)
-      await ralph.swarm.queue(projectPath)
+      await sb.swarm.queue(projectPath)
     }
     load()
     const interval = setInterval(load, 2000)
@@ -46,17 +46,17 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   // Load full activity history once on mount (if not already loaded by App)
   useEffect(() => {
     if (activity.length === 0) {
-      ralph.swarm.activity(projectPath, 200).then(setActivity)
+      sb.swarm.activity(projectPath, 200).then(setActivity)
     }
   }, [projectPath])
 
   // Live events (agents, stats, plan — output & activity handled by App)
   useEffect(() => {
     const unsubs = [
-      ralph.swarm.onAgents((_p: string, a: any) => setAgents(a)),
-      ralph.swarm.onGraph((_p: string, s: any) => setStats(s)),
-      ralph.swarm.onPlanPhase((_p: string, phase: string) => setPlanPhase(phase)),
-      ralph.swarm.onPlanQueue(() => {}),
+      sb.swarm.onAgents((_p: string, a: any) => setAgents(a)),
+      sb.swarm.onGraph((_p: string, s: any) => setStats(s)),
+      sb.swarm.onPlanPhase((_p: string, phase: string) => setPlanPhase(phase)),
+      sb.swarm.onPlanQueue(() => {}),
     ]
     return () => unsubs.forEach(u => u())
   }, [])
@@ -80,7 +80,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     if (activeTab === 'overview' || activeTab === 'activity' || activeTab === 'history') return
     if (fetchedTabs.current.has(activeTab)) return
     fetchedTabs.current.add(activeTab)
-    ralph.swarm.agentOutput(projectPath, activeTab).then(output => {
+    sb.swarm.agentOutput(projectPath, activeTab).then(output => {
       if (output) {
         // Disk log is authoritative — replace whatever live buffer had
         // Also update the global buffer so live chunks append correctly from here
@@ -91,15 +91,15 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   }, [activeTab, projectPath])
 
   const startSwarm = useCallback(async () => {
-    await ralph.swarm.start(projectPath, workerCount)
+    await sb.swarm.start(projectPath, workerCount)
   }, [projectPath, workerCount])
 
   const stopSwarm = useCallback(async () => {
-    await ralph.swarm.stop(projectPath)
+    await sb.swarm.stop(projectPath)
   }, [projectPath])
 
   const gracefulStopSwarm = useCallback(async () => {
-    await ralph.swarm.gracefulStop(projectPath)
+    await sb.swarm.gracefulStop(projectPath)
   }, [projectPath])
 
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
@@ -138,12 +138,12 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
             {isRunning ? (
               <>
                 <button className="btn btn-sm" disabled={workerCount <= 1}
-                  onClick={() => { const n = workerCount - 1; setWorkerCount(n); ralph.swarm.start(projectPath, n) }}>
+                  onClick={() => { const n = workerCount - 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   {'\u2212'}
                 </button>
                 <span className="worker-count">{workerCount} agent{workerCount > 1 ? 's' : ''}</span>
                 <button className="btn btn-sm btn-primary"
-                  onClick={() => { const n = workerCount + 1; setWorkerCount(n); ralph.swarm.start(projectPath, n) }}>
+                  onClick={() => { const n = workerCount + 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   +
                 </button>
                 <button className="btn btn-warning" onClick={gracefulStopSwarm}
@@ -207,7 +207,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
           <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('history')
-              ralph.swarm.agentLogs(projectPath).then(logs => {
+              sb.swarm.agentLogs(projectPath).then(logs => {
                 // Filter to current session only
                 const sessionStart = swarmStatus?.sessionStartedAt
                 if (sessionStart) {
@@ -326,7 +326,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                     <div key={log.file} className="activity-item" style={{ cursor: 'pointer' }}
                       onClick={() => {
                         setHistoryFile(log.file)
-                        ralph.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
+                        sb.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
                       }}>
                       <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
                       <span className="activity-agent">{log.agentId}</span>

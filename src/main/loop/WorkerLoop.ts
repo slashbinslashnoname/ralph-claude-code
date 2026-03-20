@@ -45,7 +45,7 @@ export class WorkerLoop extends EventEmitter {
   loopCount = 0
   private emptyRetries = 0
   private sessionId?: string
-  private ralphDir: string
+  private slashbotDir: string
   private logDir: string
   private env: NodeJS.ProcessEnv
   private resolvedCmd: string

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 interface Props { projectPath: string }
 
@@ -10,8 +10,8 @@ export default function LogViewer({ projectPath }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    ralph.readLogs(projectPath, 500).then(setLines)
-    const unsub = ralph.onLogLines((_p: string, newLines: string[]) => {
+    sb.readLogs(projectPath, 500).then(setLines)
+    const unsub = sb.onLogLines((_p: string, newLines: string[]) => {
       setLines(prev => [...prev.slice(-1000), ...newLines])
     })
     return unsub

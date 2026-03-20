@@ -6,7 +6,7 @@ function listen(channel: string, cb: (...args: unknown[]) => void): () => void {
   return () => ipcRenderer.removeListener(channel, handler)
 }
 
-contextBridge.exposeInMainWorld('ralph', {
+contextBridge.exposeInMainWorld('slashbot', {
   // ── Project management ──────────────────────────────────────────────────
   selectProject: () => ipcRenderer.invoke('project:select'),
   recentProjects: () => ipcRenderer.invoke('project:recent'),
@@ -15,9 +15,9 @@ contextBridge.exposeInMainWorld('ralph', {
   saveActiveProjectTabs: (tabs: { paths: string[]; active: number }) =>
     ipcRenderer.invoke('project:save-tabs', tabs),
 
-  // ── Ralph enable ────────────────────────────────────────────────────────
-  isEnabled: (projectPath: string) => ipcRenderer.invoke('ralph:is-enabled', projectPath),
-  enable: (projectPath: string, opts: unknown) => ipcRenderer.invoke('ralph:enable', projectPath, opts),
+  // ── Slashbot enable ────────────────────────────────────────────────────────
+  isEnabled: (projectPath: string) => ipcRenderer.invoke('slashbot:is-enabled', projectPath),
+  enable: (projectPath: string, opts: unknown) => ipcRenderer.invoke('slashbot:enable', projectPath, opts),
 
   // ── Status ──────────────────────────────────────────────────────────────
   readStatus: (projectPath: string) => ipcRenderer.invoke('status:read', projectPath),
@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('ralph', {
   onCircuitUpdate: (cb: (...a: unknown[]) => void) => listen('circuit:update', cb),
   onAnalysisUpdate: (cb: (...a: unknown[]) => void) => listen('analysis:update', cb),
   onLogLines: (cb: (...a: unknown[]) => void) => listen('logs:lines', cb),
-  onRalphExit: (cb: (...a: unknown[]) => void) => listen('ralph:exit', cb),
+  onSlashbotExit: (cb: (...a: unknown[]) => void) => listen('slashbot:exit', cb),
   onPtyData: (cb: (...a: unknown[]) => void) => listen('pty:data', cb),
 
   // ── Logs ────────────────────────────────────────────────────────────────
@@ -41,10 +41,10 @@ contextBridge.exposeInMainWorld('ralph', {
   writeFile: (projectPath: string, relPath: string, content: string) =>
     ipcRenderer.invoke('file:write', projectPath, relPath, content),
 
-  // ── Ralph loop ────────────────────────────────────────────────────────
-  startRalph: (projectPath: string) => ipcRenderer.invoke('ralph:start', projectPath),
-  stopRalph: (projectPath: string) => ipcRenderer.invoke('ralph:stop', projectPath),
-  ralphRunning: (projectPath: string) => ipcRenderer.invoke('ralph:running', projectPath),
+  // ── Slashbot loop ────────────────────────────────────────────────────────
+  startSlashbot: (projectPath: string) => ipcRenderer.invoke('slashbot:start', projectPath),
+  stopSlashbot: (projectPath: string) => ipcRenderer.invoke('slashbot:stop', projectPath),
+  slashbotRunning: (projectPath: string) => ipcRenderer.invoke('slashbot:running', projectPath),
 
   // ── Terminal ──────────────────────────────────────────────────────────
   ptyWrite: (projectPath: string, data: string) => ipcRenderer.invoke('pty:write', projectPath, data),

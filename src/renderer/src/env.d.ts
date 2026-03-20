@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-interface RalphAPI {
+interface SlashbotAPI {
   selectProject: () => Promise<string | null>
   recentProjects: () => Promise<string[]>
   addProject: (p: string) => Promise<{ ok: boolean; error?: string }>
@@ -16,15 +16,15 @@ interface RalphAPI {
   onCircuitUpdate: (cb: (...a: any[]) => void) => () => void
   onAnalysisUpdate: (cb: (...a: any[]) => void) => () => void
   onLogLines: (cb: (...a: any[]) => void) => () => void
-  onRalphExit: (cb: (...a: any[]) => void) => () => void
+  onSlashbotExit: (cb: (...a: any[]) => void) => () => void
   onPtyData: (cb: (...a: any[]) => void) => () => void
   readLogs: (p: string, lines?: number) => Promise<string[]>
   listLogs: (p: string) => Promise<string[]>
   readFile: (p: string, rel: string) => Promise<{ ok: boolean; content?: string; error?: string }>
   writeFile: (p: string, rel: string, c: string) => Promise<{ ok: boolean; error?: string }>
-  startRalph: (p: string) => Promise<{ ok: boolean; error?: string }>
-  stopRalph: (p: string) => Promise<void>
-  ralphRunning: (p: string) => Promise<boolean>
+  startSlashbot: (p: string) => Promise<{ ok: boolean; error?: string }>
+  stopSlashbot: (p: string) => Promise<void>
+  slashbotRunning: (p: string) => Promise<boolean>
   ptyWrite: (p: string, d: string) => Promise<void>
   ptyResize: (c: number, r: number) => Promise<void>
   resetCircuit: (p: string) => Promise<{ ok: boolean }>
@@ -68,6 +68,6 @@ interface RalphAPI {
 
 declare global {
   interface Window {
-    ralph: RalphAPI
+    slashbot: SlashbotAPI
   }
 }

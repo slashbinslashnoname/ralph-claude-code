@@ -55,7 +55,7 @@ export class RalphLoop extends EventEmitter {
   private testOnlyCount = 0
   private lastSessionId?: string
   private ptyProc: pty.IPty | null = null
-  private ralphDir: string
+  private slashbotDir: string
   private logDir: string
   private config!: RalphConfig
   private circuit!: CircuitBreaker
@@ -109,7 +109,7 @@ export class RalphLoop extends EventEmitter {
   }
 
   private _rotateLog(maxLines = 2000): void {
-    const logFile = path.join(this.logDir, 'ralph.log')
+    const logFile = path.join(this.logDir, 'slashbot.log')
     if (!fs.existsSync(logFile)) return
     try {
       const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
@@ -357,7 +357,7 @@ export class RalphLoop extends EventEmitter {
   private _log(level: string, msg: string): void {
     const ts = new Date().toISOString().replace('T', ' ').slice(0, 19)
     const line = `[${ts}] [${level}] ${msg}`
-    fs.appendFileSync(path.join(this.logDir, 'ralph.log'), line + '\n')
+    fs.appendFileSync(path.join(this.logDir, 'slashbot.log'), line + '\n')
     this.emit('log', level, msg)
   }
 

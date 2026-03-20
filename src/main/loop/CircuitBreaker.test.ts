@@ -6,8 +6,8 @@ import { RalphConfig } from '../types'
 
 vi.mock('fs')
 
-const RALPH_DIR = '/tmp/test-ralph'
-const STATE_PATH = path.join(RALPH_DIR, '.circuit_breaker_state')
+const SLASHBOT_DIR = '/tmp/test-slashbot'
+const STATE_PATH = path.join(SLASHBOT_DIR, '.circuit_breaker_state')
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
@@ -42,13 +42,13 @@ describe('CircuitBreaker', () => {
 
   describe('initial state', () => {
     it('starts in CLOSED state', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       expect(cb.isOpen()).toBe(false)
       expect(cb.snapshot().state).toBe('CLOSED')
     })
 
     it('snapshot returns correct shape', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       const snap = cb.snapshot()
       expect(snap).toMatchObject({
         state: 'CLOSED',
@@ -67,7 +67,7 @@ describe('CircuitBreaker', () => {
 
   describe('tick', () => {
     it('updates current_loop in snapshot', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.tick(5)
       expect(cb.snapshot().current_loop).toBe(5)
     })
@@ -76,7 +76,7 @@ describe('CircuitBreaker', () => {
   describe('load', () => {
     it('does nothing when state file does not exist', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
       expect(cb.snapshot().state).toBe('CLOSED')
     })
@@ -96,7 +96,7 @@ describe('CircuitBreaker', () => {
         })
       )
 
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
       const snap = cb.snapshot()
       expect(snap.state).toBe('HALF_OPEN')
@@ -112,7 +112,7 @@ describe('CircuitBreaker', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue('not valid json!!!')
 
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
       expect(cb.snapshot().state).toBe('CLOSED')
     })
@@ -121,7 +121,7 @@ describe('CircuitBreaker', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({}))
 
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
       const snap = cb.snapshot()
       expect(snap.state).toBe('CLOSED')
@@ -141,7 +141,7 @@ describe('CircuitBreaker', () => {
         })
       )
 
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig({ cbCooldownMinutes: 30 }))
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 30 }))
       cb.load()
       expect(cb.snapshot().state).toBe('HALF_OPEN')
       expect(cb.isOpen()).toBe(false)
@@ -160,7 +160,7 @@ describe('CircuitBreaker', () => {
         })
       )
 
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig({ cbCooldownMinutes: 30 }))
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 30 }))
       cb.load()
       expect(cb.snapshot().state).toBe('OPEN')
       expect(cb.isOpen()).toBe(true)
@@ -169,7 +169,7 @@ describe('CircuitBreaker', () => {
 
   describe('save', () => {
     it('persists current state to file', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.tick(7)
       cb.save()
 
@@ -187,7 +187,7 @@ describe('CircuitBreaker', () => {
 
     it('includes opened_at when circuit has been opened', () => {
       const config = makeConfig({ cbPermissionDenialThreshold: 1 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
       cb.recordPermissionDenial() // triggers open
       cb.save()
 
@@ -201,7 +201,7 @@ describe('CircuitBreaker', () => {
   describe('reset', () => {
     it('clears all counters and sets state to CLOSED', () => {
       const config = makeConfig({ cbPermissionDenialThreshold: 1 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
       cb.recordPermissionDenial() // open the circuit
       expect(cb.isOpen()).toBe(true)
 
@@ -216,7 +216,7 @@ describe('CircuitBreaker', () => {
     })
 
     it('calls save after reset', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.reset()
       expect(fs.writeFileSync).toHaveBeenCalled()
     })
@@ -224,7 +224,7 @@ describe('CircuitBreaker', () => {
 
   describe('recordProgress', () => {
     it('resets all consecutive counters', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordNoProgress(false)
       cb.recordNoProgress(false)
       cb.recordProgress(5)
@@ -238,7 +238,7 @@ describe('CircuitBreaker', () => {
 
     it('transitions HALF_OPEN back to CLOSED on progress', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       // Hit threshold to get to HALF_OPEN
       cb.recordNoProgress(false)
@@ -251,7 +251,7 @@ describe('CircuitBreaker', () => {
     })
 
     it('does not change state when already CLOSED', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordProgress(1)
       expect(cb.snapshot().state).toBe('CLOSED')
     })
@@ -259,7 +259,7 @@ describe('CircuitBreaker', () => {
 
   describe('recordNoProgress', () => {
     it('ignores calls when askingQuestions is true', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordNoProgress(true)
       cb.recordNoProgress(true)
       cb.recordNoProgress(true)
@@ -268,7 +268,7 @@ describe('CircuitBreaker', () => {
     })
 
     it('increments consecutiveNoProgress counter', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordNoProgress(false)
       expect(cb.snapshot().consecutive_no_progress).toBe(1)
       cb.recordNoProgress(false)
@@ -277,7 +277,7 @@ describe('CircuitBreaker', () => {
 
     it('transitions CLOSED to HALF_OPEN at threshold', () => {
       const config = makeConfig({ cbNoProgressThreshold: 3 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordNoProgress(false) // 1
       cb.recordNoProgress(false) // 2
@@ -290,7 +290,7 @@ describe('CircuitBreaker', () => {
 
     it('stays CLOSED below threshold (n-1)', () => {
       const config = makeConfig({ cbNoProgressThreshold: 3 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordNoProgress(false) // 1
       cb.recordNoProgress(false) // 2
@@ -299,7 +299,7 @@ describe('CircuitBreaker', () => {
 
     it('transitions HALF_OPEN to OPEN on further no-progress', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordNoProgress(false) // 1
       cb.recordNoProgress(false) // 2 — HALF_OPEN
@@ -315,7 +315,7 @@ describe('CircuitBreaker', () => {
 
   describe('recordError', () => {
     it('does not increment consecutiveSameError until 2 distinct errors seen', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
 
       // First unique error — lastErrors has length 1, no increment
       cb.recordError('error A')
@@ -327,7 +327,7 @@ describe('CircuitBreaker', () => {
     })
 
     it('increments on repeated calls once 2 distinct errors exist', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
       cb.recordError('error B')
       expect(cb.snapshot().consecutive_same_error).toBe(1)
@@ -338,7 +338,7 @@ describe('CircuitBreaker', () => {
     })
 
     it('deduplicates error strings in lastErrors', () => {
-      const cb = new CircuitBreaker(RALPH_DIR, makeConfig())
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
       cb.recordError('error A') // duplicate, not added
       // lastErrors still has length 1, no increment
@@ -347,7 +347,7 @@ describe('CircuitBreaker', () => {
 
     it('opens circuit when same-error threshold is reached', () => {
       const config = makeConfig({ cbSameErrorThreshold: 3 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       // Need 2 distinct errors to start counting
       cb.recordError('error A')
@@ -361,7 +361,7 @@ describe('CircuitBreaker', () => {
 
     it('caps lastErrors at 10 entries', () => {
       const config = makeConfig({ cbSameErrorThreshold: 100 }) // high to avoid opening
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       for (let i = 0; i < 15; i++) {
         cb.recordError(`error ${i}`)
@@ -375,7 +375,7 @@ describe('CircuitBreaker', () => {
   describe('recordPermissionDenial', () => {
     it('increments counter on each call', () => {
       const config = makeConfig({ cbPermissionDenialThreshold: 10 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordPermissionDenial()
       expect(cb.snapshot().consecutive_permission_denials).toBe(1)
@@ -385,7 +385,7 @@ describe('CircuitBreaker', () => {
 
     it('opens circuit at permission denial threshold', () => {
       const config = makeConfig({ cbPermissionDenialThreshold: 2 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordPermissionDenial() // 1
       expect(cb.isOpen()).toBe(false)
@@ -400,7 +400,7 @@ describe('CircuitBreaker', () => {
   describe('state transitions: full lifecycle', () => {
     it('CLOSED → HALF_OPEN → CLOSED (recovery)', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       expect(cb.snapshot().state).toBe('CLOSED')
 
@@ -414,7 +414,7 @@ describe('CircuitBreaker', () => {
 
     it('CLOSED → HALF_OPEN → OPEN (escalation)', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordNoProgress(false)
       cb.recordNoProgress(false)
@@ -426,7 +426,7 @@ describe('CircuitBreaker', () => {
 
     it('OPEN → HALF_OPEN via cooldown on load', () => {
       const config = makeConfig({ cbCooldownMinutes: 10 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       // Simulate persisted OPEN state opened 15 min ago
       const openedAt = new Date('2026-01-15T11:45:00Z').toISOString()
@@ -441,7 +441,7 @@ describe('CircuitBreaker', () => {
 
     it('tracks totalOpens across multiple open events', () => {
       const config = makeConfig({ cbPermissionDenialThreshold: 1 })
-      const cb = new CircuitBreaker(RALPH_DIR, config)
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       cb.recordPermissionDenial() // opens
       expect(cb.snapshot().total_opens).toBe(1)
@@ -455,7 +455,7 @@ describe('CircuitBreaker', () => {
   describe('persistence round-trip', () => {
     it('save then load preserves state', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
-      const cb1 = new CircuitBreaker(RALPH_DIR, config)
+      const cb1 = new CircuitBreaker(SLASHBOT_DIR, config)
       cb1.tick(5)
       cb1.recordNoProgress(false)
       cb1.recordNoProgress(false) // HALF_OPEN
@@ -467,7 +467,7 @@ describe('CircuitBreaker', () => {
       vi.mocked(fs.existsSync).mockReturnValue(true)
       vi.mocked(fs.readFileSync).mockReturnValue(savedJson)
 
-      const cb2 = new CircuitBreaker(RALPH_DIR, config)
+      const cb2 = new CircuitBreaker(SLASHBOT_DIR, config)
       cb2.load()
 
       expect(cb2.snapshot().state).toBe('HALF_OPEN')

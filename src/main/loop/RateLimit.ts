@@ -6,7 +6,7 @@ export class RateLimit {
   private hourStart = new Date()
 
   constructor(
-    private ralphDir: string,
+    private slashbotDir: string,
     private max: number
   ) {
     this._load()

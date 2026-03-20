@@ -188,25 +188,25 @@ describe('RalphEnabler', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 200, useBeads: false, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
-      expect(ralphrcCall).toBeDefined()
-      expect(String(ralphrcCall![1])).toContain('MAX_CALLS_PER_HOUR=200')
+      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      expect(slashbotrcCall).toBeDefined()
+      expect(String(slashbotrcCall![1])).toContain('MAX_CALLS_PER_HOUR=200')
     })
 
     it('generates ralphrc with beads task source when useBeads is true', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: true, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
-      expect(String(ralphrcCall![1])).toContain('TASK_SOURCES="beads"')
+      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      expect(String(slashbotrcCall![1])).toContain('TASK_SOURCES="beads"')
     })
 
     it('generates ralphrc with local task source when useBeads is false', () => {
       vi.mocked(fs.existsSync).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
-      expect(String(ralphrcCall![1])).toContain('TASK_SOURCES="local"')
+      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      expect(String(slashbotrcCall![1])).toContain('TASK_SOURCES="local"')
     })
 
     it('includes npm tools for nodejs projects', () => {
@@ -216,11 +216,11 @@ describe('RalphEnabler', () => {
       vi.mocked(fs.readFileSync).mockReturnValue('{"name":"test"}')
       enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const ralphrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
-      expect(String(ralphrcCall![1])).toContain('Bash(npm *)')
+      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      expect(String(slashbotrcCall![1])).toContain('Bash(npm *)')
     })
 
-    it('appends gitignore entries when # Ralph not present', () => {
+    it('appends gitignore entries when # Slashbot not present', () => {
       vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('.gitignore')
@@ -230,20 +230,20 @@ describe('RalphEnabler', () => {
       const calls = vi.mocked(fs.writeFileSync).mock.calls
       const gitignoreCall = calls.find(c => String(c[0]).endsWith('.gitignore'))
       expect(gitignoreCall).toBeDefined()
-      expect(String(gitignoreCall![1])).toContain('# Ralph')
+      expect(String(gitignoreCall![1])).toContain('# Slashbot')
       expect(String(gitignoreCall![1])).toContain('.slashbot/logs/')
     })
 
-    it('does not duplicate gitignore entries when # Ralph already present', () => {
+    it('does not duplicate gitignore entries when # Slashbot already present', () => {
       vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('.gitignore')
       })
-      vi.mocked(fs.readFileSync).mockReturnValue('# Ralph\n.slashbot/logs/\n')
+      vi.mocked(fs.readFileSync).mockReturnValue('# Slashbot\n.slashbot/logs/\n')
       enableRalph('/project')
       const calls = vi.mocked(fs.writeFileSync).mock.calls
       const gitignoreCall = calls.find(c => String(c[0]).endsWith('.gitignore'))
-      // Should not write gitignore since # Ralph already present
+      // Should not write gitignore since # Slashbot already present
       expect(gitignoreCall).toBeUndefined()
     })
 

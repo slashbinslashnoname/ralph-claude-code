@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 interface Props {
   projectPath: string
@@ -22,10 +22,10 @@ export default function Dashboard({ projectPath, status, circuit, onNavigate }: 
 
   useEffect(() => {
     const load = async () => {
-      const s = await ralph.swarm.status(projectPath)
+      const s = await sb.swarm.status(projectPath)
       setSwarmStatus(s)
       setAgents(s.agents ?? [])
-      ralph.beads.stats(projectPath).then(r => { if (r.ok) setBeadStats(r.stats) }).catch(() => {})
+      sb.beads.stats(projectPath).then(r => { if (r.ok) setBeadStats(r.stats) }).catch(() => {})
     }
     load()
     const interval = setInterval(load, 2000)
@@ -34,18 +34,18 @@ export default function Dashboard({ projectPath, status, circuit, onNavigate }: 
 
   // Live agent updates
   useEffect(() => {
-    const unsub = ralph.swarm.onAgents((_p: string, a: any) => setAgents(a))
+    const unsub = sb.swarm.onAgents((_p: string, a: any) => setAgents(a))
     return unsub
   }, [])
 
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
 
   const startSwarm = useCallback(async () => {
-    await ralph.swarm.start(projectPath, workerCount)
+    await sb.swarm.start(projectPath, workerCount)
   }, [projectPath, workerCount])
 
   const stopSwarm = useCallback(async () => {
-    await ralph.swarm.stop(projectPath)
+    await sb.swarm.stop(projectPath)
   }, [projectPath])
 
   const pct = beadStats?.pct ?? 0
@@ -59,12 +59,12 @@ export default function Dashboard({ projectPath, status, circuit, onNavigate }: 
             {isRunning ? (
               <>
                 <button className="btn btn-sm" disabled={workerCount <= 1}
-                  onClick={() => { const n = workerCount - 1; setWorkerCount(n); ralph.swarm.start(projectPath, n) }}>
+                  onClick={() => { const n = workerCount - 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   {'\u2212'}
                 </button>
                 <span className="worker-count">{workerCount} agent{workerCount > 1 ? 's' : ''}</span>
                 <button className="btn btn-sm btn-primary"
-                  onClick={() => { const n = workerCount + 1; setWorkerCount(n); ralph.swarm.start(projectPath, n) }}>
+                  onClick={() => { const n = workerCount + 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   +
                 </button>
                 <button className="btn btn-danger" onClick={stopSwarm}>Stop</button>
@@ -169,7 +169,7 @@ export default function Dashboard({ projectPath, status, circuit, onNavigate }: 
             </div>
             {circuit?.state === 'OPEN' && (
               <button className="btn btn-sm btn-warning mt-2"
-                onClick={() => ralph.resetCircuit(projectPath)}>
+                onClick={() => sb.resetCircuit(projectPath)}>
                 Reset Circuit
               </button>
             )}

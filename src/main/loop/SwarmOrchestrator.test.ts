@@ -16,8 +16,8 @@ let orch: SwarmOrchestrator
 
 function makeTmpProject(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-  const ralphDir = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
+  const slashbotDir = path.join(dir, '.slashbot')
+  fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
   // Minimal .slashbotrc so loadConfig doesn't throw
   fs.writeFileSync(path.join(dir, '.slashbotrc'), JSON.stringify({
     claudeCodeCmd: 'false', // will fail immediately
@@ -29,9 +29,9 @@ function makeTmpProject(): string {
   }))
   // beads dir for BdClient
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
-  // Ralph files required by HealthCheck
-  fs.writeFileSync(path.join(ralphDir, 'PROMPT.md'), '# Prompt')
-  fs.writeFileSync(path.join(ralphDir, 'AGENT.md'), '# Agent')
+  // Slashbot files required by HealthCheck
+  fs.writeFileSync(path.join(slashbotDir, 'PROMPT.md'), '# Prompt')
+  fs.writeFileSync(path.join(slashbotDir, 'AGENT.md'), '# Agent')
   return dir
 }
 
@@ -143,10 +143,10 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
     }
   })
 
-  it('throws when required Ralph files are missing', () => {
+  it('throws when required Slashbot files are missing', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-    const ralphDir = path.join(tmpDir, '.slashbot')
-    fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
+    const slashbotDir = path.join(tmpDir, '.slashbot')
+    fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
     fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), JSON.stringify({
       claudeCodeCmd: 'false',
       claudeTimeoutMinutes: 1,
@@ -164,10 +164,10 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
 
   it('throws when .beads directory is missing', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-    const ralphDir = path.join(tmpDir, '.slashbot')
-    fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
-    fs.writeFileSync(path.join(ralphDir, 'PROMPT.md'), '# Prompt')
-    fs.writeFileSync(path.join(ralphDir, 'AGENT.md'), '# Agent')
+    const slashbotDir = path.join(tmpDir, '.slashbot')
+    fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(slashbotDir, 'PROMPT.md'), '# Prompt')
+    fs.writeFileSync(path.join(slashbotDir, 'AGENT.md'), '# Agent')
     fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), JSON.stringify({
       claudeCodeCmd: 'false',
       claudeTimeoutMinutes: 1,
@@ -364,9 +364,9 @@ describe('SwarmOrchestrator — logging', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('_log writes to ralph.log on disk', () => {
+  it('_log writes to slashbot.log on disk', () => {
     ;(orch as any)._log('INFO', 'test message')
-    const logFile = path.join(tmpDir, '.slashbot', 'logs', 'ralph.log')
+    const logFile = path.join(tmpDir, '.slashbot', 'logs', 'slashbot.log')
     const content = fs.readFileSync(logFile, 'utf8')
     expect(content).toContain('test message')
     expect(content).toContain('[INFO]')

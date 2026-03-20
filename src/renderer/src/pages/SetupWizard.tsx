@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 interface Props {
   projectPath: string
@@ -16,7 +16,7 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
 
   const run = useCallback(async () => {
     setRunning(true)
-    const r = await ralph.enable(projectPath, {
+    const r = await sb.enable(projectPath, {
       force: true,
       maxCallsPerHour: maxCalls,
       useBeads,

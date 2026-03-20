@@ -11,12 +11,12 @@ export function validateIntegrity(projectPath: string): {
   const missing = REQUIRED.filter(p => !fs.existsSync(path.join(projectPath, p)))
   const ok = missing.length === 0
   const report = ok
-    ? 'All required Ralph files present.'
+    ? 'All required Slashbot files present.'
     : [
-        'Missing Ralph files:',
+        'Missing Slashbot files:',
         ...missing.map(f => `  \u2022 ${f}`),
         '',
-        'Run to restore:  ralph-enable --force'
+        'Run to restore:  slashbot-enable --force'
       ].join('\n')
   return { ok, missing, report }
 }

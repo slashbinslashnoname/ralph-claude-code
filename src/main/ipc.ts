@@ -134,7 +134,7 @@ const readJson = (filePath: string): unknown => {
 const readText = (filePath: string): string | null => {
   try { return fs.readFileSync(filePath, 'utf8') } catch { return null }
 }
-const ralphDir = (p: string): string => path.join(p, '.slashbot')
+const slashbotDir = (p: string): string => path.join(p, '.slashbot')
 
 export function registerIpc(
   getMainWindow: () => BrowserWindow | null,
@@ -198,7 +198,7 @@ export function registerIpc(
   // ── Status ──────────────────────────────────────────────────────────────
 
   ipcMain.handle('status:read', (_e, projectPath: string) => {
-    const rd = ralphDir(projectPath)
+    const rd = slashbotDir(projectPath)
     return {
       status: readJson(path.join(rd, 'status.json')),
       progress: readJson(path.join(rd, 'progress.json')),
@@ -209,7 +209,7 @@ export function registerIpc(
 
   function subscribeProject(projectPath: string): void {
     if (watchers.has(projectPath)) return
-    const rd = ralphDir(projectPath)
+    const rd = slashbotDir(projectPath)
     if (!fs.existsSync(rd)) return
 
     const watcher = chokidar.watch(rd, {
@@ -231,7 +231,7 @@ export function registerIpc(
       if (name === '.response_analysis') push('analysis:update', '.response_analysis')
     })
 
-    const logFile = path.join(rd, 'logs', 'ralph.log')
+    const logFile = path.join(rd, 'logs', 'slashbot.log')
     let logSize = fs.existsSync(logFile) ? (readText(logFile) ?? '').length : 0
     const logWatcher = chokidar.watch(logFile, { ignoreInitial: true })
     logWatcher.on('change', () => {
@@ -253,15 +253,15 @@ export function registerIpc(
   // ── Logs ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('logs:read', (_e, projectPath: string, lines = 200) => {
-    const logFile = path.join(ralphDir(projectPath), 'logs', 'ralph.log')
+    const logFile = path.join(slashbotDir(projectPath), 'logs', 'slashbot.log')
     if (!fs.existsSync(logFile)) return []
     return (readText(logFile) ?? '').split('\n').filter(Boolean).slice(-lines)
   })
 
   ipcMain.handle('logs:list', (_e, projectPath: string) => {
-    const logsDir = path.join(ralphDir(projectPath), 'logs')
+    const logsDir = path.join(slashbotDir(projectPath), 'logs')
     if (!fs.existsSync(logsDir)) return []
-    return fs.readdirSync(logsDir).filter(f => f.endsWith('.log') && f !== 'ralph.log').sort().reverse().slice(0, 30)
+    return fs.readdirSync(logsDir).filter(f => f.endsWith('.log') && f !== 'slashbot.log').sort().reverse().slice(0, 30)
   })
 
   // ── File editor ─────────────────────────────────────────────────────────
@@ -286,9 +286,9 @@ export function registerIpc(
     }
   })
 
-  // ── Ralph loop ──────────────────────────────────────────────────────────
+  // ── Slashbot loop ──────────────────────────────────────────────────────────
 
-  ipcMain.handle('ralph:start', (_e, projectPath: string) => {
+  ipcMain.handle('slashbot:start', (_e, projectPath: string) => {
     if (loops.has(projectPath)) return { ok: false, error: 'Already running' }
     const loop = new RalphLoop(projectPath)
     loop.on('status', (s) => broadcast('status:update', projectPath, s))
@@ -298,24 +298,24 @@ export function registerIpc(
     loop.on('output', (chunk: string) => broadcast('pty:data', projectPath, chunk))
     loop.on('exit', (reason: string, detail?: string) => {
       loops.delete(projectPath)
-      broadcast('ralph:exit', projectPath, reason, detail)
+      broadcast('slashbot:exit', projectPath, reason, detail)
     })
     loops.set(projectPath, loop)
     addToStore(projectPath)
     if (!watchers.has(projectPath)) setTimeout(() => subscribeProject(projectPath), 300)
     loop.start().catch(err => {
       loops.delete(projectPath)
-      broadcast('ralph:exit', projectPath, 'error', err instanceof Error ? err.message : String(err))
+      broadcast('slashbot:exit', projectPath, 'error', err instanceof Error ? err.message : String(err))
     })
     return { ok: true }
   })
 
-  ipcMain.handle('ralph:stop', (_e, projectPath: string) => {
+  ipcMain.handle('slashbot:stop', (_e, projectPath: string) => {
     loops.get(projectPath)?.stop()
     loops.delete(projectPath)
   })
 
-  ipcMain.handle('ralph:running', (_e, projectPath: string) => loops.has(projectPath))
+  ipcMain.handle('slashbot:running', (_e, projectPath: string) => loops.has(projectPath))
 
   // ── PTY (placeholder) ──────────────────────────────────────────────────
 
@@ -327,7 +327,7 @@ export function registerIpc(
   ipcMain.handle('circuit:reset', (_e, projectPath: string) => {
     try {
       const config = loadConfig(projectPath)
-      const circuit = new CircuitBreaker(ralphDir(projectPath), config)
+      const circuit = new CircuitBreaker(slashbotDir(projectPath), config)
       circuit.reset()
       broadcast('circuit:update', projectPath, circuit.snapshot())
       return { ok: true }
@@ -337,7 +337,7 @@ export function registerIpc(
   })
 
   ipcMain.handle('session:reset', (_e, projectPath: string) => {
-    const f = path.join(ralphDir(projectPath), '.claude_session_id')
+    const f = path.join(slashbotDir(projectPath), '.claude_session_id')
     try {
       if (fs.existsSync(f)) fs.writeFileSync(f, '')
       return { ok: true }
@@ -346,14 +346,14 @@ export function registerIpc(
     }
   })
 
-  // ── Ralph enable ───────────────────────────────────────────────────────
+  // ── Slashbot enable ───────────────────────────────────────────────────────
 
-  ipcMain.handle('ralph:is-enabled', (_e, projectPath: string) => ({
+  ipcMain.handle('slashbot:is-enabled', (_e, projectPath: string) => ({
     ...checkEnabled(projectPath),
     context: detectProjectContext(projectPath)
   }))
 
-  ipcMain.handle('ralph:enable', (_e, projectPath: string, opts: EnableOptions) =>
+  ipcMain.handle('slashbot:enable', (_e, projectPath: string, opts: EnableOptions) =>
     enableRalph(projectPath, opts))
 
   // ── Beads via bd CLI ───────────────────────────────────────────────────
@@ -611,7 +611,7 @@ export function registerIpc(
   ipcMain.handle('swarm:agent-logs', (_e, projectPath: unknown) => {
     try {
       const v = validateSwarmAgentLogs(projectPath)
-      const logsDir = path.join(ralphDir(v.projectPath), 'logs')
+      const logsDir = path.join(slashbotDir(v.projectPath), 'logs')
       if (!fs.existsSync(logsDir)) return []
       return fs.readdirSync(logsDir)
         .filter(f => f.match(/^agent-\d+_\w+_.*\.log$/))
@@ -634,7 +634,7 @@ export function registerIpc(
   ipcMain.handle('swarm:agent-log-content', (_e, projectPath: unknown, filename: unknown) => {
     try {
       const v = validateSwarmAgentLogContent(projectPath, filename)
-      const filePath = path.join(ralphDir(v.projectPath), 'logs', v.filename)
+      const filePath = path.join(slashbotDir(v.projectPath), 'logs', v.filename)
       return readText(filePath) ?? ''
     } catch {
       return ''
@@ -647,7 +647,7 @@ export function registerIpc(
       const swarm = swarms.get(v.projectPath)
       if (swarm) return swarm.getAgentOutput(v.agentId)
       // Fallback: read from disk even without active swarm
-      const logFile = path.join(ralphDir(v.projectPath), 'logs', `${v.agentId}.log`)
+      const logFile = path.join(slashbotDir(v.projectPath), 'logs', `${v.agentId}.log`)
       return readText(logFile) ?? ''
     } catch {
       return ''

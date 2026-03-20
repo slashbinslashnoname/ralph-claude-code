@@ -39,7 +39,7 @@ export function extractResultFromJsonStream(raw: string): {
   return { text, sessionId, isError }
 }
 
-export function parseRalphStatus(text: string): Record<string, unknown> {
+export function parseSlashbotStatus(text: string): Record<string, unknown> {
   const match = text.match(/RALPH_STATUS:\s*(\{[\s\S]*?\})/m)
   if (!match) return {}
   try {
@@ -60,13 +60,13 @@ export function detectApiLimit(raw: string): boolean {
 
 export function analyze(raw: string): AnalysisResult {
   const { text } = extractResultFromJsonStream(raw)
-  const ralphStatus = parseRalphStatus(text)
+  const slashbotStatus = parseSlashbotStatus(text)
 
-  const exitSignal = ralphStatus['EXIT_SIGNAL'] === true || ralphStatus['EXIT_SIGNAL'] === 'true'
-  const filesModified = typeof ralphStatus['FILES_MODIFIED'] === 'number' ? ralphStatus['FILES_MODIFIED'] : 0
-  const askingQuestions = ralphStatus['ASKING_QUESTIONS'] === true
-  const questionCount = typeof ralphStatus['QUESTION_COUNT'] === 'number' ? ralphStatus['QUESTION_COUNT'] : 0
-  const workType = typeof ralphStatus['WORK_TYPE'] === 'string' ? ralphStatus['WORK_TYPE'] : 'unknown'
+  const exitSignal = slashbotStatus['EXIT_SIGNAL'] === true || slashbotStatus['EXIT_SIGNAL'] === 'true'
+  const filesModified = typeof slashbotStatus['FILES_MODIFIED'] === 'number' ? slashbotStatus['FILES_MODIFIED'] : 0
+  const askingQuestions = slashbotStatus['ASKING_QUESTIONS'] === true
+  const questionCount = typeof slashbotStatus['QUESTION_COUNT'] === 'number' ? slashbotStatus['QUESTION_COUNT'] : 0
+  const workType = typeof slashbotStatus['WORK_TYPE'] === 'string' ? slashbotStatus['WORK_TYPE'] : 'unknown'
 
   let completionCount = 0
   for (const pat of COMPLETION_PATTERNS) if (pat.test(text)) completionCount++
@@ -87,7 +87,7 @@ export function analyze(raw: string): AnalysisResult {
 
   const hasProgress = filesModified > 0 || text.length > 200
   const isStuck = text.length < 50 && /^(?:I'm |I am |Let me|I'll)/i.test(text)
-  const workSummary = (ralphStatus['WORK_SUMMARY'] as string) || text.slice(0, 200).replace(/\n/g, ' ')
+  const workSummary = (slashbotStatus['WORK_SUMMARY'] as string) || text.slice(0, 200).replace(/\n/g, ' ')
 
   return {
     hasCompletionSignal,

@@ -31,7 +31,7 @@ function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
 export class PlanLoop extends EventEmitter {
   stopped = false
   private childProc: ChildProcess | null = null
-  private ralphDir: string
+  private slashbotDir: string
   private logDir: string
   private env: NodeJS.ProcessEnv
   private resolvedCmd: string

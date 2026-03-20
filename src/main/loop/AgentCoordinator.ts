@@ -19,11 +19,11 @@ export class AgentCoordinator {
   bd: BdClient
   planningActive = false
 
-  constructor(private ralphDir: string, private projectPath: string) {
-    this.lockFile = path.join(ralphDir, 'file_locks.json')
-    this.agentsFile = path.join(ralphDir, 'agents.json')
-    this.activityFile = path.join(ralphDir, 'activity.jsonl')
-    fs.mkdirSync(ralphDir, { recursive: true })
+  constructor(private slashbotDir: string, private projectPath: string) {
+    this.lockFile = path.join(slashbotDir, 'file_locks.json')
+    this.agentsFile = path.join(slashbotDir, 'agents.json')
+    this.activityFile = path.join(slashbotDir, 'activity.jsonl')
+    fs.mkdirSync(slashbotDir, { recursive: true })
     this.bd = new BdClient(projectPath)
   }
 
@@ -173,16 +173,16 @@ export class AgentCoordinator {
       }
 
       // Symlink .slashbot into worktree so agent context is available
-      const ralphLink = path.join(worktreePath, '.slashbot')
-      if (fs.existsSync(this.slashbotDir) && !fs.existsSync(ralphLink)) {
-        fs.symlinkSync(this.slashbotDir, ralphLink, 'dir')
+      const slashbotLink = path.join(worktreePath, '.slashbot')
+      if (fs.existsSync(this.slashbotDir) && !fs.existsSync(slashbotLink)) {
+        fs.symlinkSync(this.slashbotDir, slashbotLink, 'dir')
       }
 
       // Symlink .slashbotrc
-      const ralphrcSrc = path.join(this.projectPath, '.slashbotrc')
-      const ralphrcLink = path.join(worktreePath, '.slashbotrc')
-      if (fs.existsSync(ralphrcSrc) && !fs.existsSync(ralphrcLink)) {
-        fs.symlinkSync(ralphrcSrc, ralphrcLink, 'file')
+      const slashbotrcSrc = path.join(this.projectPath, '.slashbotrc')
+      const slashbotrcLink = path.join(worktreePath, '.slashbotrc')
+      if (fs.existsSync(slashbotrcSrc) && !fs.existsSync(slashbotrcLink)) {
+        fs.symlinkSync(slashbotrcSrc, slashbotrcLink, 'file')
       }
 
       // Ensure symlinks are not committed by the agent
@@ -345,7 +345,7 @@ export class AgentCoordinator {
 
       // Stash any pending local modifications so merge doesn't fail
       try {
-        const stashOut = execSync('git stash push -m "ralph-merge-tmp" --include-untracked', {
+        const stashOut = execSync('git stash push -m "slashbot-merge-tmp" --include-untracked', {
           cwd: this.projectPath, timeout: 10000, stdio: 'pipe'
         }).toString()
         stashed = !stashOut.includes('No local changes')

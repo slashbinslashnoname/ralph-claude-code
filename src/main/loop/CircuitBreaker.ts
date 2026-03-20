@@ -15,7 +15,7 @@ export class CircuitBreaker {
   private lastErrors: string[] = []
 
   constructor(
-    private ralphDir: string,
+    private slashbotDir: string,
     private config: RalphConfig
   ) {}
 

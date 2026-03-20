@@ -9,7 +9,7 @@ import ConfigEditor from './pages/ConfigEditor'
 import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 
-const ralph = window.slashbot
+const sb = window.slashbot
 
 type Page = 'dashboard' | 'beads' | 'swarm' | 'logs' | 'config' | 'setup'
 
@@ -43,8 +43,8 @@ export default function App() {
   // Load saved tabs + recent projects on mount
   useEffect(() => {
     Promise.all([
-      ralph.activeProjectTabs(),
-      ralph.recentProjects(),
+      sb.activeProjectTabs(),
+      sb.recentProjects(),
     ]).then(([saved, recent]) => {
       setRecentProjects(recent)
       if (saved.paths.length > 0) {
@@ -65,7 +65,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return
     if (!persistRef.current) { persistRef.current = true; return }
-    ralph.saveActiveProjectTabs({
+    sb.saveActiveProjectTabs({
       paths: tabs.map(t => t.path),
       active: activeIdx,
     })
@@ -75,7 +75,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return
     tabs.forEach((tab, i) => {
-      ralph.isEnabled(tab.path).then(r => {
+      sb.isEnabled(tab.path).then(r => {
         setTabs(prev => {
           const next = [...prev]
           if (next[i]) {
@@ -85,8 +85,8 @@ export default function App() {
           return next
         })
       })
-      ralph.subscribeStatus(tab.path)
-      ralph.readStatus(tab.path).then(s => {
+      sb.subscribeStatus(tab.path)
+      sb.readStatus(tab.path).then(s => {
         setTabs(prev => {
           const next = [...prev]
           if (next[i]) {
@@ -100,7 +100,7 @@ export default function App() {
         })
       })
     })
-    return () => { tabs.forEach(t => ralph.unsubscribeStatus(t.path)) }
+    return () => { tabs.forEach(t => sb.unsubscribeStatus(t.path)) }
   }, [loaded, tabs.map(t => t.path).join('\0')])
 
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
@@ -126,18 +126,18 @@ export default function App() {
     }
 
     const unsubs = [
-      ralph.onStatusUpdate((proj: string, s: any) => {
+      sb.onStatusUpdate((proj: string, s: any) => {
         setTabs(prev => prev.map(t => t.path === proj ? { ...t, status: s } : t))
       }),
-      ralph.onCircuitUpdate((proj: string, c: any) => {
+      sb.onCircuitUpdate((proj: string, c: any) => {
         setTabs(prev => prev.map(t => t.path === proj ? { ...t, circuit: c } : t))
       }),
-      ralph.swarm.onOutput((_p: string, agentId: string, chunk: string) => {
+      sb.swarm.onOutput((_p: string, agentId: string, chunk: string) => {
         globalAgentOutputs[agentId] = (globalAgentOutputs[agentId] ?? '').slice(-50000) + chunk
         outputDirty.current = true
         scheduleFlush()
       }),
-      ralph.swarm.onActivity((_p: string, event: any) => {
+      sb.swarm.onActivity((_p: string, event: any) => {
         const key = `${event.ts}:${event.agentId}:${event.type}`
         const last = globalActivity.length > 0 ? globalActivity[globalActivity.length - 1] : null
         const lastKey = last ? `${last.ts}:${last.agentId}:${last.type}` : ''
@@ -157,7 +157,7 @@ export default function App() {
   const addProject = useCallback(async (projectPath?: string) => {
     let p = projectPath
     if (!p) {
-      p = await ralph.selectProject()
+      p = await sb.selectProject()
       if (!p) return
     }
     // If already open, just switch to it
@@ -181,7 +181,7 @@ export default function App() {
   const closeTab = useCallback((idx: number, e?: React.MouseEvent) => {
     e?.stopPropagation()
     const closing = tabs[idx]
-    if (closing) ralph.unsubscribeStatus(closing.path)
+    if (closing) sb.unsubscribeStatus(closing.path)
     setTabs(prev => prev.filter((_, i) => i !== idx))
     setActiveIdx(prev => {
       if (prev >= idx && prev > 0) return prev - 1

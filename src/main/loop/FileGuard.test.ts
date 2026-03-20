@@ -14,7 +14,7 @@ describe('FileGuard', () => {
     const result = validateIntegrity('/project')
     expect(result.ok).toBe(true)
     expect(result.missing).toEqual([])
-    expect(result.report).toBe('All required Ralph files present.')
+    expect(result.report).toBe('All required Slashbot files present.')
   })
 
   it('reports missing files when none exist', () => {
@@ -27,8 +27,8 @@ describe('FileGuard', () => {
   it('report contains remediation instruction', () => {
     vi.mocked(fs.existsSync).mockReturnValue(false)
     const result = validateIntegrity('/project')
-    expect(result.report).toContain('ralph-enable --force')
-    expect(result.report).toContain('Missing Ralph files:')
+    expect(result.report).toContain('slashbot-enable --force')
+    expect(result.report).toContain('Missing Slashbot files:')
   })
 
   it('reports only the specific missing files', () => {

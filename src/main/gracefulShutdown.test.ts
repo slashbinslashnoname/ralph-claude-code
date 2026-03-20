@@ -23,8 +23,8 @@ function makeTmpGitProject(): string {
   fs.writeFileSync(path.join(dir, 'README.md'), '# test')
   execSync('git add . && git commit -m "init"', { cwd: dir, stdio: 'pipe' })
 
-  const ralphDir = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
+  const slashbotDir = path.join(dir, '.slashbot')
+  fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
   fs.writeFileSync(path.join(dir, '.slashbotrc'), JSON.stringify({
     claudeCodeCmd: 'false',
     claudeTimeoutMinutes: 1,

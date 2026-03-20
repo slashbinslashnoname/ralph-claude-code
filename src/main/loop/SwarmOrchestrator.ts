@@ -17,7 +17,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private lastActivityIndex = 0
   private planQueue: PlanQueueItem[] = []
   coordinator: AgentCoordinator
-  private ralphDir: string
+  private slashbotDir: string
   private logDir: string
   private agentOutputBuffers = new Map<string, string>()
   sessionStartedAt: string | null = null
@@ -300,7 +300,7 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   private _log(level: string, msg: string, agentId?: string): void {
-    fs.appendFileSync(path.join(this.logDir, 'ralph.log'),
+    fs.appendFileSync(path.join(this.logDir, 'slashbot.log'),
       `[${new Date().toISOString()}] [${level}] ${msg}\n`)
     this.emit('log', level, msg, agentId)
   }

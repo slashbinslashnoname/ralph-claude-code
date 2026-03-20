@@ -6,7 +6,7 @@ import { runHealthCheck, formatHealthErrors } from './HealthCheck'
 
 let tmpDir: string
 
-function makeProject(opts: { beads?: boolean; ralph?: boolean; ralphrc?: boolean } = {}): string {
+function makeProject(opts: { beads?: boolean; slashbot?: boolean; slashbotrc?: boolean } = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'healthcheck-test-'))
   if (opts.beads !== false) fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   if (opts.slashbot !== false) {
@@ -60,34 +60,34 @@ describe('HealthCheck', () => {
     expect(claudeError).toBeDefined()
   })
 
-  it('reports missing ralph files', () => {
-    tmpDir = makeProject({ ralph: false })
+  it('reports missing slashbot files', () => {
+    tmpDir = makeProject({ slashbot: false })
     const result = runHealthCheck(tmpDir, 'node')
     expect(result.ok).toBe(false)
-    const filesError = result.errors.find(e => e.check === 'ralph-files')
+    const filesError = result.errors.find(e => e.check === 'slashbot-files')
     expect(filesError).toBeDefined()
     expect(filesError!.message).toContain('.slashbot')
-    expect(filesError!.remediation).toContain('ralph-enable')
+    expect(filesError!.remediation).toContain('slashbot-enable')
   })
 
   it('reports missing .slashbotrc', () => {
-    tmpDir = makeProject({ ralphrc: false })
+    tmpDir = makeProject({ slashbotrc: false })
     const result = runHealthCheck(tmpDir, 'node')
     expect(result.ok).toBe(false)
-    const filesError = result.errors.find(e => e.check === 'ralph-files')
+    const filesError = result.errors.find(e => e.check === 'slashbot-files')
     expect(filesError).toBeDefined()
     expect(filesError!.message).toContain('.slashbotrc')
   })
 
   it('collects multiple errors without short-circuiting', () => {
-    tmpDir = makeProject({ beads: false, ralph: false, ralphrc: false })
+    tmpDir = makeProject({ beads: false, slashbot: false, slashbotrc: false })
     const result = runHealthCheck(tmpDir, 'nonexistent-claude-binary-xyz')
     expect(result.ok).toBe(false)
     expect(result.errors.length).toBeGreaterThanOrEqual(3)
     const checks = result.errors.map(e => e.check)
     expect(checks).toContain('bd')
     expect(checks).toContain('claude')
-    expect(checks).toContain('ralph-files')
+    expect(checks).toContain('slashbot-files')
   })
 })
 

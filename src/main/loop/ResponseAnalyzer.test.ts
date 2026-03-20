@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   extractResultFromJsonStream,
-  parseRalphStatus,
+  parseSlashbotStatus,
   detectApiLimit,
   analyze
 } from './ResponseAnalyzer'
@@ -72,24 +72,24 @@ describe('ResponseAnalyzer', () => {
     })
   })
 
-  describe('parseRalphStatus', () => {
+  describe('parseSlashbotStatus', () => {
     it('extracts RALPH_STATUS JSON from text', () => {
       const text = 'Done!\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 3 }'
-      const status = parseRalphStatus(text)
+      const status = parseSlashbotStatus(text)
       expect(status).toEqual({ STATUS: 'COMPLETE', EXIT_SIGNAL: true, FILES_MODIFIED: 3 })
     })
 
     it('returns empty object when no RALPH_STATUS present', () => {
-      expect(parseRalphStatus('just some text')).toEqual({})
+      expect(parseSlashbotStatus('just some text')).toEqual({})
     })
 
     it('returns empty object on malformed JSON after RALPH_STATUS:', () => {
-      expect(parseRalphStatus('RALPH_STATUS: {not valid json}')).toEqual({})
+      expect(parseSlashbotStatus('RALPH_STATUS: {not valid json}')).toEqual({})
     })
 
     it('handles RALPH_STATUS with extra whitespace', () => {
       const text = 'RALPH_STATUS:   { "EXIT_SIGNAL": false }'
-      expect(parseRalphStatus(text)).toEqual({ EXIT_SIGNAL: false })
+      expect(parseSlashbotStatus(text)).toEqual({ EXIT_SIGNAL: false })
     })
   })
 
