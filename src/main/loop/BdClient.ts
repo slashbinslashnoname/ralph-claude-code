@@ -176,7 +176,12 @@ export class BdClient {
   }
 
   listAll(): Bead[] {
-    return this.list()
+    try {
+      const raw = this.runJson<unknown[]>('list --all')
+      return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
+    } catch {
+      return this.list()
+    }
   }
 
   listByStatus(status: string): Bead[] {
@@ -246,12 +251,10 @@ export class BdClient {
     }
   }
 
-  /** Assign a bead to a specific agent by name */
+  /** Claim a bead for a specific agent (sets status to in_progress + assignee) */
   assignTo(id: string, assignee: string): boolean {
     try {
-      // Unclaim first if already assigned
-      try { this.run(`update ${id} --assignee "" --json`) } catch { /* ignore */ }
-      this.run(`update ${id} --assignee ${assignee} --json`)
+      this.run(`update ${id} --claim -a ${assignee} --json`)
       return true
     } catch {
       return false
@@ -379,14 +382,19 @@ export class BdClient {
       type: beadType,
       status,
       deps: Array.isArray(r.deps) ? r.deps.map(String)
-        : Array.isArray(r.dependencies) ? r.dependencies.map(String) : [],
+        : Array.isArray(r.dependencies)
+          ? (r.dependencies as Record<string, unknown>[])
+              .filter(d => d.type !== 'parent-child')
+              .map(d => String(d.depends_on_id ?? ''))
+              .filter(Boolean)
+          : [],
       files: Array.isArray(r.files) ? r.files.map(String) : [],
       priority: typeof r.priority === 'number' ? r.priority : 2,
       tags: labels,
       claimedBy: r.assignee ? String(r.assignee) : undefined,
       claimedAt: r.claimed_at ? String(r.claimed_at) : undefined,
       completedAt: r.closed_at ? String(r.closed_at) : undefined,
-      epicId: r.parent_id ? String(r.parent_id) : undefined,
+      epicId: r.parent_id ? String(r.parent_id) : r.parent ? String(r.parent) : undefined,
       taskId: r.task_id ? String(r.task_id) : undefined,
     }
   }

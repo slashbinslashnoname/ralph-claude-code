@@ -153,6 +153,11 @@ export class WorkerLoop extends EventEmitter {
             beadTitle: bead.title, summary
           })
           this._log('INFO', `[${this.agentId}] Thinking complete: ${summary.slice(0, 120)}`)
+          if (detectApiLimit(stripAnsi(thinkingOutput))) {
+            this._log('WARN', `[${this.agentId}] API limit detected during thinking`)
+            apiLimited = true
+            return
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('WARN', `[${this.agentId}] Thinking phase failed (continuing): ${msg}`)
@@ -207,8 +212,10 @@ export class WorkerLoop extends EventEmitter {
             })
           } catch { /* ignore — may have nothing to commit */ }
 
-          const result = this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath, {
-            stoppedFn: () => this.stopped
+          const result = await this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath, {
+            stoppedFn: () => this.stopped,
+            claudeCmd: this.resolvedCmd,
+            env: this.env
           })
           filesChanged = result.filesChanged
 
@@ -235,14 +242,26 @@ export class WorkerLoop extends EventEmitter {
         continue
       }
       if (apiLimited) {
-        this.coordinator.failBead(this.agentId, bead.id, 'api_limit')
-        this._exit('api_limit')
-        return
+        // Don't fail the bead — it's a quota issue, not a bead issue.
+        // Reopen the bead so it can be retried after cooldown.
+        this.coordinator.reopenBead(this.agentId, bead.id)
+        this._setPhase('rate_limited')
+        this.coordinator.postActivity({
+          agentId: this.agentId, type: 'failed', beadId: bead.id,
+          beadTitle: bead.title, summary: 'API quota exhausted — waiting for reset'
+        })
+        await this._waitForQuotaReset()
+        continue
       }
-      if (this.stopped) break
+      if (this.stopped) {
+        // Reopen the bead so it can be picked up on next restart
+        this.coordinator.reopenBead(this.agentId, bead.id)
+        this._log('INFO', `[${this.agentId}] Stopped — reopened bead [${bead.id}] for future pickup`)
+        break
+      }
 
       this._setPhase('closing', bead.id, bead.title)
-      this.coordinator.completeBead(this.agentId, bead.id, filesChanged)
+      this.coordinator.completeBead(this.agentId, bead.id, filesChanged, this.config.autoPush)
       this._log('SUCCESS', `[${this.agentId}] ✓ Closed bead [${bead.id}]`)
       this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
       await this._sleep(1500)
@@ -253,7 +272,7 @@ export class WorkerLoop extends EventEmitter {
   private _runClaude(prompt: string, label: string, cwd?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = ['-p', prompt, '--output-format', this.config.claudeOutputFormat,
-        '--allowedTools', this.config.allowedTools]
+        '--dangerously-skip-permissions']
       if (this.config.continueSession && this.sessionId) args.push('--resume', this.sessionId)
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `${this.agentId}_${label}_${ts}.log`)
@@ -415,6 +434,35 @@ DO NOT write any implementation code. Analysis only.`
     // Fallback: take the last meaningful chunk
     const trimmed = raw.trim()
     return trimmed.slice(Math.max(0, trimmed.length - 2000))
+  }
+
+  /** Wait for API quota to reset, probing periodically. Like main branch: wait 5min, then probe every 5min up to ~60min. */
+  private async _waitForQuotaReset(): Promise<void> {
+    const probeIntervalMs = 5 * 60_000 // 5 min between probes
+    const maxProbes = 12 // up to ~60 min total
+
+    for (let attempt = 1; attempt <= maxProbes; attempt++) {
+      const waitMin = (attempt * 5)
+      this._log('WARN', `[${this.agentId}] API quota exhausted — probe ${attempt}/${maxProbes}, next check in 5 min (${waitMin} min elapsed)`)
+      this.emit('output', `\n── API quota exhausted — waiting (${waitMin}/${maxProbes * 5} min) ──\n\n`)
+      await this._sleep(probeIntervalMs)
+
+      if (this.stopped) return
+
+      // Probe: run a minimal Claude call to see if quota is back
+      try {
+        const output = await this._runClaude('Reply with only the word OK', 'probe', this.projectPath)
+        if (!detectApiLimit(stripAnsi(output))) {
+          this._log('SUCCESS', `[${this.agentId}] API quota restored after ${waitMin} min`)
+          this.emit('output', `\n── API quota restored — resuming ──\n\n`)
+          return
+        }
+      } catch {
+        // Probe failed — quota still exhausted, keep waiting
+      }
+    }
+
+    this._log('WARN', `[${this.agentId}] API quota still exhausted after ${maxProbes * 5} min — resuming anyway`)
   }
 
   private _setPhase(phase: string, beadId?: string, beadTitle?: string): void {

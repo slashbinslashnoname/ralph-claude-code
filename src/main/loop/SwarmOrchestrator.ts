@@ -103,6 +103,9 @@ export class SwarmOrchestrator extends EventEmitter {
       }
     }
 
+    // Reopen any beads left claimed/in_progress from a previous session
+    this.coordinator.reopenStaleBeads()
+
     // Start missing workers up to n
     for (let i = 0; i < n; i++) {
       const agentId = `agent-${i}`

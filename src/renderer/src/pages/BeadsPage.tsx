@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
+import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
 const ralph = window.ralph
 
@@ -24,7 +25,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [newDesc, setNewDesc] = useState('')
   const [newType, setNewType] = useState('task')
   const [newPriority, setNewPriority] = useState(2)
-  const [sortBy, setSortBy] = useState<SortField>('priority')
+  const [sortBy, setSortBy] = useState<SortField>('deps')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [editing, setEditing] = useState<any>(null)
   const [editTitle, setEditTitle] = useState('')
@@ -332,7 +333,11 @@ export default function BeadsPage({ projectPath }: Props) {
           <button
             key={tab.id}
             className={`tab ${filter === tab.id ? 'active' : ''}`}
-            onClick={() => setFilter(tab.id)}
+            onClick={() => {
+              setFilter(tab.id)
+              if (tab.id === 'closed') { setSortBy('date'); setSortDir('desc') }
+              else if (filter === 'closed') { setSortBy('deps'); setSortDir('asc') }
+            }}
           >
             {tab.label}
             {filter === tab.id && beads.length > 0 && (
@@ -497,7 +502,9 @@ export default function BeadsPage({ projectPath }: Props) {
                       </button>
                       <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{beadLogFile}</span>
                     </div>
-                    <pre className="bead-log-content">{beadLogContent.slice(-10000)}</pre>
+                    <div className="bead-log-content agent-output">
+                      <AgentOutputRenderer output={beadLogContent.slice(-10000)} />
+                    </div>
                   </div>
                 ) : beadLogs.length > 0 ? (
                   <div className="bead-log-list">

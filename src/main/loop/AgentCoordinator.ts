@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
 import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
@@ -52,6 +52,10 @@ export class AgentCoordinator {
 
   releaseAllForAgent(agentId: string): void {
     this.writeLocks(this.readLocks().filter(l => l.agentId !== agentId))
+  }
+
+  clearAllFileLocks(): void {
+    this.writeLocks([])
   }
 
   lockedFilesByOthers(agentId: string): string[] {
@@ -183,10 +187,10 @@ export class AgentCoordinator {
   /** Merge a worktree branch back to the current branch and clean up.
    *  Retries up to maxRetries times on conflict, pulling before each retry.
    *  If stoppedFn returns true, retries are skipped. */
-  mergeWorktree(
+  async mergeWorktree(
     agentId: string, beadId: string, branch: string, worktreePath: string,
-    opts?: { maxRetries?: number; stoppedFn?: () => boolean }
-  ): { merged: boolean; filesChanged: string[]; error?: string } {
+    opts?: { maxRetries?: number; stoppedFn?: () => boolean; claudeCmd?: string; env?: NodeJS.ProcessEnv }
+  ): Promise<{ merged: boolean; filesChanged: string[]; error?: string }> {
     const maxRetries = opts?.maxRetries ?? 2
     const stoppedFn = opts?.stoppedFn
 
@@ -197,13 +201,23 @@ export class AgentCoordinator {
         return result
       }
 
-      // No more retries or agent is stopping — give up
+      // No more retries or agent is stopping — give up without LLM
       if (attempt >= maxRetries || (stoppedFn && stoppedFn())) {
         this._cleanupWorktree(worktreePath, branch)
         return result
       }
 
-      // Pull latest before retrying (abort failed merge first)
+      // Attempt LLM-assisted conflict resolution (merge is still in progress, conflicts in working tree)
+      const isConflict = result.error?.includes('CONFLICT') || result.error?.includes('CONFLIT') || result.error?.includes('Merge conflict')
+      if (isConflict && opts?.claudeCmd) {
+        const resolved = await this._resolveConflictsWithClaude(opts.claudeCmd, opts.env)
+        if (resolved) {
+          this._cleanupWorktree(worktreePath, branch)
+          return { merged: true, filesChanged: result.filesChanged }
+        }
+      }
+
+      // Abort the failed/unresolved merge and pull latest before retrying
       try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
       try { execSync('git pull --rebase=false', { cwd: this.projectPath, timeout: 15000, stdio: 'pipe' }) } catch { /* ignore */ }
     }
@@ -211,6 +225,56 @@ export class AgentCoordinator {
     // Should not reach here, but be safe
     this._cleanupWorktree(worktreePath, branch)
     return { merged: false, filesChanged: [], error: 'exhausted retries' }
+  }
+
+  /** Use Claude to resolve merge conflicts in the working directory */
+  private async _resolveConflictsWithClaude(claudeCmd: string, env?: NodeJS.ProcessEnv): Promise<boolean> {
+    try {
+      // Get list of conflicted files
+      const conflicted = execSync('git diff --name-only --diff-filter=U', {
+        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+      }).toString().trim()
+
+      if (!conflicted) return false
+
+      const files = conflicted.split('\n').filter(Boolean)
+      const fileList = files.join(', ')
+
+      const prompt = `You are resolving git merge conflicts. The following files have conflicts:\n${fileList}\n\nFor each file, read it, resolve ALL conflict markers (<<<<<<< ======= >>>>>>>), keeping the best version of both sides. Then stage the resolved files with git add. Do NOT commit.`
+
+      return new Promise<boolean>((resolve) => {
+        const proc = spawn(claudeCmd, ['-p', prompt, '--dangerously-skip-permissions'], {
+          cwd: this.projectPath, env: env ?? process.env,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        let output = ''
+        const timer = setTimeout(() => {
+          try { proc.kill('SIGTERM') } catch { /* ignore */ }
+          resolve(false)
+        }, 3 * 60_000) // 3 min max for conflict resolution
+
+        proc.stdout!.on('data', (chunk: Buffer) => { output += chunk.toString() })
+        proc.on('close', (code) => {
+          clearTimeout(timer)
+          if (code !== 0) { resolve(false); return }
+          // Check if conflicts are resolved (no more conflict markers)
+          try {
+            const remaining = execSync('git diff --name-only --diff-filter=U', {
+              cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+            }).toString().trim()
+            if (remaining) { resolve(false); return }
+            // Commit the merge resolution
+            execSync('git commit --no-edit', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
+            resolve(true)
+          } catch {
+            resolve(false)
+          }
+        })
+        proc.on('error', () => { clearTimeout(timer); resolve(false) })
+      })
+    } catch {
+      return false
+    }
   }
 
   /** Single merge attempt — does not clean up worktree on failure. */
@@ -254,6 +318,15 @@ export class AgentCoordinator {
         }
       }
 
+      // Stash any pending local modifications so merge doesn't fail
+      let stashed = false
+      try {
+        const stashOut = execSync('git stash push -m "ralph-merge-tmp" --include-untracked', {
+          cwd: this.projectPath, timeout: 10000, stdio: 'pipe'
+        }).toString()
+        stashed = !stashOut.includes('No local changes')
+      } catch { /* nothing to stash */ }
+
       try {
         execSync(`git merge "${branch}" --no-edit`, {
           cwd: this.projectPath, timeout: 30000
@@ -273,10 +346,23 @@ export class AgentCoordinator {
         }
       }
 
+      // Restore stashed changes after merge + moved items are restored
+      if (stashed) {
+        try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+      }
+
       return { merged: true, filesChanged }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      const isConflict = msg.includes('CONFLICT') || msg.includes('CONFLIT') || msg.includes('Merge conflict')
+      // Don't abort if it's a conflict — caller may try LLM resolution
+      if (!isConflict) {
+        try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      }
+      // Restore stashed changes even on failure
+      if (stashed) {
+        try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+      }
       return { merged: false, filesChanged: [], error: msg }
     }
   }
@@ -300,8 +386,26 @@ export class AgentCoordinator {
       if (candidates.length === 0) {
         candidates = this.bd.listByStatus('open')
       }
-      // Sort by priority (P0 first) then by creation order
-      candidates.sort((a, b) => (a.priority ?? 2) - (b.priority ?? 2))
+      // Build sets for dependency resolution
+      const closedBeads = this.bd.listByStatus('closed')
+      const openBeads = this.bd.listByStatus('open')
+      const doneIds = new Set(closedBeads.map(b => b.id))
+
+      // Count open children per parent (epics/tasks with children are implicitly blocked)
+      const openChildCount = new Map<string, number>()
+      for (const b of openBeads) {
+        if (b.epicId) {
+          openChildCount.set(b.epicId, (openChildCount.get(b.epicId) ?? 0) + 1)
+        }
+      }
+
+      // Sort: fewest unresolved deps + open children first, then priority
+      candidates.sort((a, b) => {
+        const unresolvedA = a.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
+        const unresolvedB = b.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
+        if (unresolvedA !== unresolvedB) return unresolvedA - unresolvedB
+        return (a.priority ?? 2) - (b.priority ?? 2)
+      })
 
       for (const bead of candidates) {
         if (bead.files.some(f => lockedFiles.has(f))) continue
@@ -322,10 +426,66 @@ export class AgentCoordinator {
     }
   }
 
-  completeBead(agentId: string, beadId: string, filesChanged?: string[]): void {
+  completeBead(agentId: string, beadId: string, filesChanged?: string[], autoPush = true): void {
     this.bd.close(beadId, `Completed by ${agentId}`)
     this.releaseFiles(agentId, beadId)
     this.postActivity({ agentId, type: 'completed', beadId, filesChanged, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
+
+    // Commit and push all changes on the current branch
+    this.commitAndPush(agentId, beadId, autoPush)
+  }
+
+  /** Commit any pending changes and push to remote */
+  commitAndPush(agentId: string, beadId: string, autoPush = true): void {
+    try {
+      // Stage everything (merged code + .beads db changes)
+      execSync('git add -A', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
+
+      // Check if there's anything to commit
+      try {
+        execSync('git diff --cached --quiet', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+        return // nothing staged
+      } catch { /* has staged changes — continue */ }
+
+      // Commit
+      const msg = `feat: complete bead ${beadId} [${agentId}]`
+      execSync(`git commit -m ${JSON.stringify(msg)}`, {
+        cwd: this.projectPath, timeout: 10000, stdio: 'pipe',
+        env: { ...process.env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
+      })
+
+      // Push to remote (current branch)
+      if (autoPush) {
+        try {
+          const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+            cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+          }).toString().trim()
+          execSync(`git push origin ${branch}`, { cwd: this.projectPath, timeout: 30000, stdio: 'pipe' })
+        } catch (err) {
+          // Push may fail if no remote or no upstream — non-fatal
+          const msg = err instanceof Error ? err.message : String(err)
+          this.postActivity({ agentId, type: 'info' as any, summary: `Push failed (non-fatal): ${msg.slice(0, 100)}` })
+        }
+      }
+    } catch { /* commit failed — non-fatal */ }
+  }
+
+  reopenBead(agentId: string, beadId: string): void {
+    this.bd.reopen(beadId, `Reopened by ${agentId} for retry`)
+    this.releaseFiles(agentId, beadId)
+  }
+
+  /** Reopen any beads left in claimed/in_progress from a previous session */
+  reopenStaleBeads(): void {
+    const claimed = this.bd.listByStatus('in_progress')
+    for (const bead of claimed) {
+      try {
+        this.bd.reopen(bead.id, 'Reopened on startup — stale from previous session')
+        this.postActivity({ agentId: 'system', type: 'info' as any, beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
+      } catch { /* ignore — may already be open */ }
+    }
+    // Clear all file locks from previous session
+    this.clearAllFileLocks()
   }
 
   failBead(agentId: string, beadId: string, reason: string): void {

@@ -304,7 +304,7 @@ export class RalphLoop extends EventEmitter {
   }
 
   private _buildArgs(prompt: string): string[] {
-    const args = ['-p', prompt, '--output-format', this.config.claudeOutputFormat, '--allowedTools', this.config.allowedTools]
+    const args = ['-p', prompt, '--output-format', this.config.claudeOutputFormat, '--dangerously-skip-permissions']
     if (this.config.continueSession && this.lastSessionId) {
       args.push('--resume', this.lastSessionId)
     }

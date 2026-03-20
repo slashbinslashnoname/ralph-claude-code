@@ -96,7 +96,7 @@ export class PlanLoop extends EventEmitter {
   private _runClaude(prompt: string, label: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = ['-p', prompt, '--output-format', 'text',
-        '--allowedTools', 'Write,Read,Edit,Bash(git *),Bash(bd *),Bash(find *),Bash(ls *),Bash(cat *),Bash(head *),Bash(wc *)']
+        '--dangerously-skip-permissions']
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `planner_${label}_${ts}.log`)
 
@@ -221,7 +221,7 @@ New beads MUST account for these. Set dependencies on existing beads where appro
 Do NOT recreate beads that already exist — reference their ID in deps instead.
 ` : ''}
 ## Your task
-Create a well-structured bead graph. Agents pick beads by **priority first (P0 before P1), then by dependency order**.
+Create a well-structured bead graph. Agents pick beads with **zero unresolved deps first** (leaf work), then move up the dependency chain. Within same dep count, priority breaks ties (P0 before P1).
 
 Output a **JSON array** of beads:
 \`\`\`json
@@ -239,15 +239,15 @@ Output a **JSON array** of beads:
 \`\`\`
 
 Rules:
-- **Hierarchy**: epics \u2192 tasks \u2192 subtasks. Epics group related work. Tasks are the unit agents execute. Subtasks break complex tasks down.
-- **deps**: bead IDs that MUST be done first. Empty = ready immediately. Critical for execution order.
-- **priority**: 0 (critical/blocking) \u2192 1 (high) \u2192 2 (normal) \u2192 3 (low) \u2192 4 (nice-to-have). Agents pick P0 before P1 before P2 etc.
+- **Hierarchy**: epics group related work, tasks are implementation units, subtasks break complex tasks down.
+- **deps**: array of bead IDs that MUST be completed first. Empty = no blockers, picked first. Use deps to express ALL ordering constraints — e.g. a task that needs another task done first, an epic that needs all its tasks done. Agents always pick beads with the fewest unresolved deps.
+- **priority**: 0 (critical/blocking) → 1 (high) → 2 (normal) → 3 (low) → 4 (nice-to-have). Breaks ties when dep counts are equal.
 - **type**: epic, task, or subtask.
 - **epicId**: parent epic ID for tasks/subtasks.
 - Set P0 for foundational/blocking work (schema, config, core interfaces).
 - Set P1 for main feature implementation.
 - Set P2+ for polish, docs, edge cases.
-- Tasks with unresolved deps are blocked — agents skip them automatically.
+- Beads with unresolved deps are blocked — agents skip them automatically.
 
 Output ONLY a valid JSON array. No markdown fences, no explanation.`
   }
@@ -272,45 +272,29 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
     let created = 0
     const idMap = new Map<string, string>() // planned-id -> actual bd id
 
-    // Create beads in dependency order (epics first, then tasks)
+    // Create beads top-down so parent refs resolve: epics → tasks → subtasks
     const epics = parsed.filter(b => b.type === 'epic')
-    const tasks = parsed.filter(b => b.type !== 'epic')
+    const tasks = parsed.filter(b => b.type === 'task')
+    const subtasks = parsed.filter(b => b.type === 'subtask')
 
-    // Create epics first
-    for (const b of epics) {
-      try {
-        const bdType = 'epic'
-        const result = await bd.createAsync({
-          title: String(b.title ?? 'Untitled').slice(0, 120),
-          type: bdType,
-          priority: typeof b.priority === 'number' ? Math.min(4, Math.max(0, b.priority)) : 2,
-          description: String(b.description ?? ''),
-          labels: Array.isArray(b.tags) ? b.tags.map(String) : [],
-        })
-        idMap.set(String(b.id ?? ''), result.id)
-        created++
-      } catch (err) {
-        this._log('WARN', `Failed to create epic "${b.title}": ${err instanceof Error ? err.message : err}`)
-      }
-    }
-
-    // Create tasks with parent references
-    for (const b of tasks) {
-      try {
-        const bdType = b.type === 'subtask' ? 'task' : 'feature'
-        const epicId = b.epicId ? idMap.get(String(b.epicId)) : undefined
-        const result = await bd.createAsync({
-          title: String(b.title ?? 'Untitled').slice(0, 120),
-          type: bdType as any,
-          priority: typeof b.priority === 'number' ? Math.min(4, Math.max(0, b.priority)) : 2,
-          description: String(b.description ?? ''),
-          labels: Array.isArray(b.tags) ? b.tags.map(String) : [],
-          parentId: epicId,
-        })
-        idMap.set(String(b.id ?? ''), result.id)
-        created++
-      } catch (err) {
-        this._log('WARN', `Failed to create task "${b.title}": ${err instanceof Error ? err.message : err}`)
+    for (const group of [epics, tasks, subtasks]) {
+      for (const b of group) {
+        try {
+          const bdType = String(b.type ?? 'task') as 'epic' | 'task' | 'subtask'
+          const parentId = b.epicId ? idMap.get(String(b.epicId)) : undefined
+          const result = await bd.createAsync({
+            title: String(b.title ?? 'Untitled').slice(0, 120),
+            type: bdType,
+            priority: typeof b.priority === 'number' ? Math.min(4, Math.max(0, b.priority)) : 2,
+            description: String(b.description ?? ''),
+            labels: Array.isArray(b.tags) ? b.tags.map(String) : [],
+            parentId,
+          })
+          idMap.set(String(b.id ?? ''), result.id)
+          created++
+        } catch (err) {
+          this._log('WARN', `Failed to create ${b.type} "${b.title}": ${err instanceof Error ? err.message : err}`)
+        }
       }
     }
 

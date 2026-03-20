@@ -12,6 +12,7 @@ export interface RalphConfig {
   cbSameErrorThreshold: number
   cbPermissionDenialThreshold: number
   cbCooldownMinutes: number
+  autoPush: boolean
 }
 
 export interface CircuitBreakerSnapshot {
