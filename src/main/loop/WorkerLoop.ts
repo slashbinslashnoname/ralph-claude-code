@@ -242,9 +242,30 @@ export class WorkerLoop extends EventEmitter {
         }
       }
 
-      // ── Phase 5: Close or fail bead ───────────────────────────────
+      // ── Phase 5: Close, retry, or permanently fail bead ──────────
       if (executeFailed) {
-        this.coordinator.failBead(this.agentId, bead.id, 'execute_failed')
+        const attempt = this._getBeadAttempt(bead.id)
+        const maxRetries = this.config.maxRetries
+
+        if (attempt < maxRetries) {
+          // Retry: reopen bead with incremented attempt count
+          this._incrementBeadAttempt(bead.id)
+          this.coordinator.reopenBead(this.agentId, bead.id)
+          const backoffMs = this._backoffMs(attempt)
+          this._log('WARN', `[${this.agentId}] Bead [${bead.id}] failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${Math.round(backoffMs / 1000)}s`)
+          this.coordinator.postActivity({
+            agentId: this.agentId, type: 'failed', beadId: bead.id,
+            beadTitle: bead.title,
+            summary: `Attempt ${attempt + 1}/${maxRetries + 1} failed — retrying after backoff`
+          })
+          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+          await this._sleep(backoffMs)
+          continue
+        }
+
+        // Max retries exhausted — permanent failure
+        this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] permanently failed after ${maxRetries + 1} attempts`)
+        this.coordinator.failBead(this.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
         this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
         await this._sleep(3000)
         continue
@@ -488,6 +509,24 @@ DO NOT write any implementation code. Analysis only.`
 
   private _log(level: string, msg: string): void {
     this.emit('log', level, msg)
+  }
+
+  /** Get the current retry attempt count for a bead (0 = first attempt). */
+  _getBeadAttempt(beadId: string): number {
+    const raw = this.coordinator.bd.getState(beadId, 'retry_attempt')
+    const n = parseInt(raw, 10)
+    return isNaN(n) ? 0 : n
+  }
+
+  /** Increment the retry attempt counter for a bead. */
+  _incrementBeadAttempt(beadId: string): void {
+    const current = this._getBeadAttempt(beadId)
+    this.coordinator.bd.setState(beadId, 'retry_attempt', String(current + 1), 'Retry after failure')
+  }
+
+  /** Exponential backoff: 3s * 2^attempt, capped at 60s. */
+  _backoffMs(attempt: number): number {
+    return Math.min(3000 * Math.pow(2, attempt), 60_000)
   }
 
   private _sleep(ms: number): Promise<void> {

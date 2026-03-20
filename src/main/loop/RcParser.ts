@@ -14,7 +14,8 @@ export const DEFAULT_CONFIG: RalphConfig = {
   cbSameErrorThreshold: 5,
   cbPermissionDenialThreshold: 2,
   cbCooldownMinutes: 30,
-  autoPush: true
+  autoPush: true,
+  maxRetries: 2
 }
 
 const KEY_MAP: Record<string, keyof RalphConfig> = {
@@ -28,7 +29,8 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   CB_SAME_ERROR_THRESHOLD: 'cbSameErrorThreshold',
   CB_PERMISSION_DENIAL_THRESHOLD: 'cbPermissionDenialThreshold',
   CB_COOLDOWN_MINUTES: 'cbCooldownMinutes',
-  AUTO_PUSH: 'autoPush'
+  AUTO_PUSH: 'autoPush',
+  MAX_RETRIES: 'maxRetries'
 }
 
 export function parseRcFile(projectPath: string): Partial<RalphConfig> {
@@ -78,7 +80,8 @@ const NUMERIC_RANGES: Partial<Record<keyof RalphConfig, NumericRule>> = {
   cbNoProgressThreshold: { min: 1, max: 1000 },
   cbSameErrorThreshold: { min: 1, max: 1000 },
   cbPermissionDenialThreshold: { min: 1, max: 1000 },
-  cbCooldownMinutes: { min: 1, max: 1440 }
+  cbCooldownMinutes: { min: 1, max: 1440 },
+  maxRetries: { min: 0, max: 10 }
 }
 
 export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {

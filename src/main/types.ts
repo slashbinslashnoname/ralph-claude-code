@@ -13,6 +13,7 @@ export interface RalphConfig {
   cbPermissionDenialThreshold: number
   cbCooldownMinutes: number
   autoPush: boolean
+  maxRetries: number
 }
 
 export interface CircuitBreakerSnapshot {
