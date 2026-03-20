@@ -54,7 +54,7 @@ export function validatePriority(priority: unknown, field = 'priority'): number 
 // ── Label validation ──────────────────────────────────────────────────────────
 // Labels must not contain commas (they're joined with `,` in BdClient)
 // or shell metacharacters that could cause injection
-const LABEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$/
+const LABEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/
 
 export function validateLabel(label: unknown): string {
   if (typeof label !== 'string' || label.length === 0) {
@@ -62,7 +62,7 @@ export function validateLabel(label: unknown): string {
   }
   if (!LABEL_RE.test(label)) {
     throw new Error(
-      `Label "${label}" is invalid (allowed: alphanumeric, space, dash, dot, underscore; must start with alphanumeric; max 64 chars)`
+      `Label "${label}" is invalid (allowed: alphanumeric, dash, dot, underscore; must start with alphanumeric; max 64 chars)`
     )
   }
   return label

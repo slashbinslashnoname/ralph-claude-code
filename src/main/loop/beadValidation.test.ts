@@ -129,11 +129,15 @@ describe('validateLabel', () => {
     assert.equal(validateLabel('frontend'), 'frontend')
     assert.equal(validateLabel('high-priority'), 'high-priority')
     assert.equal(validateLabel('v2.0'), 'v2.0')
-    assert.equal(validateLabel('my label'), 'my label')
+    assert.equal(validateLabel('my_label'), 'my_label')
   })
 
   it('rejects empty string', () => {
     assert.throws(() => validateLabel(''), /non-empty/)
+  })
+
+  it('rejects spaces (would break shell args in BdClient)', () => {
+    assert.throws(() => validateLabel('my label'), /invalid/)
   })
 
   it('rejects commas', () => {
