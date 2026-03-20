@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('ralph', {
     start: (projectPath: string, workerCount?: number) =>
       ipcRenderer.invoke('swarm:start', projectPath, workerCount ?? 2),
     stop: (projectPath: string) => ipcRenderer.invoke('swarm:stop', projectPath),
+    gracefulStop: (projectPath: string) => ipcRenderer.invoke('swarm:graceful-stop', projectPath),
     status: (projectPath: string) => ipcRenderer.invoke('swarm:status', projectPath),
     beads: (projectPath: string, status?: string) =>
       ipcRenderer.invoke('swarm:beads', projectPath, status),

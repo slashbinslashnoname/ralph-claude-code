@@ -98,6 +98,10 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     await ralph.swarm.stop(projectPath)
   }, [projectPath])
 
+  const gracefulStopSwarm = useCallback(async () => {
+    await ralph.swarm.gracefulStop(projectPath)
+  }, [projectPath])
+
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
   const isPlanning = swarmStatus?.planning ?? false
 
@@ -142,7 +146,12 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   onClick={() => { const n = workerCount + 1; setWorkerCount(n); ralph.swarm.start(projectPath, n) }}>
                   +
                 </button>
-                <button className="btn btn-danger" onClick={stopSwarm}>Stop</button>
+                <button className="btn btn-warning" onClick={gracefulStopSwarm}
+                  disabled={swarmStatus?.stoppingGracefully}
+                  title="Finish current beads then stop">
+                  {swarmStatus?.stoppingGracefully ? 'Stopping…' : 'Stop after bead'}
+                </button>
+                <button className="btn btn-danger" onClick={stopSwarm}>Stop now</button>
               </>
             ) : (
               <>

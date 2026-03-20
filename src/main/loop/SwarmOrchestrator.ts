@@ -21,6 +21,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private agentOutputBuffers = new Map<string, string>()
   sessionStartedAt: string | null = null
   private shuttingDown = false
+  stoppingGracefully = false
 
   constructor(private projectPath: string) {
     super()
@@ -89,6 +90,7 @@ export class SwarmOrchestrator extends EventEmitter {
       this._log('WARN', 'Cannot start workers during shutdown')
       return
     }
+    this.stoppingGracefully = false
     const config = loadConfig(this.projectPath)
     if (!this.sessionStartedAt) this.sessionStartedAt = new Date().toISOString()
 
@@ -151,6 +153,13 @@ export class SwarmOrchestrator extends EventEmitter {
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'All workers stopped')
     this.emit('stopped')
+  }
+
+  /** Signal all workers to stop after their current bead finishes. */
+  gracefulStopWorkers(): void {
+    this.stoppingGracefully = true
+    for (const worker of this.workers.values()) worker.gracefulStop()
+    this._log('INFO', 'Graceful stop requested — workers will finish current beads then exit')
   }
 
   stopAll(): void {

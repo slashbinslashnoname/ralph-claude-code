@@ -545,18 +545,30 @@ export function registerIpc(
     }
   })
 
+  ipcMain.handle('swarm:graceful-stop', (_e, projectPath: unknown) => {
+    try {
+      const v = validateSwarmStop(projectPath)
+      const swarm = swarms.get(v.projectPath)
+      if (swarm) swarm.gracefulStopWorkers()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   ipcMain.handle('swarm:status', (_e, projectPath: unknown) => {
     try {
       const v = validateSwarmStatus(projectPath)
       const swarm = swarms.get(v.projectPath)
-      if (!swarm) return { running: false, planning: false, workerCount: 0, agents: [], stats: null, sessionStartedAt: null }
+      if (!swarm) return { running: false, planning: false, workerCount: 0, agents: [], stats: null, sessionStartedAt: null, stoppingGracefully: false }
       return {
         running: swarm.workerCount() > 0,
         planning: swarm.isPlanning(),
         workerCount: swarm.workerCount(),
         agents: swarm.getAgents(),
         stats: swarm.getStats(),
-        sessionStartedAt: swarm.sessionStartedAt
+        sessionStartedAt: swarm.sessionStartedAt,
+        stoppingGracefully: swarm.stoppingGracefully
       }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

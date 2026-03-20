@@ -98,6 +98,14 @@ export class WorkerLoop extends EventEmitter {
     // Do NOT call deregisterAgent() here — it will be called in _exit()
   }
 
+  /** Signal worker to stop after current bead finishes (no process kill). */
+  gracefulStop(): void {
+    this.stopped = true
+    this.running = false
+    this._log('INFO', `[${this.agentId}] Graceful stop requested — will finish current bead`)
+    this.coordinator.postActivity({ agentId: this.agentId, type: 'stopped', summary: 'Graceful stop — finishing current bead' })
+  }
+
   private async _loop(): Promise<void> {
     while (this.running && !this.stopped) {
       this.loopCount++
