@@ -1,6 +1,6 @@
 import { app, BrowserWindow, globalShortcut } from 'electron'
 import * as path from 'path'
-import { registerIpc } from './ipc'
+import { registerIpc, gracefulShutdown } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -51,6 +51,17 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', (event) => {
+  // Prevent immediate quit — wait for graceful shutdown
+  if (!(app as any)._gracefulShutdownDone) {
+    event.preventDefault()
+    gracefulShutdown(storePath).finally(() => {
+      (app as any)._gracefulShutdownDone = true
+      app.quit()
+    })
+  }
 })
 
 app.on('will-quit', () => globalShortcut.unregisterAll())

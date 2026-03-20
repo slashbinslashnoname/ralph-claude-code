@@ -1,6 +1,6 @@
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { promisify } from 'util'
-import { exec } from 'child_process'
+import { exec, execSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { createRequire } from 'module'
@@ -21,6 +21,83 @@ const execAsync = promisify(exec)
 const watchers = new Map<string, chokidar.FSWatcher>()
 const loops = new Map<string, RalphLoop>()
 const swarms = new Map<string, SwarmOrchestrator>()
+
+/**
+ * Gracefully shut down all active swarms, stop loops/watchers,
+ * and clean up orphaned git worktrees.
+ */
+export async function gracefulShutdown(storePath: string, timeoutMs = 30_000): Promise<void> {
+  // 1. Shut down all active swarms (waits for in-flight merges)
+  const shutdownPromises = [...swarms.entries()].map(([projectPath, swarm]) =>
+    swarm.shutdown(timeoutMs).catch(err => {
+      console.error(`[gracefulShutdown] swarm shutdown failed for ${projectPath}:`, err)
+    })
+  )
+  await Promise.allSettled(shutdownPromises)
+  swarms.clear()
+
+  // 2. Stop legacy loops
+  loops.forEach(l => l.stop())
+  loops.clear()
+
+  // 3. Close file watchers
+  watchers.forEach(w => w.close())
+  watchers.clear()
+
+  // 4. Clean up orphaned worktrees across known projects
+  const projectPaths = readProjectStore(storePath)
+  for (const projectPath of projectPaths) {
+    cleanOrphanedWorktrees(projectPath)
+  }
+}
+
+function readProjectStore(storePath: string): string[] {
+  try { return JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch { return [] }
+}
+
+function cleanOrphanedWorktrees(projectPath: string): void {
+  const worktreesDir = path.join(projectPath, '.worktrees')
+  if (!fs.existsSync(worktreesDir)) return
+
+  let entries: string[]
+  try {
+    entries = fs.readdirSync(worktreesDir)
+  } catch { return }
+
+  for (const entry of entries) {
+    const fullPath = path.join(worktreesDir, entry)
+    try {
+      const stat = fs.statSync(fullPath)
+      if (!stat.isDirectory()) continue
+    } catch { continue }
+
+    // Try to remove the worktree via git
+    try {
+      execSync(`git worktree remove --force "${fullPath}"`, {
+        cwd: projectPath, timeout: 10_000, stdio: 'pipe'
+      })
+    } catch {
+      // If git worktree remove fails, try manual cleanup
+      try { fs.rmSync(fullPath, { recursive: true, force: true }) } catch { /* ignore */ }
+    }
+
+    // Clean up the corresponding agent branch
+    // Pattern: agent-0-sb-abc -> agent/agent-0/sb-abc
+    const branchMatch = entry.match(/^(agent-\d+)-(.+)$/)
+    if (branchMatch) {
+      const agentBranch = `agent/${branchMatch[1]}/${branchMatch[2]}`
+      try {
+        execSync(`git branch -D "${agentBranch}"`, { cwd: projectPath, timeout: 5000, stdio: 'pipe' })
+      } catch { /* branch may not exist */ }
+    }
+  }
+
+  // Remove the .worktrees dir if empty
+  try {
+    const remaining = fs.readdirSync(worktreesDir)
+    if (remaining.length === 0) fs.rmdirSync(worktreesDir)
+  } catch { /* ignore */ }
+}
 
 const STORE_PATH_PLACEHOLDER = '' // set in registerIpc
 
