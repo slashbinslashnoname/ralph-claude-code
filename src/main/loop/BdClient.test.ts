@@ -292,16 +292,13 @@ describe('BdClient', () => {
       expect(client.assignTo('a1', 'agent-5')).toBe(true)
 
       const calls = mockExecSync.mock.calls.map(c => c[0] as string)
-      expect(calls[0]).toContain('--assignee ""')
-      expect(calls[1]).toContain('--assignee agent-5')
+      expect(calls[0]).toContain('--claim')
+      expect(calls[0]).toContain('-a agent-5')
     })
 
     it('returns false if assign fails', () => {
-      let callCount = 0
       mockExecSync.mockImplementation(() => {
-        callCount++
-        if (callCount > 1) throw new Error('fail')
-        return '{}'
+        throw new Error('fail')
       })
       expect(client.assignTo('a1', 'agent-5')).toBe(false)
     })
@@ -585,7 +582,10 @@ describe('BdClient', () => {
 
     it('maps dependencies field as fallback for deps', () => {
       mockExecSync.mockReturnValue(JSON.stringify([
-        rawBead({ deps: undefined, dependencies: ['dep-1', 'dep-2'] }),
+        rawBead({ deps: undefined, dependencies: [
+          { depends_on_id: 'dep-1', type: 'discovered-from' },
+          { depends_on_id: 'dep-2', type: 'discovered-from' },
+        ] }),
       ]))
       const bead = client.list()[0]
       expect(bead.deps).toEqual(['dep-1', 'dep-2'])
@@ -658,7 +658,7 @@ describe('BdClient', () => {
       custom.list()
 
       const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toStartWith('custom-bd ')
+      expect(call.startsWith('custom-bd ')).toBe(true)
     })
   })
 })
