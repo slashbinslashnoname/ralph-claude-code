@@ -481,19 +481,15 @@ describe('BdClient', () => {
 
   describe('check', () => {
     it('returns available when bd is found and .beads exists', () => {
-      // First call: which bd (succeeds)
-      // We need to handle multiple calls
       mockExecSync.mockReturnValue('/usr/local/bin/bd')
 
-      // Mock fs.existsSync for the .beads check
       const fs = require('fs')
-      const origExistsSync = fs.existsSync
-      fs.existsSync = vi.fn().mockReturnValue(true)
+      const spy = vi.spyOn(fs, 'existsSync').mockReturnValue(true)
 
       const result = client.check()
       expect(result).toEqual({ available: true })
 
-      fs.existsSync = origExistsSync
+      spy.mockRestore()
     })
 
     it('returns unavailable when bd not found', () => {
@@ -508,14 +504,13 @@ describe('BdClient', () => {
       mockExecSync.mockReturnValue('/usr/local/bin/bd')
 
       const fs = require('fs')
-      const origExistsSync = fs.existsSync
-      fs.existsSync = vi.fn().mockReturnValue(false)
+      const spy = vi.spyOn(fs, 'existsSync').mockReturnValue(false)
 
       const result = client.check()
       expect(result.available).toBe(false)
       expect(result.reason).toContain('No .beads directory')
 
-      fs.existsSync = origExistsSync
+      spy.mockRestore()
     })
   })
 
