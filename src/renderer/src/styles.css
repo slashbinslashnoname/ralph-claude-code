@@ -599,6 +599,12 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .queue-item-active { background: var(--accent-glow); border-left: 2px solid var(--accent); }
 
 .stats-bar { margin-bottom: 16px; }
+.graceful-stop-banner {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; margin-bottom: 12px;
+  background: rgba(255, 170, 0, 0.12); border: 1px solid rgba(255, 170, 0, 0.35);
+  border-radius: 6px; font-size: 13px; color: #ffaa00;
+}
 .stats-progress {
   height: 4px;
   background: var(--bg-3);

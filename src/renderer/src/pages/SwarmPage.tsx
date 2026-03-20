@@ -182,6 +182,14 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
         </div>
       )}
 
+      {/* Graceful stop banner */}
+      {swarmStatus?.stoppingGracefully && (
+        <div className="graceful-stop-banner">
+          Agents will stop after finishing their current bead.
+          <button className="btn btn-sm btn-danger" style={{ marginLeft: 12 }} onClick={stopSwarm}>Force stop now</button>
+        </div>
+      )}
+
       {/* Agent work area */}
       <div className="card card-loop2">
         <div className="card-header-bar">

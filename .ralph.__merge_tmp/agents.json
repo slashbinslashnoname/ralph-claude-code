@@ -1,0 +1,13 @@
+[
+  {
+    "id": "agent-0",
+    "index": 0,
+    "phase": "merging",
+    "currentBeadId": "sb-8f1.8",
+    "currentBeadTitle": "Add bead retry logic with backoff",
+    "loopCount": 1,
+    "lastActivity": "2026-03-20T19:20:26.259Z",
+    "worktreeBranch": "agent/agent-0/sb-8f1.8",
+    "thinkingSummary": "ent can claim at a time.\\n\\n2. **bd state persistence**: `getState`/`setState` go through the `bd` CLI. If `bd` has issues, the retry count could be lost. Mitigation: default to 0 (treat as first attempt) if state read fails — worst case, extra retries.\\n\\n3. **Backoff stalling workers**: Long backoff sleeps could waste agent time. Mitigation: cap backoff and use the existing `_sleep()` which respects `this.stopped`.\\n\\n4. **Breaking change in config**: Adding a new field with a default means existing `.ralphrc` files work unchanged. No breaking change.\\n\\n### Test strategy\\n\\n1. **Config parsing**: Verify `MAX_RETRIES=3` in `.ralphrc` is correctly parsed to `maxRetries: 3`, and that validation rejects out-of-range values.\\n2. **Retry flow**: The retry logic is in the main loop which spawns Claude processes — full integration test isn't practical. Instead, verify:\\n   - `getBeadAttempt` returns 0 for new beads\\n   - `incrementBeadAttempt` correctly increments\\n   - `retryBead` reopens and posts the right activity\\n3. **Max retries exhausted**: Verify that after N retries, `failBead` is called (permanent failure).\\n4. **Backoff timing**: Verify the backoff formula produces expected delays: 3s, 6s, 12s, etc.\",\"stop_reason\":\"end_turn\",\"session_id\":\"a5b12518-4771-4d2d-9b0f-fdcc7363f968\",\"total_cost_usd\":0.33946475,\"usage\":{\"input_tokens\":5,\"cache_creation_input_tokens\":40041,\"cache_read_input_tokens\":65767,\"output_tokens\":2252,\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":40041,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"\",\"iterations\":[],\"speed\":\"standard\"},\"modelUsage\":{\"claude-opus-4-6[1m]\":{\"inputTokens\":5,\"outputTokens\":2252,\"cacheReadInputTokens\":65767,\"cacheCreationInputTokens\":40041,\"webSearchRequests\":0,\"costUSD\":0.33946475,\"contextWindow\":1000000,\"maxOutputTokens\":64000}},\"permission_denials\":[],\"fast_mode_state\":\"off\",\"uuid\":\"be76c406-ac5c-49e2-8d79-9efc6e242057\"}"
+  }
+]
