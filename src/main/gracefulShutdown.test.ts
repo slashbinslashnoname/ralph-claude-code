@@ -116,19 +116,23 @@ describe('Graceful shutdown integration', () => {
   })
 })
 
-describe('Orphaned worktree cleanup', () => {
+/**
+ * Worktree cleanup tests — exercises the same git operations that
+ * cleanOrphanedWorktrees() (in ipc.ts) performs. That function can't be
+ * imported directly due to Electron dependencies, so we verify the
+ * underlying git worktree + branch cleanup lifecycle here.
+ */
+describe('Worktree cleanup lifecycle', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
   })
 
   afterEach(() => {
-    // Prune any remaining worktrees before rm
     try { execSync('git worktree prune', { cwd: tmpDir, stdio: 'pipe' }) } catch { /* ignore */ }
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('removes orphaned worktree directories', () => {
-    // Create a real git worktree to simulate an orphan
+  it('git worktree remove + branch -D cleans up agent worktree fully', () => {
     const worktreesDir = path.join(tmpDir, '.worktrees')
     fs.mkdirSync(worktreesDir, { recursive: true })
     const worktreePath = path.join(worktreesDir, 'agent-0-sb-test')
@@ -137,50 +141,35 @@ describe('Orphaned worktree cleanup', () => {
     execSync(`git worktree add -b "${branch}" "${worktreePath}"`, {
       cwd: tmpDir, stdio: 'pipe'
     })
-
     assert.ok(fs.existsSync(worktreePath), 'Worktree should exist before cleanup')
 
-    // Clean it up using git worktree remove (simulating what cleanOrphanedWorktrees does)
     execSync(`git worktree remove --force "${worktreePath}"`, {
       cwd: tmpDir, stdio: 'pipe'
     })
+    assert.ok(!fs.existsSync(worktreePath), 'Worktree directory should be removed')
 
-    assert.ok(!fs.existsSync(worktreePath), 'Worktree should be removed')
-
-    // Branch cleanup
     try {
       execSync(`git branch -D "${branch}"`, { cwd: tmpDir, stdio: 'pipe' })
     } catch { /* may already be gone */ }
 
-    // Verify branch is gone
     const branches = execSync('git branch', { cwd: tmpDir, stdio: 'pipe' }).toString()
     assert.ok(!branches.includes(branch), 'Agent branch should be deleted')
   })
 
-  it('handles non-existent worktrees dir gracefully', () => {
-    const worktreesDir = path.join(tmpDir, '.worktrees')
-    assert.ok(!fs.existsSync(worktreesDir), '.worktrees should not exist')
-    // Nothing to clean — this should not throw
-    assert.ok(true)
-  })
-
-  it('cleans up worktree directory even if git worktree remove fails', () => {
-    // Create a plain directory (not a real worktree) in .worktrees/
+  it('falls back to rmSync when git worktree remove fails (non-git directory)', () => {
     const worktreesDir = path.join(tmpDir, '.worktrees')
     fs.mkdirSync(worktreesDir, { recursive: true })
     const fakePath = path.join(worktreesDir, 'agent-0-sb-orphan')
     fs.mkdirSync(fakePath)
     fs.writeFileSync(path.join(fakePath, 'dummy.txt'), 'leftover')
 
-    // git worktree remove will fail since it's not a real worktree
-    // Manual cleanup should still work
+    // git worktree remove will fail — fallback to manual cleanup
     try {
       execSync(`git worktree remove --force "${fakePath}"`, { cwd: tmpDir, stdio: 'pipe' })
     } catch {
-      // Expected to fail — do manual cleanup
       fs.rmSync(fakePath, { recursive: true, force: true })
     }
 
-    assert.ok(!fs.existsSync(fakePath), 'Fake worktree dir should be removed')
+    assert.ok(!fs.existsSync(fakePath), 'Fake worktree dir should be removed after fallback')
   })
 })

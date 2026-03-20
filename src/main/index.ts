@@ -53,12 +53,13 @@ app.whenReady().then(() => {
   })
 })
 
+let gracefulShutdownDone = false
 app.on('before-quit', (event) => {
   // Prevent immediate quit — wait for graceful shutdown
-  if (!(app as any)._gracefulShutdownDone) {
+  if (!gracefulShutdownDone) {
     event.preventDefault()
     gracefulShutdown(storePath).finally(() => {
-      (app as any)._gracefulShutdownDone = true
+      gracefulShutdownDone = true
       app.quit()
     })
   }
