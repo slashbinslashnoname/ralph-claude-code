@@ -453,6 +453,28 @@ describe('AgentCoordinator — activity log', () => {
     assert.equal(events[2].summary, 'step 9')
   })
 
+  it('readActivity skips corrupt lines and returns valid entries', () => {
+    const activityFile = path.join(ralphDir, 'activity.jsonl')
+    const validEvent = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'ok' })
+    // Write a mix of valid and corrupt lines
+    fs.writeFileSync(activityFile, validEvent + '\n' + 'NOT_JSON{{{corrupt\n' + validEvent + '\n')
+    const events = coord.readActivity()
+    assert.equal(events.length, 2)
+    assert.equal(events[0].summary, 'ok')
+    assert.equal(events[1].summary, 'ok')
+  })
+
+  it('postActivity does not throw when directory does not exist', () => {
+    // Point coordinator at a non-existent directory
+    const badCoord = new AgentCoordinator(path.join(tmpDir, 'nonexistent', '.ralph'), tmpDir)
+    // Manually set the activityFile to a path whose parent doesn't exist
+    ;(badCoord as any).activityFile = path.join(tmpDir, 'no', 'such', 'dir', 'activity.jsonl')
+    // Should not throw
+    assert.doesNotThrow(() => {
+      badCoord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'test' })
+    })
+  })
+
   it('postActivity preserves optional fields', () => {
     coord.postActivity({
       agentId: 'agent-0', type: 'claimed',

@@ -102,18 +102,33 @@ export class AgentCoordinator {
 
   postActivity(event: Omit<ActivityEvent, 'ts'>): void {
     const full = { ts: new Date().toISOString(), ...event }
-    fs.appendFileSync(this.activityFile, JSON.stringify(full) + '\n')
+    const line = JSON.stringify(full) + '\n'
+    let fd: number | undefined
+    try {
+      fd = fs.openSync(this.activityFile, 'a') // O_WRONLY | O_APPEND | O_CREAT
+      fs.writeSync(fd, line)
+    } catch {
+      // Activity log is best-effort; the bead DB is the source of truth.
+    } finally {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd) } catch { /* avoid fd leak */ }
+      }
+    }
   }
 
   readActivity(limit = 50): ActivityEvent[] {
     if (!fs.existsSync(this.activityFile)) return []
     try {
-      return fs
+      const lines = fs
         .readFileSync(this.activityFile, 'utf8')
         .split('\n')
         .filter(Boolean)
         .slice(-limit)
-        .map(l => JSON.parse(l))
+      const results: ActivityEvent[] = []
+      for (const line of lines) {
+        try { results.push(JSON.parse(line)) } catch { /* skip corrupt line */ }
+      }
+      return results
     } catch { return [] }
   }
 
