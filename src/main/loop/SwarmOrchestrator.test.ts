@@ -29,6 +29,9 @@ function makeTmpProject(): string {
   }))
   // beads dir for BdClient
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
+  // Ralph files required by HealthCheck
+  fs.writeFileSync(path.join(ralphDir, 'PROMPT.md'), '# Prompt')
+  fs.writeFileSync(path.join(ralphDir, 'AGENT.md'), '# Agent')
   return dir
 }
 
@@ -129,5 +132,53 @@ describe('SwarmOrchestrator.shutdown()', () => {
     orch.on('shutdown-complete', () => { count++ })
     await orch.shutdown()
     expect(count).toBe(1)
+  })
+})
+
+describe('SwarmOrchestrator.startWorkers() health check', () => {
+  afterEach(() => {
+    if (tmpDir) {
+      try { orch?.stopAll() } catch { /* ignore */ }
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('throws when required Ralph files are missing', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
+    const ralphDir = path.join(tmpDir, '.ralph')
+    fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(tmpDir, '.ralphrc'), JSON.stringify({
+      claudeCodeCmd: 'false',
+      claudeTimeoutMinutes: 1,
+      claudeOutputFormat: 'text',
+      allowedTools: '',
+      maxAgents: 2,
+      continueSession: false,
+    }))
+    fs.mkdirSync(path.join(tmpDir, '.beads'), { recursive: true })
+    // Deliberately omit PROMPT.md and AGENT.md
+
+    orch = new SwarmOrchestrator(tmpDir)
+    expect(() => orch.startWorkers(1)).toThrow('Health check failed')
+  })
+
+  it('throws when .beads directory is missing', () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
+    const ralphDir = path.join(tmpDir, '.ralph')
+    fs.mkdirSync(path.join(ralphDir, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(ralphDir, 'PROMPT.md'), '# Prompt')
+    fs.writeFileSync(path.join(ralphDir, 'AGENT.md'), '# Agent')
+    fs.writeFileSync(path.join(tmpDir, '.ralphrc'), JSON.stringify({
+      claudeCodeCmd: 'false',
+      claudeTimeoutMinutes: 1,
+      claudeOutputFormat: 'text',
+      allowedTools: '',
+      maxAgents: 2,
+      continueSession: false,
+    }))
+    // Deliberately omit .beads
+
+    orch = new SwarmOrchestrator(tmpDir)
+    expect(() => orch.startWorkers(1)).toThrow('Health check failed')
   })
 })
