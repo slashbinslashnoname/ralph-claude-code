@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -49,12 +48,12 @@ describe('SwarmOrchestrator.shutdown()', () => {
     let emitted = false
     orch.on('shutdown-complete', () => { emitted = true })
     await orch.shutdown()
-    assert.equal(emitted, true, 'shutdown-complete should be emitted')
+    expect(emitted).toBe(true)
   })
 
   it('resets shuttingDown flag after completion', async () => {
     await orch.shutdown()
-    assert.equal(orch.isShuttingDown(), false)
+    expect(orch.isShuttingDown()).toBe(false)
   })
 
   it('is idempotent — second call returns immediately', async () => {
@@ -63,17 +62,14 @@ describe('SwarmOrchestrator.shutdown()', () => {
     const p2 = orch.shutdown() // should be a no-op
     await Promise.all([p1, p2])
     // If we got here without hanging, the test passes
-    assert.ok(true)
+    expect(true).toBe(true)
   })
 
   it('clears plan queue during shutdown', async () => {
-    // Manually push items into the queue via injectPlan (will fail to plan but queue is populated)
-    // Instead, access internals via the public API
-    // injectPlan triggers _drainQueue which needs loadConfig — use a simpler approach
     orch.on('log', () => {}) // swallow log events
     await orch.shutdown()
-    assert.deepEqual(orch.getPlanQueue(), [])
-    assert.equal(orch.isPlanning(), false)
+    expect(orch.getPlanQueue()).toEqual([])
+    expect(orch.isPlanning()).toBe(false)
   })
 
   it('blocks startWorkers during shutdown', async () => {
@@ -88,23 +84,21 @@ describe('SwarmOrchestrator.shutdown()', () => {
     const shutdownPromise = orch.shutdown(200)
 
     // shuttingDown is true synchronously after the call
-    assert.equal(orch.isShuttingDown(), true)
+    expect(orch.isShuttingDown()).toBe(true)
 
     // Attempt to start workers during shutdown — should be rejected
     orch.startWorkers(1)
-    assert.ok(
-      logs.some(m => m.includes('Cannot start workers during shutdown')),
-      'Should log a warning when startWorkers is called during shutdown'
-    )
+    expect(
+      logs.some(m => m.includes('Cannot start workers during shutdown'))
+    ).toBe(true)
 
     await shutdownPromise
-    assert.equal(orch.isShuttingDown(), false)
+    expect(orch.isShuttingDown()).toBe(false)
   })
 
   it('handles shutdown with timeout when workers hang', async () => {
     // Simulate a never-resolving worker loop promise
     const neverResolve = new Promise<void>(() => {})
-    // Access private map to inject a fake promise
     ;(orch as any).workerLoopPromises.set('agent-fake', neverResolve)
 
     const start = Date.now()
@@ -114,9 +108,9 @@ describe('SwarmOrchestrator.shutdown()', () => {
     await orch.shutdown(200) // 200ms timeout
 
     const elapsed = Date.now() - start
-    assert.ok(elapsed >= 180, `Should have waited ~200ms, got ${elapsed}ms`)
-    assert.ok(elapsed < 1000, `Should not wait much longer than timeout, got ${elapsed}ms`)
-    assert.equal(emitted, true, 'shutdown-complete should still be emitted after timeout')
+    expect(elapsed).toBeGreaterThanOrEqual(180)
+    expect(elapsed).toBeLessThan(1000)
+    expect(emitted).toBe(true)
   })
 
   it('cleans up workers map after shutdown', async () => {
@@ -126,14 +120,14 @@ describe('SwarmOrchestrator.shutdown()', () => {
 
     await orch.shutdown()
 
-    assert.equal(orch.workerCount(), 0)
-    assert.equal((orch as any).workerLoopPromises.size, 0)
+    expect(orch.workerCount()).toBe(0)
+    expect((orch as any).workerLoopPromises.size).toBe(0)
   })
 
   it('emits shutdown-complete exactly once', async () => {
     let count = 0
     orch.on('shutdown-complete', () => { count++ })
     await orch.shutdown()
-    assert.equal(count, 1)
+    expect(count).toBe(1)
   })
 })

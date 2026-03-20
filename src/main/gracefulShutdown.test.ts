@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -58,8 +57,8 @@ describe('Graceful shutdown integration', () => {
 
     await Promise.allSettled([orch1.shutdown(), orch2.shutdown()])
 
-    assert.equal(complete1, true)
-    assert.equal(complete2, true)
+    expect(complete1).toBe(true)
+    expect(complete2).toBe(true)
   })
 
   it('shutdown cleans up fake workers and emits event', async () => {
@@ -75,9 +74,9 @@ describe('Graceful shutdown integration', () => {
 
     await orch.shutdown()
 
-    assert.equal(orch.workerCount(), 0)
-    assert.equal(emitted, true)
-    assert.equal(orch.isShuttingDown(), false)
+    expect(orch.workerCount()).toBe(0)
+    expect(emitted).toBe(true)
+    expect(orch.isShuttingDown()).toBe(false)
   })
 
   it('shutdown with timeout forces completion on hanging workers', async () => {
@@ -89,9 +88,9 @@ describe('Graceful shutdown integration', () => {
     await orch.shutdown(300)
     const elapsed = Date.now() - start
 
-    assert.ok(elapsed >= 280, `Should wait ~300ms, got ${elapsed}ms`)
-    assert.ok(elapsed < 1500, `Should not hang, got ${elapsed}ms`)
-    assert.equal(orch.workerCount(), 0)
+    expect(elapsed).toBeGreaterThanOrEqual(280)
+    expect(elapsed).toBeLessThan(1500)
+    expect(orch.workerCount()).toBe(0)
   })
 
   it('double-quit is safe (re-entrant shutdown)', async () => {
@@ -104,7 +103,7 @@ describe('Graceful shutdown integration', () => {
     const p2 = orch.shutdown(200) // should return immediately (no-op)
 
     await Promise.all([p1, p2])
-    assert.equal(orch.isShuttingDown(), false)
+    expect(orch.isShuttingDown()).toBe(false)
   })
 
   it('no active swarms — shutdown completes immediately', async () => {
@@ -112,7 +111,7 @@ describe('Graceful shutdown integration', () => {
     const start = Date.now()
     await orch.shutdown()
     const elapsed = Date.now() - start
-    assert.ok(elapsed < 500, `Should complete immediately, got ${elapsed}ms`)
+    expect(elapsed).toBeLessThan(500)
   })
 })
 
@@ -141,19 +140,19 @@ describe('Worktree cleanup lifecycle', () => {
     execSync(`git worktree add -b "${branch}" "${worktreePath}"`, {
       cwd: tmpDir, stdio: 'pipe'
     })
-    assert.ok(fs.existsSync(worktreePath), 'Worktree should exist before cleanup')
+    expect(fs.existsSync(worktreePath)).toBe(true)
 
     execSync(`git worktree remove --force "${worktreePath}"`, {
       cwd: tmpDir, stdio: 'pipe'
     })
-    assert.ok(!fs.existsSync(worktreePath), 'Worktree directory should be removed')
+    expect(fs.existsSync(worktreePath)).toBe(false)
 
     try {
       execSync(`git branch -D "${branch}"`, { cwd: tmpDir, stdio: 'pipe' })
     } catch { /* may already be gone */ }
 
     const branches = execSync('git branch', { cwd: tmpDir, stdio: 'pipe' }).toString()
-    assert.ok(!branches.includes(branch), 'Agent branch should be deleted')
+    expect(branches).not.toContain(branch)
   })
 
   it('falls back to rmSync when git worktree remove fails (non-git directory)', () => {
@@ -170,6 +169,6 @@ describe('Worktree cleanup lifecycle', () => {
       fs.rmSync(fakePath, { recursive: true, force: true })
     }
 
-    assert.ok(!fs.existsSync(fakePath), 'Fake worktree dir should be removed after fallback')
+    expect(fs.existsSync(fakePath)).toBe(false)
   })
 })

@@ -1,5 +1,4 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import { AsyncSemaphore } from './AsyncSemaphore'
 
 describe('AsyncSemaphore', () => {
@@ -29,17 +28,17 @@ describe('AsyncSemaphore', () => {
 
     // Neither second nor third should have resolved yet
     await Promise.resolve() // flush microtasks
-    assert.deepStrictEqual(order, [1])
+    expect(order).toEqual([1])
 
     // Release first — second should get it
     sem.release()
     await second
-    assert.deepStrictEqual(order, [1, 2])
+    expect(order).toEqual([1, 2])
 
     // Release second — third should get it
     sem.release()
     await third
-    assert.deepStrictEqual(order, [1, 2, 3])
+    expect(order).toEqual([1, 2, 3])
 
     sem.release()
   })
@@ -48,10 +47,9 @@ describe('AsyncSemaphore', () => {
     const sem = new AsyncSemaphore()
     await sem.acquire() // hold the lock
 
-    await assert.rejects(
-      () => sem.acquire(50), // 50ms timeout
-      { message: /timed out after 50ms/ }
-    )
+    await expect(
+      sem.acquire(50) // 50ms timeout
+    ).rejects.toThrow(/timed out after 50ms/)
 
     // Semaphore should still be usable after timeout
     sem.release()
@@ -75,7 +73,7 @@ describe('AsyncSemaphore', () => {
 
     // First release hands lock to second waiter
     sem.release()
-    assert.strictEqual(await second, 'got-it')
+    expect(await second).toBe('got-it')
 
     // Second release (accidental) while second waiter holds the lock
     // should NOT unlock the semaphore — second waiter still holds it
@@ -108,11 +106,11 @@ describe('AsyncSemaphore', () => {
     const second = sem.acquire(5000).then(() => 'got-it')
 
     await timedOut
-    assert.strictEqual(await timedOut, 'timeout')
+    expect(await timedOut).toBe('timeout')
 
     // Release — second waiter should get the lock, not the timed-out one
     sem.release()
-    assert.strictEqual(await second, 'got-it')
+    expect(await second).toBe('got-it')
     sem.release()
   })
 
@@ -139,8 +137,8 @@ describe('AsyncSemaphore', () => {
       }
     }
 
-    assert.equal(acquired, true, 'should acquire on retry')
-    assert.equal(attempts, 2, 'should succeed on second attempt')
+    expect(acquired).toBe(true)
+    expect(attempts).toBe(2)
     sem.release()
   })
 
@@ -161,7 +159,7 @@ describe('AsyncSemaphore', () => {
       }
     }
 
-    assert.equal(attempts, 3, 'should exhaust all retries')
+    expect(attempts).toBe(3)
     sem.release() // cleanup
   })
 
@@ -169,7 +167,7 @@ describe('AsyncSemaphore', () => {
     const sem = new AsyncSemaphore()
     let counter = 0
 
-    const tasks = Array.from({ length: 10 }, async (_, i) => {
+    const tasks = Array.from({ length: 10 }, async () => {
       await sem.acquire(2000)
       counter++
       // Simulate brief work
@@ -178,7 +176,7 @@ describe('AsyncSemaphore', () => {
     })
 
     await Promise.all(tasks)
-    assert.equal(counter, 10, 'all tasks should complete')
+    expect(counter).toBe(10)
   })
 
   it('middle waiter times out, FIFO preserved for survivors', async () => {
@@ -193,17 +191,17 @@ describe('AsyncSemaphore', () => {
 
     // Wait for w2 to time out
     await w2
-    assert.deepStrictEqual(order, ['w2-timeout'])
+    expect(order).toEqual(['w2-timeout'])
 
     // Release holder → w1 gets it (w2 was removed from queue)
     sem.release()
     await w1
-    assert.deepStrictEqual(order, ['w2-timeout', 'w1'])
+    expect(order).toEqual(['w2-timeout', 'w1'])
 
     // Release w1 → w3 gets it
     sem.release()
     await w3
-    assert.deepStrictEqual(order, ['w2-timeout', 'w1', 'w3'])
+    expect(order).toEqual(['w2-timeout', 'w1', 'w3'])
 
     sem.release()
   })
