@@ -43,6 +43,7 @@ export class WorkerLoop extends EventEmitter {
   stopped = false
   private childProc: ReturnType<typeof spawn> | null = null
   loopCount = 0
+  private emptyRetries = 0
   private sessionId?: string
   private ralphDir: string
   private logDir: string
@@ -111,14 +112,19 @@ export class WorkerLoop extends EventEmitter {
       const bead = await this.coordinator.claimBestBead(this.agentId)
       if (!bead) {
         if (!this.coordinator.hasOpenWork()) {
-          this._log('SUCCESS', `[${this.agentId}] No open beads — worker done`)
-          this._exit('all_beads_done')
-          return
+          this.emptyRetries++
+          if (this.emptyRetries >= 3) {
+            this._log('SUCCESS', `[${this.agentId}] No open beads — worker done`)
+            this._exit('all_beads_done')
+            return
+          }
+          this._log('INFO', `[${this.agentId}] No open beads detected, rechecking (${this.emptyRetries}/3)…`)
         }
         this._setPhase('waiting')
         await this._sleep(5000)
         continue
       }
+      this.emptyRetries = 0
 
       this._setPhase('claiming', bead.id, bead.title)
       this._log('INFO', `[${this.agentId}] Claimed: [${bead.id}] ${bead.title}`)

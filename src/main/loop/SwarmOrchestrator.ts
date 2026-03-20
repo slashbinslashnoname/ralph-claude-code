@@ -60,6 +60,7 @@ export class SwarmOrchestrator extends EventEmitter {
     const next = this.planQueue.shift()!
     this._broadcastQueue()
     this.planning = true
+    this.coordinator.planningActive = true
     const config = loadConfig(this.projectPath)
     this._log('INFO', `━━ Swarm: running plan [${next.id}] ━━`)
 
@@ -72,12 +73,14 @@ export class SwarmOrchestrator extends EventEmitter {
     this.planner.on('phase', (phase: string) => this.emit('planPhase', phase))
     this.planner.on('done', (beadCount: number) => {
       this.planning = false
+      this.coordinator.planningActive = false
       this._log('SUCCESS', `Plan [${next.id}] complete — ${beadCount} beads created`)
       this._broadcastGraph()
       this._drainQueue()
     })
     this.planner.on('error', (msg: string) => {
       this.planning = false
+      this.coordinator.planningActive = false
       this._log('ERROR', `Plan [${next.id}] failed: ${msg}`)
       this._drainQueue()
     })

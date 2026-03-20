@@ -17,6 +17,7 @@ export class AgentCoordinator {
   private agentsFile: string
   private activityFile: string
   bd: BdClient
+  planningActive = false
 
   constructor(private ralphDir: string, private projectPath: string) {
     this.lockFile = path.join(ralphDir, 'file_locks.json')
@@ -567,6 +568,7 @@ export class AgentCoordinator {
   }
 
   hasOpenWork(): boolean {
+    if (this.planningActive) return true
     const open = this.bd.listByStatus('open')
     if (open.length > 0) return true
     const inProgress = this.bd.listByStatus('in_progress')
