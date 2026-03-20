@@ -4,38 +4,24 @@ import { EventEmitter } from 'events'
 import { PlanLoop } from './PlanLoop'
 import { RalphConfig } from '../types'
 
-vi.mock('fs')
+import * as cp from 'child_process'
+import { EventEmitter as EE } from 'events'
 
 const mockProcesses: any[] = []
 
-vi.mock('child_process', async () => {
-  const { EventEmitter: EE } = await import('events')
-
-  function createProc() {
-    const proc = new (EE as any)()
-    proc.pid = 1234
-    proc.stdout = new (EE as any)()
-    proc.stderr = new (EE as any)()
-    proc.stdin = { write: vi.fn(), end: vi.fn() }
-    proc.kill = vi.fn()
-    proc.exitCode = null
-    proc.simulateExit = (code: number) => { proc.exitCode = code; proc.emit('close', code); proc.emit('exit', code) }
-    proc.simulateStdout = (data: string) => { proc.stdout.emit('data', Buffer.from(data)) }
-    proc.simulateStderr = (data: string) => { proc.stderr.emit('data', Buffer.from(data)) }
-    return proc
-  }
-
-  const spawn = vi.fn(() => {
-    const p = createProc()
-    mockProcesses.push(p)
-    return p
-  })
-
-  return {
-    spawn,
-    execSync: vi.fn(() => Buffer.from('/usr/local/bin/claude'))
-  }
-})
+function createProc() {
+  const proc = new (EE as any)()
+  proc.pid = 1234
+  proc.stdout = new (EE as any)()
+  proc.stderr = new (EE as any)()
+  proc.stdin = { write: vi.fn(), end: vi.fn() }
+  proc.kill = vi.fn()
+  proc.exitCode = null
+  proc.simulateExit = (code: number) => { proc.exitCode = code; proc.emit('close', code); proc.emit('exit', code) }
+  proc.simulateStdout = (data: string) => { proc.stdout.emit('data', Buffer.from(data)) }
+  proc.simulateStderr = (data: string) => { proc.stderr.emit('data', Buffer.from(data)) }
+  return proc
+}
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
@@ -71,10 +57,17 @@ describe('PlanLoop', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockProcesses.length = 0
-    vi.mocked(fs.existsSync).mockReturnValue(false)
-    vi.mocked(fs.mkdirSync).mockReturnValue(undefined as any)
-    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
-    vi.mocked(fs.appendFileSync).mockReturnValue(undefined)
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined as any)
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'appendFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('')
+    vi.spyOn(cp, 'execSync').mockReturnValue(Buffer.from('/usr/local/bin/claude'))
+    vi.spyOn(cp, 'spawn').mockImplementation(() => {
+      const p = createProc()
+      mockProcesses.push(p)
+      return p as any
+    })
   })
 
   afterEach(() => {
@@ -203,11 +196,11 @@ describe('PlanLoop', () => {
     })
 
     it('reads AGENT.md and PROMPT.md for plan context when they exist', async () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('AGENT.md') || s.endsWith('PROMPT.md')
       })
-      vi.mocked(fs.readFileSync).mockReturnValue('project context here')
+      ;(fs.readFileSync as any).mockReturnValue('project context here')
 
       const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
       loop.on('error', () => {}) // prevent unhandled error throw
@@ -221,7 +214,7 @@ describe('PlanLoop', () => {
       // Verify spawn was called with -p flag containing the prompt
       const { spawn } = await import('child_process')
       expect(spawn).toHaveBeenCalled()
-      const spawnCall = vi.mocked(spawn).mock.calls[0]
+      const spawnCall = (spawn as any).mock.calls[0]
       const promptArg = spawnCall[1]![1] // args[1] is the prompt (after '-p')
       expect(promptArg).toContain('ULTRATHINK')
     })

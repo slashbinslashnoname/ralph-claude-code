@@ -3,22 +3,20 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { RateLimit } from './RateLimit'
 
-vi.mock('fs')
-
 const SLASHBOT_DIR = '/tmp/test-slashbot'
 const CALL_COUNT_PATH = path.join(SLASHBOT_DIR, '.call_count')
 
 describe('RateLimit', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'))
-    vi.clearAllMocks()
-    vi.mocked(fs.existsSync).mockReturnValue(false)
-    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('')
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   describe('constructor', () => {
@@ -30,9 +28,9 @@ describe('RateLimit', () => {
     })
 
     it('loads persisted state from file', () => {
-      const hourStart = new Date('2026-01-15T11:30:00Z').toISOString()
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(
+      const hourStart = new Date(Date.now() - 30 * 60_000).toISOString()
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
         JSON.stringify({ count: 42, hourStart })
       )
 
@@ -42,23 +40,22 @@ describe('RateLimit', () => {
     })
 
     it('handles corrupted persisted file gracefully', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue('not valid json')
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue('not valid json')
 
       const rl = new RateLimit(SLASHBOT_DIR, 100)
       expect(rl.status().used).toBe(0)
     })
 
     it('resets count if persisted hourStart is older than 60 minutes', () => {
-      const oldHourStart = new Date('2026-01-15T10:00:00Z').toISOString()
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(
+      const oldHourStart = new Date(Date.now() - 2 * 3_600_000).toISOString()
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
         JSON.stringify({ count: 50, hourStart: oldHourStart })
       )
 
       const rl = new RateLimit(SLASHBOT_DIR, 100)
       expect(rl.status().used).toBe(0)
-      // Should have saved the reset state
       expect(fs.writeFileSync).toHaveBeenCalled()
     })
   })
@@ -88,7 +85,6 @@ describe('RateLimit', () => {
       rl.record()
       expect(rl.canCall()).toBe(false)
 
-      // Advance 60 minutes
       vi.advanceTimersByTime(3_600_000)
       expect(rl.canCall()).toBe(true)
     })
@@ -118,7 +114,6 @@ describe('RateLimit', () => {
       rl.record()
       rl.record()
       rl.record()
-      // writeFileSync called 3 times for 3 records
       expect(fs.writeFileSync).toHaveBeenCalledTimes(3)
     })
   })
@@ -129,7 +124,7 @@ describe('RateLimit', () => {
       rl.record()
       rl.record()
 
-      vi.advanceTimersByTime(3_600_000 - 1000) // 59:59
+      vi.advanceTimersByTime(3_600_000 - 1000)
       expect(rl.status().used).toBe(2)
     })
 
@@ -146,7 +141,7 @@ describe('RateLimit', () => {
       const rl = new RateLimit(SLASHBOT_DIR, 10)
       rl.record()
 
-      vi.advanceTimersByTime(7_200_000) // 2 hours
+      vi.advanceTimersByTime(7_200_000)
       expect(rl.canCall()).toBe(true)
       expect(rl.status().used).toBe(0)
     })
@@ -160,13 +155,13 @@ describe('RateLimit', () => {
 
     it('returns remaining time after some elapsed time', () => {
       const rl = new RateLimit(SLASHBOT_DIR, 10)
-      vi.advanceTimersByTime(1_200_000) // 20 minutes
-      expect(rl.msUntilReset()).toBe(2_400_000) // 40 minutes
+      vi.advanceTimersByTime(1_200_000)
+      expect(rl.msUntilReset()).toBe(2_400_000)
     })
 
     it('returns 0 when past the hour', () => {
       const rl = new RateLimit(SLASHBOT_DIR, 10)
-      vi.advanceTimersByTime(4_000_000) // > 1 hour
+      vi.advanceTimersByTime(4_000_000)
       expect(rl.msUntilReset()).toBe(0)
     })
   })
@@ -179,9 +174,7 @@ describe('RateLimit', () => {
 
     it('formats partial time correctly', () => {
       const rl = new RateLimit(SLASHBOT_DIR, 10)
-      vi.advanceTimersByTime(1_234_000) // ~20 min 34 sec elapsed
-      // Remaining: 3_600_000 - 1_234_000 = 2_366_000 ms
-      // = 0h 39m 26s
+      vi.advanceTimersByTime(1_234_000)
       expect(rl.resetIn()).toBe('0:39:26')
     })
 
@@ -223,21 +216,19 @@ describe('RateLimit', () => {
       expect(rl.status().used).toBe(3)
 
       const promise = rl.waitForReset()
-      await vi.advanceTimersByTimeAsync(3_600_000)
+      vi.advanceTimersByTime(3_600_000)
       await promise
 
       expect(rl.status().used).toBe(0)
-      // Should have saved after reset
       expect(fs.writeFileSync).toHaveBeenCalled()
     })
 
     it('waits only the remaining time', async () => {
       const rl = new RateLimit(SLASHBOT_DIR, 5)
-      vi.advanceTimersByTime(1_800_000) // 30 min elapsed
+      vi.advanceTimersByTime(1_800_000)
 
       const promise = rl.waitForReset()
-      // Should only need 30 more minutes
-      await vi.advanceTimersByTimeAsync(1_800_000)
+      vi.advanceTimersByTime(1_800_000)
       await promise
 
       expect(rl.status().used).toBe(0)
@@ -260,7 +251,6 @@ describe('RateLimit', () => {
       rl.record()
       rl.record()
       expect(rl.canCall()).toBe(false)
-      // Record past max (no guard in record itself)
       rl.record()
       expect(rl.status().used).toBe(4)
     })

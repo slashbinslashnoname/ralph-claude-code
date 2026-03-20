@@ -1,16 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import { validateIntegrity } from './FileGuard'
 
-vi.mock('fs')
-
 describe('FileGuard', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('returns ok when all required files exist', () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true)
+    ;(fs.existsSync as any).mockReturnValue(true)
     const result = validateIntegrity('/project')
     expect(result.ok).toBe(true)
     expect(result.missing).toEqual([])
@@ -18,21 +20,21 @@ describe('FileGuard', () => {
   })
 
   it('reports missing files when none exist', () => {
-    vi.mocked(fs.existsSync).mockReturnValue(false)
+    ;(fs.existsSync as any).mockReturnValue(false)
     const result = validateIntegrity('/project')
     expect(result.ok).toBe(false)
     expect(result.missing).toEqual(['.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md', '.slashbotrc'])
   })
 
   it('report contains remediation instruction', () => {
-    vi.mocked(fs.existsSync).mockReturnValue(false)
+    ;(fs.existsSync as any).mockReturnValue(false)
     const result = validateIntegrity('/project')
     expect(result.report).toContain('slashbot-enable --force')
     expect(result.report).toContain('Missing Slashbot files:')
   })
 
   it('reports only the specific missing files', () => {
-    vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+    ;(fs.existsSync as any).mockImplementation((p: unknown) => {
       const s = String(p)
       return s.endsWith('.slashbot') || s.endsWith('.slashbotrc')
     })
@@ -42,9 +44,9 @@ describe('FileGuard', () => {
   })
 
   it('checks files with correct paths relative to projectPath', () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true)
+    ;(fs.existsSync as any).mockReturnValue(true)
     validateIntegrity('/my/project')
-    const calls = vi.mocked(fs.existsSync).mock.calls.map(c => c[0])
+    const calls = (fs.existsSync as any).mock.calls.map((c: any) => c[0])
     expect(calls).toContain('/my/project/.slashbot')
     expect(calls).toContain('/my/project/.slashbot/PROMPT.md')
     expect(calls).toContain('/my/project/.slashbot/AGENT.md')

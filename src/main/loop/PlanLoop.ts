@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
-import { spawn, execSync, ChildProcess } from 'child_process'
+import * as cp from 'child_process'
+import type { ChildProcess } from 'child_process'
 import { RalphConfig } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { stripAnsi } from './utils'
@@ -12,7 +13,7 @@ function buildEnv(): NodeJS.ProcessEnv {
     `${process.env.HOME ?? ''}/.local/bin`, `${process.env.HOME ?? ''}/.npm-global/bin`,
     `${process.env.HOME ?? ''}/.volta/bin`, `${process.env.HOME ?? ''}/.cargo/bin`]
   let loginPath = ''
-  try { loginPath = execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim() } catch { /* ignore */ }
+  try { loginPath = cp.execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim() } catch { /* ignore */ }
   const merged = [...new Set(
     [process.env.PATH ?? '', loginPath, ...extras].flatMap(p => p.split(':').filter(Boolean))
   )].join(':')
@@ -22,7 +23,7 @@ function buildEnv(): NodeJS.ProcessEnv {
 function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
   if (cmd.startsWith('/') && fs.existsSync(cmd)) return cmd
   try {
-    const r = execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
+    const r = cp.execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
     if (r.startsWith('/')) return r
   } catch { /* ignore */ }
   return cmd
@@ -98,7 +99,7 @@ export class PlanLoop extends EventEmitter {
 
       let proc: ChildProcess
       try {
-        proc = spawn(this.resolvedCmd, args, {
+        proc = cp.spawn(this.resolvedCmd, args, {
           cwd: this.projectPath, env: this.env, stdio: ['ignore', 'pipe', 'pipe']
         })
       } catch (err) {
@@ -150,7 +151,7 @@ export class PlanLoop extends EventEmitter {
 
     let currentBranch = ''
     try {
-      currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+      currentBranch = cp.execSync('git rev-parse --abbrev-ref HEAD', {
         cwd: this.projectPath, timeout: 3000
       }).toString().trim()
     } catch { /* ignore */ }

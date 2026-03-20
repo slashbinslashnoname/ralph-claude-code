@@ -3,11 +3,7 @@ import * as fs from 'fs'
 import { WorkerLoop } from './WorkerLoop'
 import { RalphConfig, Bead } from '../types'
 
-vi.mock('fs')
-vi.mock('child_process', () => ({
-  spawn: vi.fn(),
-  execSync: vi.fn(() => Buffer.from('/usr/local/bin/claude'))
-}))
+import * as cp from 'child_process'
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
@@ -66,17 +62,18 @@ function makeCoordinator() {
 
 describe('WorkerLoop', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
     vi.clearAllMocks()
-    vi.mocked(fs.existsSync).mockReturnValue(false)
-    vi.mocked(fs.mkdirSync).mockReturnValue(undefined as any)
-    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
-    vi.mocked(fs.appendFileSync).mockReturnValue(undefined)
-    vi.mocked(fs.readFileSync).mockReturnValue('')
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined as any)
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'appendFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('')
+    vi.spyOn(cp, 'spawn').mockReturnValue(undefined as any)
+    vi.spyOn(cp, 'execSync').mockReturnValue(Buffer.from('/usr/local/bin/claude'))
   })
 
   afterEach(() => {
-    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('can be constructed without errors', () => {
@@ -200,27 +197,39 @@ describe('WorkerLoop', () => {
 
   describe('start (loop behavior)', () => {
     it('registers agent and posts started activity', async () => {
-      const coord = makeCoordinator()
-      // No beads available, no open work → exits immediately
-      coord.claimBestBead.mockResolvedValue(null)
-      coord.hasOpenWork.mockReturnValue(false)
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        coord.claimBestBead.mockResolvedValue(null)
+        coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
 
-      const exitPromise = new Promise<string>(resolve => worker.on('exit', resolve))
-      await worker.start()
-      const reason = await exitPromise
+        const exitPromise = new Promise<string>(resolve => worker.on('exit', resolve))
+        const startPromise = worker.start()
 
-      expect(coord.registerAgent).toHaveBeenCalledWith(expect.objectContaining({
-        id: 'agent-0',
-        index: 0,
-        phase: 'idle'
-      }))
-      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
-        agentId: 'agent-0',
-        type: 'started'
-      }))
-      expect(reason).toBe('all_beads_done')
+        // Advance through the 3 empty retries (each sleeps 5s with 250ms poll intervals)
+        for (let i = 0; i < 60; i++) {
+          vi.advanceTimersByTime(500)
+          await new Promise(r => setImmediate(r))
+        }
+
+        await startPromise
+        const reason = await exitPromise
+
+        expect(coord.registerAgent).toHaveBeenCalledWith(expect.objectContaining({
+          id: 'agent-0',
+          index: 0,
+          phase: 'idle'
+        }))
+        expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+          agentId: 'agent-0',
+          type: 'started'
+        }))
+        expect(reason).toBe('all_beads_done')
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('does not start if already running', async () => {
@@ -232,49 +241,62 @@ describe('WorkerLoop', () => {
     })
 
     it('deregisters agent on exit', async () => {
-      const coord = makeCoordinator()
-      coord.claimBestBead.mockResolvedValue(null)
-      coord.hasOpenWork.mockReturnValue(false)
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        coord.claimBestBead.mockResolvedValue(null)
+        coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      await worker.start()
-      expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const startPromise = worker.start()
+
+        for (let i = 0; i < 60; i++) {
+          vi.advanceTimersByTime(500)
+          await new Promise(r => setImmediate(r))
+        }
+
+        await startPromise
+        expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('waits and retries when beads are claimed but open work exists', async () => {
-      const coord = makeCoordinator()
-      let callCount = 0
-      coord.claimBestBead.mockImplementation(async () => {
-        callCount++
-        if (callCount >= 3) {
-          // On third call, stop the worker
-          worker.stopped = true
-          worker.running = false
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        let callCount = 0
+        let worker: WorkerLoop
+        coord.claimBestBead.mockImplementation(async () => {
+          callCount++
+          if (callCount >= 3) {
+            worker.stopped = true
+            worker.running = false
+          }
+          return null
+        })
+        coord.hasOpenWork.mockReturnValue(true)
+
+        worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const startPromise = worker.start()
+
+        for (let i = 0; i < 80; i++) {
+          vi.advanceTimersByTime(500)
+          await new Promise(r => setImmediate(r))
         }
-        return null
-      })
-      coord.hasOpenWork.mockReturnValue(true)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      const startPromise = worker.start()
-
-      // Advance timers to allow sleep to resolve (5s wait + 250ms poll)
-      for (let i = 0; i < 25; i++) {
-        await vi.advanceTimersByTimeAsync(500)
+        await startPromise
+        expect(callCount).toBeGreaterThanOrEqual(2)
+      } finally {
+        vi.useRealTimers()
       }
-
-      await startPromise
-
-      // Should have called claimBestBead multiple times
-      expect(callCount).toBeGreaterThanOrEqual(2)
     })
   })
 
   describe('_extractThinkingSummary (via integration)', () => {
-    // Test the summary extraction indirectly through the class
     it('extracts structured sections from thinking output', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
-      // Access private method via bracket notation for testing
       const summary = (worker as any)._extractThinkingSummary(
         '### Understanding\nThis bead requires X\n\n### Approach\nStep 1: do Y\n\nSome other text'
       )
@@ -320,10 +342,10 @@ describe('WorkerLoop', () => {
     })
 
     it('_buildThinkingPrompt includes AGENT.md when it exists', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('AGENT.md')
       )
-      vi.mocked(fs.readFileSync).mockReturnValue('## Test\nnpm test')
+      ;(fs.readFileSync as any).mockReturnValue('## Test\nnpm test')
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())

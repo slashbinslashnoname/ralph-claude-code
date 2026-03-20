@@ -1,4 +1,4 @@
-import { execSync, exec } from 'child_process'
+import * as cp from 'child_process'
 import { Bead, BeadStats, BeadType } from '../types'
 
 /** Build a rich PATH that includes common install locations for bd, cargo, homebrew, etc. */
@@ -32,7 +32,7 @@ export class BdClient {
 
   private run(args: string): string {
     try {
-      return execSync(`${this.bdCmd} ${args}`, {
+      return cp.execSync(`${this.bdCmd} ${args}`, {
         cwd: this.cwd,
         env: ENV,
         timeout: 15_000,
@@ -52,7 +52,7 @@ export class BdClient {
 
   private async runAsync(args: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      exec(`${this.bdCmd} ${args}`, {
+      cp.exec(`${this.bdCmd} ${args}`, {
         cwd: this.cwd,
         env: ENV,
         timeout: 30_000
@@ -75,7 +75,7 @@ export class BdClient {
 
   check(): { available: boolean; reason?: string } {
     try {
-      execSync('which bd', { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+      cp.execSync('which bd', { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch {
       return { available: false, reason: '`bd` command not found on PATH. Install from: https://github.com/steveyegge/beads' }
     }

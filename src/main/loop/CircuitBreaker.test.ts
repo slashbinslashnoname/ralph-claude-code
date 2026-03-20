@@ -4,8 +4,6 @@ import * as path from 'path'
 import { CircuitBreaker } from './CircuitBreaker'
 import { RalphConfig } from '../types'
 
-vi.mock('fs')
-
 const SLASHBOT_DIR = '/tmp/test-slashbot'
 const STATE_PATH = path.join(SLASHBOT_DIR, '.circuit_breaker_state')
 
@@ -27,17 +25,20 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   }
 }
 
+const NOW = new Date('2026-01-15T12:00:00Z').getTime()
+
 describe('CircuitBreaker', () => {
+  let dateNowSpy: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'))
-    vi.clearAllMocks()
-    vi.mocked(fs.existsSync).mockReturnValue(false)
-    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('')
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW)
   })
 
   afterEach(() => {
-    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   describe('initial state', () => {
@@ -75,15 +76,15 @@ describe('CircuitBreaker', () => {
 
   describe('load', () => {
     it('does nothing when state file does not exist', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
       expect(cb.snapshot().state).toBe('CLOSED')
     })
 
     it('restores persisted state from file', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
         JSON.stringify({
           state: 'HALF_OPEN',
           consecutive_no_progress: 2,
@@ -109,8 +110,8 @@ describe('CircuitBreaker', () => {
     })
 
     it('handles corrupt JSON gracefully', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue('not valid json!!!')
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue('not valid json!!!')
 
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
@@ -118,8 +119,8 @@ describe('CircuitBreaker', () => {
     })
 
     it('handles missing fields in persisted state with defaults', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({}))
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(JSON.stringify({}))
 
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.load()
@@ -131,8 +132,8 @@ describe('CircuitBreaker', () => {
 
     it('transitions OPEN to HALF_OPEN when cooldown has elapsed', () => {
       const openedAt = new Date('2026-01-15T11:00:00Z').toISOString() // 60 min ago
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
         JSON.stringify({
           state: 'OPEN',
           opened_at: openedAt,
@@ -150,8 +151,8 @@ describe('CircuitBreaker', () => {
 
     it('keeps OPEN state when cooldown has NOT elapsed', () => {
       const openedAt = new Date('2026-01-15T11:50:00Z').toISOString() // 10 min ago
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
         JSON.stringify({
           state: 'OPEN',
           opened_at: openedAt,
@@ -178,7 +179,7 @@ describe('CircuitBreaker', () => {
         expect.any(String)
       )
       const written = JSON.parse(
-        vi.mocked(fs.writeFileSync).mock.calls[0][1] as string
+        (fs.writeFileSync as any).mock.calls[0][1] as string
       )
       expect(written.state).toBe('CLOSED')
       expect(written.current_loop).toBe(7)
@@ -192,7 +193,7 @@ describe('CircuitBreaker', () => {
       cb.save()
 
       const written = JSON.parse(
-        vi.mocked(fs.writeFileSync).mock.calls[0][1] as string
+        (fs.writeFileSync as any).mock.calls[0][1] as string
       )
       expect(written.opened_at).toBeDefined()
     })
@@ -240,7 +241,6 @@ describe('CircuitBreaker', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
-      // Hit threshold to get to HALF_OPEN
       cb.recordNoProgress(false)
       cb.recordNoProgress(false)
       expect(cb.snapshot().state).toBe('HALF_OPEN')
@@ -317,11 +317,9 @@ describe('CircuitBreaker', () => {
     it('does not increment consecutiveSameError until 2 distinct errors seen', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
 
-      // First unique error — lastErrors has length 1, no increment
       cb.recordError('error A')
       expect(cb.snapshot().consecutive_same_error).toBe(0)
 
-      // Second unique error — lastErrors has length 2, now increments
       cb.recordError('error B')
       expect(cb.snapshot().consecutive_same_error).toBe(1)
     })
@@ -332,7 +330,6 @@ describe('CircuitBreaker', () => {
       cb.recordError('error B')
       expect(cb.snapshot().consecutive_same_error).toBe(1)
 
-      // Duplicate — still length >= 2, so increments
       cb.recordError('error A')
       expect(cb.snapshot().consecutive_same_error).toBe(2)
     })
@@ -340,8 +337,7 @@ describe('CircuitBreaker', () => {
     it('deduplicates error strings in lastErrors', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
-      cb.recordError('error A') // duplicate, not added
-      // lastErrors still has length 1, no increment
+      cb.recordError('error A')
       expect(cb.snapshot().consecutive_same_error).toBe(0)
     })
 
@@ -349,7 +345,6 @@ describe('CircuitBreaker', () => {
       const config = makeConfig({ cbSameErrorThreshold: 3 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
-      // Need 2 distinct errors to start counting
       cb.recordError('error A')
       cb.recordError('error B') // consecutive_same_error = 1
       cb.recordError('error C') // consecutive_same_error = 2
@@ -360,14 +355,12 @@ describe('CircuitBreaker', () => {
     })
 
     it('caps lastErrors at 10 entries', () => {
-      const config = makeConfig({ cbSameErrorThreshold: 100 }) // high to avoid opening
+      const config = makeConfig({ cbSameErrorThreshold: 100 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
       for (let i = 0; i < 15; i++) {
         cb.recordError(`error ${i}`)
       }
-      // Should not throw and circuit should still work
-      // First call doesn't increment (lastErrors.length < 2), calls 2-15 each increment
       expect(cb.snapshot().consecutive_same_error).toBe(14)
     })
   })
@@ -428,10 +421,9 @@ describe('CircuitBreaker', () => {
       const config = makeConfig({ cbCooldownMinutes: 10 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
-      // Simulate persisted OPEN state opened 15 min ago
       const openedAt = new Date('2026-01-15T11:45:00Z').toISOString()
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
         JSON.stringify({ state: 'OPEN', opened_at: openedAt, total_opens: 1 })
       )
 
@@ -461,11 +453,10 @@ describe('CircuitBreaker', () => {
       cb1.recordNoProgress(false) // HALF_OPEN
       cb1.save()
 
-      const savedJson = vi.mocked(fs.writeFileSync).mock.calls[0][1] as string
+      const savedJson = (fs.writeFileSync as any).mock.calls[0][1] as string
 
-      // Simulate loading from the saved state
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue(savedJson)
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(savedJson)
 
       const cb2 = new CircuitBreaker(SLASHBOT_DIR, config)
       cb2.load()

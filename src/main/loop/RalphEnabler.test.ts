@@ -1,24 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import { detectProjectContext, checkEnabled, enableRalph } from './RalphEnabler'
 
-vi.mock('fs')
-
 describe('RalphEnabler', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-    vi.mocked(fs.existsSync).mockReturnValue(false)
-    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
-    vi.mocked(fs.mkdirSync).mockReturnValue(undefined as any)
-    vi.mocked(fs.readFileSync).mockReturnValue('')
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
+    vi.spyOn(fs, 'readFileSync').mockReturnValue('')
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined as any)
+    vi.spyOn(fs, 'appendFileSync').mockReturnValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   describe('detectProjectContext', () => {
     it('detects nodejs project from package.json', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('package.json')
       )
-      vi.mocked(fs.readFileSync).mockReturnValue('{"name":"my-app"}')
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"my-app"}')
       const ctx = detectProjectContext('/project')
       expect(ctx.type).toBe('nodejs')
       expect(ctx.name).toBe('my-app')
@@ -28,26 +30,26 @@ describe('RalphEnabler', () => {
     })
 
     it('uses directory basename when package.json has no name', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('package.json')
       )
-      vi.mocked(fs.readFileSync).mockReturnValue('{}')
+      ;(fs.readFileSync as any).mockReturnValue('{}')
       const ctx = detectProjectContext('/home/user/my-project')
       expect(ctx.name).toBe('my-project')
     })
 
     it('handles package.json read errors gracefully', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('package.json')
       )
-      vi.mocked(fs.readFileSync).mockImplementation(() => { throw new Error('read error') })
+      ;(fs.readFileSync as any).mockImplementation(() => { throw new Error('read error') })
       const ctx = detectProjectContext('/project')
       expect(ctx.type).toBe('nodejs')
       expect(ctx.name).toBe('project')
     })
 
     it('detects python project from pyproject.toml', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('pyproject.toml')
       )
       const ctx = detectProjectContext('/project')
@@ -56,7 +58,7 @@ describe('RalphEnabler', () => {
     })
 
     it('detects rust project from Cargo.toml', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('Cargo.toml')
       )
       const ctx = detectProjectContext('/project')
@@ -66,7 +68,7 @@ describe('RalphEnabler', () => {
     })
 
     it('detects go project from go.mod', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('go.mod')
       )
       const ctx = detectProjectContext('/project')
@@ -75,7 +77,7 @@ describe('RalphEnabler', () => {
     })
 
     it('detects java project from pom.xml', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('pom.xml')
       )
       const ctx = detectProjectContext('/project')
@@ -84,7 +86,7 @@ describe('RalphEnabler', () => {
     })
 
     it('returns unknown for unrecognized projects', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       const ctx = detectProjectContext('/project')
       expect(ctx.type).toBe('unknown')
       expect(ctx.installCmd).toBe('')
@@ -93,7 +95,7 @@ describe('RalphEnabler', () => {
     })
 
     it('checks hasGit and hasBeads', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('.git') || s.endsWith('.beads')
       })
@@ -104,11 +106,11 @@ describe('RalphEnabler', () => {
 
     it('detects first matching project type (priority order)', () => {
       // package.json and Cargo.toml both exist — nodejs should win (first in list)
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('package.json') || s.endsWith('Cargo.toml')
       })
-      vi.mocked(fs.readFileSync).mockReturnValue('{"name":"test"}')
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"test"}')
       const ctx = detectProjectContext('/project')
       expect(ctx.type).toBe('nodejs')
     })
@@ -116,7 +118,7 @@ describe('RalphEnabler', () => {
 
   describe('checkEnabled', () => {
     it('returns enabled:true when all files exist', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true)
+      ;(fs.existsSync as any).mockReturnValue(true)
       const status = checkEnabled('/project')
       expect(status.enabled).toBe(true)
       expect(status.missing).toEqual([])
@@ -125,7 +127,7 @@ describe('RalphEnabler', () => {
     })
 
     it('returns enabled:false with missing files', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       const status = checkEnabled('/project')
       expect(status.enabled).toBe(false)
       expect(status.missing.length).toBe(4)
@@ -134,7 +136,7 @@ describe('RalphEnabler', () => {
     })
 
     it('correctly reports partial state', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('.slashbotrc') || s.endsWith('.slashbot')
       })
@@ -149,8 +151,8 @@ describe('RalphEnabler', () => {
 
   describe('enableRalph', () => {
     it('returns alreadyEnabled when project is already enabled', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue('{"name":"test"}')
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"test"}')
       const result = enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       expect(result.ok).toBe(true)
       expect(result.alreadyEnabled).toBe(true)
@@ -158,7 +160,7 @@ describe('RalphEnabler', () => {
     })
 
     it('creates files when not enabled', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       const result = enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
       expect(result.ok).toBe(true)
       expect(result.alreadyEnabled).toBe(false)
@@ -168,7 +170,7 @@ describe('RalphEnabler', () => {
     })
 
     it('creates directories with recursive:true', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project')
       expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot', { recursive: true })
       expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot/logs', { recursive: true })
@@ -176,8 +178,8 @@ describe('RalphEnabler', () => {
 
     it('force overwrites existing files', () => {
       // All files exist but force is true
-      vi.mocked(fs.existsSync).mockReturnValue(true)
-      vi.mocked(fs.readFileSync).mockReturnValue('{"name":"test"}')
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"test"}')
       const result = enableRalph('/project', { force: true, maxCallsPerHour: 50, useBeads: true, initialTasks: [] })
       expect(result.ok).toBe(true)
       expect(result.alreadyEnabled).toBe(false)
@@ -185,102 +187,102 @@ describe('RalphEnabler', () => {
     })
 
     it('generates ralphrc with correct maxCallsPerHour', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 200, useBeads: false, initialTasks: [] })
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const slashbotrcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
       expect(slashbotrcCall).toBeDefined()
       expect(String(slashbotrcCall![1])).toContain('MAX_CALLS_PER_HOUR=200')
     })
 
     it('generates ralphrc with beads task source when useBeads is true', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: true, initialTasks: [] })
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const slashbotrcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
       expect(String(slashbotrcCall![1])).toContain('TASK_SOURCES="beads"')
     })
 
     it('generates ralphrc with local task source when useBeads is false', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const slashbotrcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
       expect(String(slashbotrcCall![1])).toContain('TASK_SOURCES="local"')
     })
 
     it('includes npm tools for nodejs projects', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('package.json')
       )
-      vi.mocked(fs.readFileSync).mockReturnValue('{"name":"test"}')
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"test"}')
       enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const slashbotrcCall = calls.find(c => String(c[0]).endsWith('.slashbotrc'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const slashbotrcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
       expect(String(slashbotrcCall![1])).toContain('Bash(npm *)')
     })
 
     it('appends gitignore entries when # Slashbot not present', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('.gitignore')
       })
-      vi.mocked(fs.readFileSync).mockReturnValue('node_modules/\n')
+      ;(fs.readFileSync as any).mockReturnValue('node_modules/\n')
       enableRalph('/project')
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const gitignoreCall = calls.find(c => String(c[0]).endsWith('.gitignore'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const gitignoreCall = calls.find((c: any) => String(c[0]).endsWith('.gitignore'))
       expect(gitignoreCall).toBeDefined()
       expect(String(gitignoreCall![1])).toContain('# Slashbot')
       expect(String(gitignoreCall![1])).toContain('.slashbot/logs/')
     })
 
     it('does not duplicate gitignore entries when # Slashbot already present', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
         const s = String(p)
         return s.endsWith('.gitignore')
       })
-      vi.mocked(fs.readFileSync).mockReturnValue('# Slashbot\n.slashbot/logs/\n')
+      ;(fs.readFileSync as any).mockReturnValue('# Slashbot\n.slashbot/logs/\n')
       enableRalph('/project')
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const gitignoreCall = calls.find(c => String(c[0]).endsWith('.gitignore'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const gitignoreCall = calls.find((c: any) => String(c[0]).endsWith('.gitignore'))
       // Should not write gitignore since # Slashbot already present
       expect(gitignoreCall).toBeUndefined()
     })
 
     it('returns error when fs operations fail', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
-      vi.mocked(fs.mkdirSync).mockImplementation(() => { throw new Error('Permission denied') })
+      ;(fs.existsSync as any).mockReturnValue(false)
+      ;(fs.mkdirSync as any).mockImplementation(() => { throw new Error('Permission denied') })
       const result = enableRalph('/project')
       expect(result.ok).toBe(false)
       expect(result.error).toBe('Permission denied')
     })
 
     it('returns project context in result', () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false)
+      ;(fs.existsSync as any).mockReturnValue(false)
       const result = enableRalph('/project')
       expect(result.context).toBeDefined()
       expect(result.context.type).toBe('unknown')
     })
 
     it('generates PROMPT.md with project name', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('package.json')
       )
-      vi.mocked(fs.readFileSync).mockReturnValue('{"name":"cool-app"}')
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"cool-app"}')
       enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const promptCall = calls.find(c => String(c[0]).endsWith('PROMPT.md'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const promptCall = calls.find((c: any) => String(c[0]).endsWith('PROMPT.md'))
       expect(promptCall).toBeDefined()
       expect(String(promptCall![1])).toContain('cool-app')
     })
 
     it('generates AGENT.md with test command', () => {
-      vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+      ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('Cargo.toml')
       )
       enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
-      const calls = vi.mocked(fs.writeFileSync).mock.calls
-      const agentCall = calls.find(c => String(c[0]).endsWith('AGENT.md'))
+      const calls = (fs.writeFileSync as any).mock.calls
+      const agentCall = calls.find((c: any) => String(c[0]).endsWith('AGENT.md'))
       expect(agentCall).toBeDefined()
       expect(String(agentCall![1])).toContain('cargo test')
     })

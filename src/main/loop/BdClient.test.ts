@@ -1,19 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-
-// Mock child_process before importing BdClient
-vi.mock('child_process', () => ({
-  execSync: vi.fn(),
-  exec: vi.fn(),
-}))
-
-import { execSync, exec } from 'child_process'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as cp from 'child_process'
 import { BdClient } from './BdClient'
 
-const mockExecSync = vi.mocked(execSync)
-const mockExec = vi.mocked(exec)
+let mockExecSync: any
+let mockExec: any
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  mockExecSync = vi.spyOn(cp, 'execSync').mockReturnValue('[]')
+  mockExec = vi.spyOn(cp, 'exec').mockReturnValue(undefined as any)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 // ── Helper: build a raw bd JSON bead ──────────────────────────────────────
@@ -121,7 +119,7 @@ describe('BdClient', () => {
 
   describe('createAsync', () => {
     it('creates a bead asynchronously', async () => {
-      mockExec.mockImplementation((_cmd, _opts, cb) => {
+      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         ;(cb as Function)(null, JSON.stringify(rawBead({ id: 'async-1' })), '')
         return {} as ReturnType<typeof exec>
       })
@@ -131,7 +129,7 @@ describe('BdClient', () => {
     })
 
     it('rejects on exec error', async () => {
-      mockExec.mockImplementation((_cmd, _opts, cb) => {
+      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         ;(cb as Function)(new Error('spawn failed'), '', 'bd not found')
         return {} as ReturnType<typeof exec>
       })
@@ -146,7 +144,7 @@ describe('BdClient', () => {
   describe('createMany', () => {
     it('creates multiple beads and returns results', async () => {
       let callCount = 0
-      mockExec.mockImplementation((_cmd, _opts, cb) => {
+      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         callCount++
         ;(cb as Function)(null, JSON.stringify(rawBead({ id: `many-${callCount}` })), '')
         return {} as ReturnType<typeof exec>
@@ -164,7 +162,7 @@ describe('BdClient', () => {
 
     it('continues after individual failures', async () => {
       let callCount = 0
-      mockExec.mockImplementation((_cmd, _opts, cb) => {
+      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         callCount++
         if (callCount === 1) {
           ;(cb as Function)(new Error('fail'), '', 'error')
@@ -264,9 +262,9 @@ describe('BdClient', () => {
       mockExecSync.mockReturnValue('{}')
       client.update('u1', { labels: { add: ['bug'], remove: ['wip'] } })
 
-      const calls = mockExecSync.mock.calls.map(c => c[0] as string)
-      expect(calls.some(c => c.includes('label add u1 bug --json'))).toBe(true)
-      expect(calls.some(c => c.includes('label remove u1 wip --json'))).toBe(true)
+      const calls = mockExecSync.mock.calls.map((c: any) => c[0] as string)
+      expect(calls.some((c: string) => c.includes('label add u1 bug --json'))).toBe(true)
+      expect(calls.some((c: string) => c.includes('label remove u1 wip --json'))).toBe(true)
     })
   })
 
@@ -291,7 +289,7 @@ describe('BdClient', () => {
       mockExecSync.mockReturnValue('{}')
       expect(client.assignTo('a1', 'agent-5')).toBe(true)
 
-      const calls = mockExecSync.mock.calls.map(c => c[0] as string)
+      const calls = mockExecSync.mock.calls.map((c: any) => c[0] as string)
       expect(calls[0]).toContain('--claim')
       expect(calls[0]).toContain('-a agent-5')
     })
@@ -329,7 +327,7 @@ describe('BdClient', () => {
       mockExecSync.mockReturnValue('{}')
       client.reopen('ro1', 'Retry')
 
-      const calls = mockExecSync.mock.calls.map(c => c[0] as string)
+      const calls = mockExecSync.mock.calls.map((c: any) => c[0] as string)
       expect(calls[0]).toContain('reopen ro1 --reason "Retry" --json')
       expect(calls[1]).toContain('--assignee ""')
       expect(calls[2]).toContain('label remove ro1 failed')
