@@ -22,6 +22,7 @@ import {
   validateProjectPath,
 } from './loop/beadValidation'
 import { validateConfigRead, validateConfigWrite } from './loop/configValidation'
+import { validateProjectPathArg, validateSaveTabs } from './loop/projectValidation'
 import {
   validateSwarmStart,
   validateSwarmStop,
@@ -172,16 +173,26 @@ export function registerIpc(
 
   ipcMain.handle('project:recent', () => readStore())
 
-  ipcMain.handle('project:add', (_e, p: string) => {
-    addToStore(p)
-    return true
+  ipcMain.handle('project:add', (_e, p: unknown) => {
+    try {
+      const validated = validateProjectPathArg(p)
+      addToStore(validated)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('project:active-tabs', () => readTabs())
 
-  ipcMain.handle('project:save-tabs', (_e, tabs: { paths: string[]; active: number }) => {
-    saveTabs(tabs)
-    return true
+  ipcMain.handle('project:save-tabs', (_e, tabs: unknown) => {
+    try {
+      const validated = validateSaveTabs(tabs)
+      saveTabs(validated)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // ── Status ──────────────────────────────────────────────────────────────

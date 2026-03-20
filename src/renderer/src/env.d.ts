@@ -3,9 +3,9 @@
 interface RalphAPI {
   selectProject: () => Promise<string | null>
   recentProjects: () => Promise<string[]>
-  addProject: (p: string) => Promise<boolean>
+  addProject: (p: string) => Promise<{ ok: boolean; error?: string }>
   activeProjectTabs: () => Promise<{ paths: string[]; active: number }>
-  saveActiveProjectTabs: (tabs: { paths: string[]; active: number }) => Promise<boolean>
+  saveActiveProjectTabs: (tabs: { paths: string[]; active: number }) => Promise<{ ok: boolean; error?: string }>
   isEnabled: (p: string) => Promise<{ enabled: boolean; missing: string[]; context: any }>
   enable: (p: string, opts: any) => Promise<any>
   readStatus: (p: string) => Promise<any>
