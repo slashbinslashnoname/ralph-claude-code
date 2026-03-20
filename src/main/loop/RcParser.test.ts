@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach, expect } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { parseRcFile, loadConfig, DEFAULT_CONFIG } from './RcParser'
+import { parseRcFile, loadConfig, validateConfig, DEFAULT_CONFIG } from './RcParser'
 
 let tmpDir: string
 
@@ -130,6 +130,106 @@ describe('parseRcFile', () => {
   })
 })
 
+// ── validateConfig ──────────────────────────────────────────────────────────
+
+describe('validateConfig', () => {
+  it('passes through valid values unchanged', () => {
+    const parsed = { maxCallsPerHour: 200, claudeOutputFormat: 'text' as const, sleepDuration: 10 }
+    const { config, warnings } = validateConfig(parsed)
+    expect(warnings).toEqual([])
+    expect(config.maxCallsPerHour).toBe(200)
+    expect(config.claudeOutputFormat).toBe('text')
+    expect(config.sleepDuration).toBe(10)
+  })
+
+  it('rejects invalid claudeOutputFormat and falls back to default', () => {
+    const { config, warnings } = validateConfig({ claudeOutputFormat: 'xml' as never })
+    expect(config.claudeOutputFormat).toBe(DEFAULT_CONFIG.claudeOutputFormat)
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid claudeOutputFormat')
+    expect(warnings[0]).toContain('xml')
+  })
+
+  it('rejects empty claudeCodeCmd', () => {
+    const { config, warnings } = validateConfig({ claudeCodeCmd: '' })
+    expect(config.claudeCodeCmd).toBe(DEFAULT_CONFIG.claudeCodeCmd)
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Empty value for claudeCodeCmd')
+  })
+
+  it('rejects empty allowedTools', () => {
+    const { config, warnings } = validateConfig({ allowedTools: '   ' })
+    expect(config.allowedTools).toBe(DEFAULT_CONFIG.allowedTools)
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Empty value for allowedTools')
+  })
+
+  it('rejects maxCallsPerHour below minimum', () => {
+    const { config, warnings } = validateConfig({ maxCallsPerHour: 0 })
+    expect(config.maxCallsPerHour).toBe(DEFAULT_CONFIG.maxCallsPerHour)
+    expect(warnings[0]).toContain('out of range')
+  })
+
+  it('rejects maxCallsPerHour above maximum', () => {
+    const { config, warnings } = validateConfig({ maxCallsPerHour: 99999 })
+    expect(config.maxCallsPerHour).toBe(DEFAULT_CONFIG.maxCallsPerHour)
+    expect(warnings[0]).toContain('out of range')
+  })
+
+  it('rejects claudeTimeoutMinutes below minimum', () => {
+    const { config, warnings } = validateConfig({ claudeTimeoutMinutes: 0 })
+    expect(config.claudeTimeoutMinutes).toBe(DEFAULT_CONFIG.claudeTimeoutMinutes)
+    expect(warnings[0]).toContain('out of range')
+  })
+
+  it('rejects negative sleepDuration', () => {
+    const { config, warnings } = validateConfig({ sleepDuration: -1 })
+    expect(config.sleepDuration).toBe(DEFAULT_CONFIG.sleepDuration)
+    expect(warnings[0]).toContain('out of range')
+  })
+
+  it('accepts sleepDuration of 0 (minimum)', () => {
+    const { config, warnings } = validateConfig({ sleepDuration: 0 })
+    expect(config.sleepDuration).toBe(0)
+    expect(warnings).toEqual([])
+  })
+
+  it('rejects circuit breaker thresholds below 1', () => {
+    const { config, warnings } = validateConfig({
+      cbNoProgressThreshold: 0,
+      cbSameErrorThreshold: 0,
+      cbPermissionDenialThreshold: 0,
+      cbCooldownMinutes: 0
+    })
+    expect(warnings.length).toBe(4)
+    expect(config.cbNoProgressThreshold).toBe(DEFAULT_CONFIG.cbNoProgressThreshold)
+    expect(config.cbSameErrorThreshold).toBe(DEFAULT_CONFIG.cbSameErrorThreshold)
+    expect(config.cbPermissionDenialThreshold).toBe(DEFAULT_CONFIG.cbPermissionDenialThreshold)
+    expect(config.cbCooldownMinutes).toBe(DEFAULT_CONFIG.cbCooldownMinutes)
+  })
+
+  it('collects multiple warnings', () => {
+    const { warnings } = validateConfig({
+      maxCallsPerHour: -5,
+      claudeOutputFormat: 'yaml' as never,
+      claudeCodeCmd: ''
+    })
+    expect(warnings.length).toBe(3)
+  })
+
+  it('booleans pass through without validation', () => {
+    const { config, warnings } = validateConfig({ autoPush: false, continueSession: false })
+    expect(warnings).toEqual([])
+    expect(config.autoPush).toBe(false)
+    expect(config.continueSession).toBe(false)
+  })
+
+  it('returns full config shape with defaults for omitted keys', () => {
+    const { config } = validateConfig({})
+    expect(config).toEqual(DEFAULT_CONFIG)
+  })
+})
+
 // ── loadConfig ───────────────────────────────────────────────────────────────
 
 describe('loadConfig', () => {
@@ -156,5 +256,18 @@ describe('loadConfig', () => {
     for (const key of keys) {
       expect(config[key as keyof typeof config]).not.toBe(undefined)
     }
+  })
+
+  it('falls back to defaults for invalid values in .ralphrc', () => {
+    writeRc(
+      'MAX_CALLS_PER_HOUR=0\nCLAUDE_OUTPUT_FORMAT=yaml\nCLAUDE_TIMEOUT_MINUTES=5\nSLEEP_DURATION=-1'
+    )
+    const config = loadConfig(tmpDir)
+    // Invalid values get replaced with defaults
+    expect(config.maxCallsPerHour).toBe(DEFAULT_CONFIG.maxCallsPerHour)
+    expect(config.claudeOutputFormat).toBe(DEFAULT_CONFIG.claudeOutputFormat)
+    expect(config.sleepDuration).toBe(DEFAULT_CONFIG.sleepDuration)
+    // Valid value passes through
+    expect(config.claudeTimeoutMinutes).toBe(5)
   })
 })

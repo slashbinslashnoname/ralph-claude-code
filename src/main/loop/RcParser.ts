@@ -59,6 +59,80 @@ export function parseRcFile(projectPath: string): Partial<RalphConfig> {
   return result as Partial<RalphConfig>
 }
 
+export interface ValidationResult {
+  config: RalphConfig
+  warnings: string[]
+}
+
+const VALID_OUTPUT_FORMATS = new Set(['json', 'text'])
+
+interface NumericRule {
+  min: number
+  max: number
+}
+
+const NUMERIC_RANGES: Partial<Record<keyof RalphConfig, NumericRule>> = {
+  maxCallsPerHour: { min: 1, max: 10000 },
+  claudeTimeoutMinutes: { min: 1, max: 1440 },
+  sleepDuration: { min: 0, max: 3600 },
+  cbNoProgressThreshold: { min: 1, max: 1000 },
+  cbSameErrorThreshold: { min: 1, max: 1000 },
+  cbPermissionDenialThreshold: { min: 1, max: 1000 },
+  cbCooldownMinutes: { min: 1, max: 1440 }
+}
+
+export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
+  const warnings: string[] = []
+  const validated: Partial<RalphConfig> = {}
+
+  for (const [key, value] of Object.entries(parsed)) {
+    const k = key as keyof RalphConfig
+
+    // Validate claudeOutputFormat
+    if (k === 'claudeOutputFormat') {
+      if (!VALID_OUTPUT_FORMATS.has(value as string)) {
+        warnings.push(
+          `Invalid claudeOutputFormat "${value}" — expected "json" or "text". Using default "${DEFAULT_CONFIG.claudeOutputFormat}".`
+        )
+        continue
+      }
+    }
+
+    // Validate string commands are non-empty
+    if (k === 'claudeCodeCmd' || k === 'allowedTools') {
+      if (typeof value === 'string' && value.trim() === '') {
+        warnings.push(
+          `Empty value for ${k}. Using default "${DEFAULT_CONFIG[k]}".`
+        )
+        continue
+      }
+    }
+
+    // Validate numeric ranges
+    const rule = NUMERIC_RANGES[k]
+    if (rule && typeof value === 'number') {
+      if (value < rule.min || value > rule.max) {
+        warnings.push(
+          `${k} value ${value} is out of range [${rule.min}, ${rule.max}]. Using default ${DEFAULT_CONFIG[k]}.`
+        )
+        continue
+      }
+    }
+
+    validated[k] = value as never
+  }
+
+  return {
+    config: { ...DEFAULT_CONFIG, ...validated },
+    warnings
+  }
+}
+
 export function loadConfig(projectPath: string): RalphConfig {
-  return { ...DEFAULT_CONFIG, ...parseRcFile(projectPath) }
+  const parsed = parseRcFile(projectPath)
+  const { config, warnings } = validateConfig(parsed)
+  for (const w of warnings) {
+    console.warn(`[RcParser] ${w}`)
+  }
+  return config
 }
