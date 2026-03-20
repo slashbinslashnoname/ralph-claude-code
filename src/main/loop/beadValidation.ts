@@ -121,6 +121,9 @@ export function validateProjectPath(projectPath: unknown): string {
   if (typeof projectPath !== 'string' || projectPath.trim().length === 0) {
     throw new Error('projectPath must be a non-empty string')
   }
+  if (projectPath.includes('\0')) {
+    throw new Error('projectPath must not contain null bytes')
+  }
   return projectPath
 }
 

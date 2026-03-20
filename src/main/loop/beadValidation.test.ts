@@ -252,6 +252,10 @@ describe('validateProjectPath', () => {
     assert.throws(() => validateProjectPath(null), /non-empty string/)
     assert.throws(() => validateProjectPath(undefined), /non-empty string/)
   })
+
+  it('rejects null bytes', () => {
+    assert.throws(() => validateProjectPath('/foo\0bar'), /null bytes/)
+  })
 })
 
 // ── Composite: validateBeadsList ────────────────────────────────────────────

@@ -107,6 +107,10 @@ describe('validateConfigProjectPath', () => {
     assert.throws(() => validateConfigProjectPath(undefined), /non-empty string/)
     assert.throws(() => validateConfigProjectPath(42), /non-empty string/)
   })
+
+  it('rejects null bytes', () => {
+    assert.throws(() => validateConfigProjectPath('/foo\0bar'), /null bytes/)
+  })
 })
 
 // ── Composite: validateConfigRead ────────────────────────────────────────────
