@@ -5,11 +5,7 @@ import { spawn, execSync } from 'child_process'
 import { RalphConfig, Bead } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { detectApiLimit } from './ResponseAnalyzer'
-
-function stripAnsi(s: string): string {
-  return s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\][^\x07]*\x07/g, '')
-    .replace(/\x1B[()][AB012]/g, '').replace(/\x1B[=>]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-}
+import { stripAnsi } from './utils'
 
 function buildEnv(): NodeJS.ProcessEnv {
   const extras = ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',

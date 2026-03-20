@@ -4,11 +4,7 @@ import * as path from 'path'
 import { spawn, execSync, ChildProcess } from 'child_process'
 import { RalphConfig } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
-
-function stripAnsi(s: string): string {
-  return s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '').replace(/\x1B\][^\x07]*\x07/g, '')
-    .replace(/\x1B[()][AB012]/g, '').replace(/\x1B[=>]/g, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-}
+import { stripAnsi } from './utils'
 
 function buildEnv(): NodeJS.ProcessEnv {
   const extras = ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',

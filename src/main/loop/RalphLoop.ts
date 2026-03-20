@@ -14,16 +14,7 @@ import { loadConfig } from './RcParser'
 import { validateIntegrity } from './FileGuard'
 import { analyze, extractResultFromJsonStream, detectApiLimit } from './ResponseAnalyzer'
 import { BdClient } from './BdClient'
-
-function stripAnsi(s: string): string {
-  return s
-    .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
-    .replace(/\x1B\][^\x07]*\x07/g, '')
-    .replace(/\x1B[()][AB012]/g, '')
-    .replace(/\x1B[=>]/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-}
+import { stripAnsi } from './utils'
 
 function buildEnv(): NodeJS.ProcessEnv {
   const extraPaths = [
