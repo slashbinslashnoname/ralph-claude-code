@@ -335,6 +335,8 @@ export class AgentCoordinator {
           movedItems.push({ path: fullPath, symlinkTarget: target })
         } else {
           const tmp = fullPath + '.__merge_tmp'
+          // Remove leftover tmp from a previous failed merge
+          try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ok */ }
           fs.renameSync(fullPath, tmp)
           movedItems.push({ path: fullPath })
         }
