@@ -3,6 +3,7 @@ import * as path from 'path'
 import { execSync } from 'child_process'
 import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent } from '../types'
+import { AsyncSemaphore } from './AsyncSemaphore'
 
 export class AgentCoordinator {
   private lockFile: string
@@ -264,17 +265,10 @@ export class AgentCoordinator {
 
   // ── Bead operations via bd CLI ─────────────────────────────────────────
 
-  private claimLock = false
+  private claimSemaphore = new AsyncSemaphore()
 
-  claimBestBead(agentId: string): Bead | null {
-    // Spin-wait if another agent is claiming (prevents race on bead list)
-    const start = Date.now()
-    while (this.claimLock && Date.now() - start < 5000) {
-      const waitMs = 50 + Math.random() * 100
-      const end = Date.now() + waitMs
-      while (Date.now() < end) { /* busy wait */ }
-    }
-    this.claimLock = true
+  async claimBestBead(agentId: string): Promise<Bead | null> {
+    await this.claimSemaphore.acquire(5000)
 
     try {
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
@@ -301,7 +295,7 @@ export class AgentCoordinator {
       }
       return null
     } finally {
-      this.claimLock = false
+      this.claimSemaphore.release()
     }
   }
 

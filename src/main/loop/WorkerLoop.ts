@@ -103,7 +103,7 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('routing')
       this._log('INFO', `[${this.agentId}] Routing: looking for best available bead…`)
 
-      const bead = this.coordinator.claimBestBead(this.agentId)
+      const bead = await this.coordinator.claimBestBead(this.agentId)
       if (!bead) {
         if (!this.coordinator.hasOpenWork()) {
           this._log('SUCCESS', `[${this.agentId}] No open beads — worker done`)
