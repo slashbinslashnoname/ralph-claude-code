@@ -22,6 +22,15 @@ import {
   validateProjectPath,
 } from './loop/beadValidation'
 import { validateConfigRead, validateConfigWrite } from './loop/configValidation'
+import {
+  validateSwarmStart,
+  validateSwarmStop,
+  validateSwarmInject,
+  validateSwarmQueueRemove,
+  validateSwarmActivity,
+  validateSwarmAgentOutput,
+  validateSwarmAgentLogContent,
+} from './loop/swarmValidation'
 import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
@@ -466,20 +475,26 @@ export function registerIpc(
     return swarm
   }
 
-  ipcMain.handle('swarm:inject', (_e, projectPath: string, request: string) => {
+  ipcMain.handle('swarm:inject', (_e, projectPath: unknown, request: unknown) => {
     try {
-      const swarm = getOrCreateSwarm(projectPath)
-      const { id } = swarm.injectPlan(request)
+      const v = validateSwarmInject(projectPath, request)
+      const swarm = getOrCreateSwarm(v.projectPath)
+      const { id } = swarm.injectPlan(v.request)
       return { ok: true, id }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
-  ipcMain.handle('swarm:queue-remove', (_e, projectPath: string, id: string) => {
-    const swarm = swarms.get(projectPath)
-    if (!swarm) return { ok: false, error: 'No swarm' }
-    return { ok: swarm.removeQueuedPlan(id) }
+  ipcMain.handle('swarm:queue-remove', (_e, projectPath: unknown, id: unknown) => {
+    try {
+      const v = validateSwarmQueueRemove(projectPath, id)
+      const swarm = swarms.get(v.projectPath)
+      if (!swarm) return { ok: false, error: 'No swarm' }
+      return { ok: swarm.removeQueuedPlan(v.id) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('swarm:queue', (_e, projectPath: string) => {
@@ -487,20 +502,26 @@ export function registerIpc(
     return swarm ? swarm.getPlanQueue() : []
   })
 
-  ipcMain.handle('swarm:start', (_e, projectPath: string, workerCount = 2) => {
+  ipcMain.handle('swarm:start', (_e, projectPath: unknown, workerCount: unknown) => {
     try {
-      const swarm = getOrCreateSwarm(projectPath)
-      swarm.startWorkers(workerCount)
+      const v = validateSwarmStart(projectPath, workerCount)
+      const swarm = getOrCreateSwarm(v.projectPath)
+      swarm.startWorkers(v.workerCount)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
-  ipcMain.handle('swarm:stop', (_e, projectPath: string) => {
-    const swarm = swarms.get(projectPath)
-    if (swarm) swarm.stopWorkers()
-    return { ok: true }
+  ipcMain.handle('swarm:stop', (_e, projectPath: unknown) => {
+    try {
+      const v = validateSwarmStop(projectPath)
+      const swarm = swarms.get(v.projectPath)
+      if (swarm) swarm.stopWorkers()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('swarm:status', (_e, projectPath: string) => {
@@ -527,9 +548,14 @@ export function registerIpc(
     return swarm.getStats()
   })
 
-  ipcMain.handle('swarm:activity', (_e, projectPath: string, limit = 50) => {
-    const swarm = swarms.get(projectPath) ?? getOrCreateSwarm(projectPath)
-    return swarm.getActivity(limit)
+  ipcMain.handle('swarm:activity', (_e, projectPath: unknown, limit: unknown) => {
+    try {
+      const v = validateSwarmActivity(projectPath, limit)
+      const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
+      return swarm.getActivity(v.limit)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // ── Agent log history (for closed beads) ───────────────────────────────
@@ -552,19 +578,27 @@ export function registerIpc(
       })
   })
 
-  ipcMain.handle('swarm:agent-log-content', (_e, projectPath: string, filename: string) => {
-    // Sanitize filename to prevent path traversal
-    if (filename.includes('/') || filename.includes('..')) return ''
-    const filePath = path.join(ralphDir(projectPath), 'logs', filename)
-    return readText(filePath) ?? ''
+  ipcMain.handle('swarm:agent-log-content', (_e, projectPath: unknown, filename: unknown) => {
+    try {
+      const v = validateSwarmAgentLogContent(projectPath, filename)
+      const filePath = path.join(ralphDir(v.projectPath), 'logs', v.filename)
+      return readText(filePath) ?? ''
+    } catch {
+      return ''
+    }
   })
 
-  ipcMain.handle('swarm:agent-output', (_e, projectPath: string, agentId: string) => {
-    const swarm = swarms.get(projectPath)
-    if (swarm) return swarm.getAgentOutput(agentId)
-    // Fallback: read from disk even without active swarm
-    const logFile = path.join(ralphDir(projectPath), 'logs', `${agentId}.log`)
-    return readText(logFile) ?? ''
+  ipcMain.handle('swarm:agent-output', (_e, projectPath: unknown, agentId: unknown) => {
+    try {
+      const v = validateSwarmAgentOutput(projectPath, agentId)
+      const swarm = swarms.get(v.projectPath)
+      if (swarm) return swarm.getAgentOutput(v.agentId)
+      // Fallback: read from disk even without active swarm
+      const logFile = path.join(ralphDir(v.projectPath), 'logs', `${v.agentId}.log`)
+      return readText(logFile) ?? ''
+    } catch {
+      return ''
+    }
   })
 
   // ── Cleanup ────────────────────────────────────────────────────────────
