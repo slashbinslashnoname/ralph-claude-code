@@ -14,6 +14,13 @@ import { loadConfig } from './loop/RcParser'
 import { CircuitBreaker } from './loop/CircuitBreaker'
 import { checkEnabled, detectProjectContext, enableRalph } from './loop/RalphEnabler'
 import { BdClient } from './loop/BdClient'
+import {
+  validateBeadsList,
+  validateBeadsCreate,
+  validateBeadsUpdate,
+  validateBeadId,
+  validateProjectPath,
+} from './loop/beadValidation'
 import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
@@ -330,8 +337,9 @@ export function registerIpc(
 
   ipcMain.handle('beads:list', async (_e, projectPath: string, filter = 'open') => {
     try {
-      const bd = new BdClient(projectPath)
-      const tasks = filter === 'all' ? bd.listAll() : bd.listByStatus(filter)
+      const v = validateBeadsList(projectPath, filter)
+      const bd = new BdClient(v.projectPath)
+      const tasks = v.filter === 'all' ? bd.listAll() : bd.listByStatus(v.filter)
       return { ok: true, tasks }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
@@ -340,8 +348,10 @@ export function registerIpc(
 
   ipcMain.handle('beads:show', async (_e, projectPath: string, id: string) => {
     try {
-      const bd = new BdClient(projectPath)
-      const task = bd.show(id)
+      const p = validateProjectPath(projectPath)
+      const beadId = validateBeadId(id)
+      const bd = new BdClient(p)
+      const task = bd.show(beadId)
       return task ? { ok: true, task } : { ok: false, error: 'Not found' }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -352,8 +362,9 @@ export function registerIpc(
     title: string; type?: string; priority?: number; description?: string; labels?: string[]
   }) => {
     try {
-      const bd = new BdClient(projectPath)
-      const task = bd.create(opts as any)
+      const v = validateBeadsCreate(projectPath, opts)
+      const bd = new BdClient(v.projectPath)
+      const task = bd.create(v.opts as any)
       return { ok: true, task }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -366,14 +377,15 @@ export function registerIpc(
     labelsAdd?: string[]; labelsRemove?: string[]
   }) => {
     try {
-      const bd = new BdClient(projectPath)
-      bd.update(id, {
-        priority: opts.priority,
-        claim: opts.claim,
-        unclaim: opts.unclaim,
-        title: opts.title,
-        description: opts.description,
-        labels: { add: opts.labelsAdd, remove: opts.labelsRemove }
+      const v = validateBeadsUpdate(projectPath, id, opts)
+      const bd = new BdClient(v.projectPath)
+      bd.update(v.id, {
+        priority: v.opts.priority,
+        claim: v.opts.claim,
+        unclaim: v.opts.unclaim,
+        title: v.opts.title,
+        description: v.opts.description,
+        labels: { add: v.opts.labelsAdd, remove: v.opts.labelsRemove }
       })
       return { ok: true }
     } catch (e) {
@@ -383,8 +395,10 @@ export function registerIpc(
 
   ipcMain.handle('beads:close', async (_e, projectPath: string, id: string, reason = 'Done') => {
     try {
-      const bd = new BdClient(projectPath)
-      bd.close(id, reason)
+      const p = validateProjectPath(projectPath)
+      const beadId = validateBeadId(id)
+      const bd = new BdClient(p)
+      bd.close(beadId, reason)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -393,8 +407,10 @@ export function registerIpc(
 
   ipcMain.handle('beads:reopen', async (_e, projectPath: string, id: string, reason = '') => {
     try {
-      const bd = new BdClient(projectPath)
-      bd.reopen(id, reason)
+      const p = validateProjectPath(projectPath)
+      const beadId = validateBeadId(id)
+      const bd = new BdClient(p)
+      bd.reopen(beadId, reason)
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
