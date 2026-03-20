@@ -1,20 +1,24 @@
-# Build & Run — slashbot
+# Build & Run — Slashbot
 
 ## Install
 ```bash
-npm install
+bun install
 ```
 
-## Test
+## Dev
 ```bash
-npm test
+bun run dev
 ```
 
 ## Build
 ```bash
-npm run build
+bun run build
 ```
 
-## Notes
+## Stack
+- Electron 33 + electron-vite + React 18 + TypeScript
+- Package manager: Bun
+- Source: src/main/, src/preload/, src/renderer/
 
+## Notes
 _Update this file as the project evolves._
