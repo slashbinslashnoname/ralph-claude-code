@@ -406,7 +406,7 @@ export class WorkerLoop extends EventEmitter {
   }
 
   /** Build context about the parent epic and dependency beads */
-  _buildParentContext(bead: Bead): string {
+  private _buildParentContext(bead: Bead): string {
     const sections: string[] = []
 
     // Parent epic context
@@ -439,7 +439,7 @@ export class WorkerLoop extends EventEmitter {
   }
 
   /** Build context from the shared knowledge log */
-  _buildKnowledgeContext(): string {
+  private _buildKnowledgeContext(): string {
     const entries = this.coordinator.readKnowledge(30)
     if (entries.length === 0) return ''
 
