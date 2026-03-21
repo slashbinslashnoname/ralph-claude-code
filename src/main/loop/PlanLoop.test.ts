@@ -41,6 +41,11 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     autoPush: false,
     maxRetries: 2,
     autoSplitThreshold: 3,
+    buildMonitorCmd: '',
+    buildMonitorInterval: 0,
+    claudeModelThink: 'sonnet',
+    claudeModelExecute: 'opus',
+    claudeModelReview: 'sonnet',
     ...overrides
   }
 }
@@ -52,7 +57,8 @@ function makeCoordinator() {
       createAsync: vi.fn(async (opts: any) => ({ id: `sb-${Math.random().toString(36).slice(2, 5)}`, ...opts })),
       addDep: vi.fn()
     },
-    post: vi.fn()
+    post: vi.fn(),
+    postActivity: vi.fn()
   } as any
 }
 
@@ -265,10 +271,10 @@ describe('PlanLoop', () => {
       mockProcesses[1].simulateExit(0)
 
       await runPromise
-      expect(coord.post).toHaveBeenCalledWith(expect.objectContaining({
-        from: 'planner',
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'planner',
         type: 'info',
-        text: expect.stringContaining('1 beads created')
+        summary: expect.stringContaining('1 beads created')
       }))
     })
 
@@ -311,6 +317,54 @@ describe('PlanLoop', () => {
       await runPromise
 
       expect(fs.appendFileSync).toHaveBeenCalled()
+    })
+
+    it('routes --model per phase: claudeModelThink for plan, claudeModelExecute for encode', async () => {
+      const coord = makeCoordinator()
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+
+      const runPromise = loop.run('test')
+
+      // Plan phase spawned
+      expect(cp.spawn).toHaveBeenCalledTimes(1)
+      const planArgs = (cp.spawn as any).mock.calls[0][1] as string[]
+      expect(planArgs).toContain('--model')
+      expect(planArgs[planArgs.indexOf('--model') + 1]).toBe('sonnet')
+
+      mockProcesses[0].simulateStdout('plan')
+      mockProcesses[0].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Encode phase spawned
+      expect(cp.spawn).toHaveBeenCalledTimes(2)
+      const encodeArgs = (cp.spawn as any).mock.calls[1][1] as string[]
+      expect(encodeArgs).toContain('--model')
+      expect(encodeArgs[encodeArgs.indexOf('--model') + 1]).toBe('opus')
+
+      mockProcesses[1].simulateStdout('[{"id":"b1","title":"T","type":"task","priority":1,"deps":[],"description":"d","tags":[]}]')
+      mockProcesses[1].simulateExit(0)
+      await runPromise
+    })
+
+    it('uses custom model values from config', async () => {
+      const coord = makeCoordinator()
+      const loop = new PlanLoop('/project', makeConfig({ claudeModelThink: 'haiku', claudeModelExecute: 'sonnet' }), coord)
+
+      const runPromise = loop.run('test')
+
+      const planArgs = (cp.spawn as any).mock.calls[0][1] as string[]
+      expect(planArgs[planArgs.indexOf('--model') + 1]).toBe('haiku')
+
+      mockProcesses[0].simulateStdout('plan')
+      mockProcesses[0].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      const encodeArgs = (cp.spawn as any).mock.calls[1][1] as string[]
+      expect(encodeArgs[encodeArgs.indexOf('--model') + 1]).toBe('sonnet')
+
+      mockProcesses[1].simulateStdout('[]')
+      mockProcesses[1].simulateExit(0)
+      await runPromise
     })
 
     it('resolves with raw output even on non-zero exit if output exists', async () => {

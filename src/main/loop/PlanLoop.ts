@@ -42,7 +42,7 @@ export class PlanLoop extends EventEmitter {
     this._log('INFO', 'Step 1 \u2014 Generating plan\u2026')
     let planMd = ''
     try {
-      const raw = await this._runClaude(this._buildPlanPrompt(userRequest), 'plan')
+      const raw = await this._runClaude(this._buildPlanPrompt(userRequest), 'plan', this.config.claudeModelThink)
       planMd = stripAnsi(raw)
       this._log('SUCCESS', `Plan ready (${planMd.length} chars)`)
     } catch (err) {
@@ -57,7 +57,7 @@ export class PlanLoop extends EventEmitter {
     this.emit('phase', 'encoding')
     this._log('INFO', 'Step 2 \u2014 Encoding plan to beads via bd CLI\u2026')
     try {
-      const raw = await this._runClaude(this._buildEncodePrompt(planMd, userRequest), 'encode')
+      const raw = await this._runClaude(this._buildEncodePrompt(planMd, userRequest), 'encode', this.config.claudeModelExecute)
       const beadCount = await this._parseAndCreateBeads(stripAnsi(raw))
       this._log('SUCCESS', `Beads created via bd: ${beadCount} beads`)
       this.emit('phase', 'done')
@@ -68,10 +68,11 @@ export class PlanLoop extends EventEmitter {
     }
   }
 
-  private _runClaude(prompt: string, label: string): Promise<string> {
+  private _runClaude(prompt: string, label: string, model?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = ['-p', prompt, '--output-format', 'text',
         '--dangerously-skip-permissions']
+      if (model) args.push('--model', model)
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `planner_${label}_${ts}.log`)
 
