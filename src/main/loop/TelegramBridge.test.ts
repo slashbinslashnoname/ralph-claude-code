@@ -143,6 +143,30 @@ describe('TelegramBridge', () => {
       expect(bot.sendMessage.mock.calls[0][0]).toContain('✅')
     })
 
+    it.each([
+      ['started', '🟢'],
+      ['thinking', '🧠'],
+      ['claimed', '📋'],
+      ['executing', '⚙️'],
+      ['merged', '🔀'],
+      ['completed', '✅'],
+      ['failed', '❌'],
+      ['stopped', '🛑'],
+      ['paused', '⏸️'],
+      ['resumed', '▶️'],
+      ['rollback', '↩️'],
+      ['split', '✂️'],
+    ] as [ActivityEvent['type'], string][])(
+      'maps %s to %s',
+      (type, expectedEmoji) => {
+        createBridge('all')
+        orchestrator.emit('activity', makeEvent({ type }))
+        vi.advanceTimersByTime(1000)
+        const msg = bot.sendMessage.mock.calls[0][0] as string
+        expect(msg).toContain(expectedEmoji)
+      },
+    )
+
     it('includes agent, bead, and summary in formatted message', () => {
       createBridge('all')
       orchestrator.emit(
