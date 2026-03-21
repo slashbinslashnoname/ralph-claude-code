@@ -18,6 +18,7 @@ import {
   validateSwarmActivity,
   validateSwarmAgentOutput,
   validateSwarmAgentLogContent,
+  validateSwarmPauseResume,
 } from './swarmValidation'
 
 // ── validateWorkerCount ────────────────────────────────────────────────────
@@ -380,5 +381,24 @@ describe('validateSwarmAgentLogs', () => {
   it('rejects invalid projectPath', () => {
     expect(() => validateSwarmAgentLogs('')).toThrow(/projectPath/)
     expect(() => validateSwarmAgentLogs(null)).toThrow(/projectPath/)
+  })
+})
+
+describe('validateSwarmPauseResume', () => {
+  it('validates projectPath and agentId', () => {
+    const result = validateSwarmPauseResume('/path', 'agent-0')
+    expect(result).toEqual({ projectPath: '/path', agentId: 'agent-0' })
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmPauseResume('', 'agent-0')).toThrow(/projectPath/)
+  })
+
+  it('rejects invalid agentId', () => {
+    expect(() => validateSwarmPauseResume('/path', 'bad-id')).toThrow(/agent-N/)
+  })
+
+  it('rejects path traversal in agentId', () => {
+    expect(() => validateSwarmPauseResume('/path', '../etc')).toThrow(/agent-N/)
   })
 })

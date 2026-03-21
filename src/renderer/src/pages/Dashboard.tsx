@@ -130,7 +130,16 @@ export default function Dashboard({ projectPath, status, circuit, onNavigate }: 
                       <span className={`agent-dot ${a.phase}`} />
                       {a.id}
                     </span>
-                    <span className="badge badge-info">{a.phase}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className={`badge badge-${a.phase === 'paused' ? 'warning' : 'info'}`}>{a.phase}</span>
+                      {a.phase === 'paused' ? (
+                        <button className="btn btn-xs btn-accent" onClick={() => sb.swarm.resumeAgent(projectPath, a.id)}
+                          title="Resume">Resume</button>
+                      ) : (
+                        <button className="btn btn-xs btn-outline" onClick={() => sb.swarm.pauseAgent(projectPath, a.id)}
+                          title="Pause">Pause</button>
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>
