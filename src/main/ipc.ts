@@ -243,9 +243,7 @@ export function registerIpc(
     watcher.on('change', (filePath: string) => {
       const name = filePath.split('/').pop() ?? ''
       if (name === 'status.json') push('status:update', 'status.json')
-      if (name === 'progress.json') push('progress:update', 'progress.json')
       if (name === '.circuit_breaker_state') push('circuit:update', '.circuit_breaker_state')
-      if (name === '.response_analysis') push('analysis:update', '.response_analysis')
     })
 
     const logFile = path.join(rd, 'logs', 'slashbot.log')
