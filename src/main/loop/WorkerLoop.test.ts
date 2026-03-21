@@ -433,6 +433,100 @@ describe('WorkerLoop', () => {
     })
   })
 
+  describe('_buildThinkingPrompt split analysis section', () => {
+    it('includes Split Analysis section with JSON schema', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('### Split Analysis')
+      expect(prompt).toContain('"shouldSplit"')
+      expect(prompt).toContain('"children"')
+      expect(prompt).toContain('"dependsOn"')
+    })
+
+    it('Split Analysis section appears after Test strategy', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      const testIdx = prompt.indexOf('### Test strategy')
+      const splitIdx = prompt.indexOf('### Split Analysis')
+      expect(testIdx).toBeGreaterThan(-1)
+      expect(splitIdx).toBeGreaterThan(testIdx)
+    })
+
+    it('Split Analysis schema includes title, description, files, dependsOn for children', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('"title"')
+      expect(prompt).toContain('"description"')
+      expect(prompt).toContain('"files"')
+      expect(prompt).toContain('"dependsOn"')
+    })
+  })
+
+  describe('_extractThinkingSummary with Split Analysis', () => {
+    it('captures Split Analysis section from thinking output', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const input = [
+        '### Understanding',
+        'This bead does X',
+        '',
+        '### Split Analysis',
+        'This bead should be split.',
+        '```json',
+        '{',
+        '  "shouldSplit": true,',
+        '  "reason": "multiple concerns",',
+        '  "children": [',
+        '    {',
+        '      "title": "Child A",',
+        '      "description": "First part",',
+        '      "files": ["src/a.ts"],',
+        '      "dependsOn": []',
+        '    }',
+        '  ]',
+        '}',
+        '```',
+        '',
+        'Some trailing text'
+      ].join('\n')
+      const summary = (worker as any)._extractThinkingSummary(input)
+      expect(summary).toContain('### Split Analysis')
+      expect(summary).toContain('"shouldSplit": true')
+      expect(summary).toContain('"children"')
+      expect(summary).toContain('Child A')
+    })
+
+    it('captures Split Analysis with no-split JSON', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const input = [
+        '### Understanding',
+        'Simple change',
+        '',
+        '### Split Analysis',
+        '```json',
+        '{ "shouldSplit": false, "reason": "single concern", "children": [] }',
+        '```',
+      ].join('\n')
+      const summary = (worker as any)._extractThinkingSummary(input)
+      expect(summary).toContain('### Split Analysis')
+      expect(summary).toContain('"shouldSplit": false')
+    })
+
+    it('preserves empty lines inside fenced code blocks', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const input = [
+        '### Split Analysis',
+        '```json',
+        '{',
+        '',
+        '  "shouldSplit": false',
+        '}',
+        '```',
+      ].join('\n')
+      const summary = (worker as any)._extractThinkingSummary(input)
+      expect(summary).toContain('"shouldSplit": false')
+    })
+  })
+
   describe('prompt building', () => {
     it('_buildThinkingPrompt includes bead details', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())

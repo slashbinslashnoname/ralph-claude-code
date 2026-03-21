@@ -502,6 +502,39 @@ What could go wrong and how will you mitigate it?
 ### Test strategy
 How will you verify correctness?
 
+### Split Analysis
+Evaluate whether this bead is too large or covers multiple concerns that should be separate tasks.
+Output a JSON block (fenced with \`\`\`json) with this schema:
+\`\`\`json
+{
+  "shouldSplit": false,
+  "reason": "single-concern change touching one module",
+  "children": []
+}
+\`\`\`
+If \`shouldSplit\` is true, populate \`children\` with proposed sub-beads:
+\`\`\`json
+{
+  "shouldSplit": true,
+  "reason": "bead spans UI, API, and DB layers with independent concerns",
+  "children": [
+    {
+      "title": "Child bead title",
+      "description": "What this child accomplishes",
+      "files": ["src/relevant-file.ts"],
+      "dependsOn": []
+    },
+    {
+      "title": "Second child",
+      "description": "Depends on the first child",
+      "files": ["src/other.ts"],
+      "dependsOn": ["Child bead title"]
+    }
+  ]
+}
+\`\`\`
+Each child must have: \`title\`, \`description\`, \`files\` (scope), and \`dependsOn\` (titles of sibling children it requires).
+
 DO NOT write any implementation code. Analysis only.`
   }
 
@@ -559,17 +592,28 @@ DO NOT write any implementation code. Analysis only.`
     const summary: string[] = []
 
     let inSection = false
+    let inFence = false
     for (const line of lines) {
-      if (/^###?\s+(Understanding|Approach|Risks|Test)/i.test(line)) {
+      if (/^###?\s+(Understanding|Approach|Risks|Test|Split Analysis)/i.test(line)) {
         inSection = true
         summary.push(line)
         continue
       }
-      if (inSection && line.trim()) {
-        summary.push(line)
-      }
-      if (inSection && !line.trim()) {
-        inSection = false
+      if (inSection) {
+        if (/^```/.test(line.trim())) {
+          inFence = !inFence
+          summary.push(line)
+          continue
+        }
+        if (inFence) {
+          summary.push(line)
+          continue
+        }
+        if (line.trim()) {
+          summary.push(line)
+        } else {
+          inSection = false
+        }
       }
     }
 
