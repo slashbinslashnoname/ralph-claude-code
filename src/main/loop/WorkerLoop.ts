@@ -20,7 +20,7 @@ export class WorkerLoop extends EventEmitter {
   running = false
   stopped = false
   paused = false
-  private _pauseResolve: (() => void) | null = null
+  private _pauseResolve: ((stopped: boolean) => void) | null = null
   private _phaseBeforePause: string | null = null
   private childProc: ReturnType<typeof cp.spawn> | null = null
   loopCount = 0
@@ -65,8 +65,8 @@ export class WorkerLoop extends EventEmitter {
     this.stopped = true
     this.running = false
     this.paused = false
-    // Release pause gate so the loop can exit
-    if (this._pauseResolve) { this._pauseResolve(); this._pauseResolve = null }
+    // Release pause gate so the loop can exit — signal stopped
+    if (this._pauseResolve) { this._pauseResolve(true); this._pauseResolve = null }
     if (this.childProc) {
       try { this.childProc.kill('SIGTERM') } catch { /* ignore */ }
       const p = this.childProc
@@ -112,7 +112,7 @@ export class WorkerLoop extends EventEmitter {
     this._phaseBeforePause = null
     // Release the pause gate so the loop continues
     if (this._pauseResolve) {
-      this._pauseResolve()
+      this._pauseResolve(false)
       this._pauseResolve = null
     }
   }
@@ -591,8 +591,8 @@ DO NOT write any implementation code. Analysis only.`
   private _waitIfPaused(): Promise<boolean> {
     if (!this.paused) return Promise.resolve(false)
     return new Promise(resolve => {
-      this._pauseResolve = () => resolve(false)
-      // If stop() is called while paused, _sleep polling will set stopped
+      this._pauseResolve = resolve
+      // Safety poll: detect stop/resume even if _pauseResolve was missed
       const poll = setInterval(() => {
         if (this.stopped || !this.paused) {
           clearInterval(poll)
