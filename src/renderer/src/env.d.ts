@@ -57,7 +57,6 @@ interface SlashbotAPI {
     onOutput: (cb: (...a: any[]) => void) => () => void
     onGraph: (cb: (...a: any[]) => void) => () => void
     onAgents: (cb: (...a: any[]) => void) => () => void
-    onMail: (cb: (...a: any[]) => void) => () => void
     onPlanPhase: (cb: (...a: any[]) => void) => () => void
     onPlanQueue: (cb: (...a: any[]) => void) => () => void
     onStopped: (cb: (...a: any[]) => void) => () => void
