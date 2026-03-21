@@ -8,7 +8,6 @@ import { createNativeRequire } from './nativeRequire'
 // Dynamic require to prevent rollup from bundling native fsevents module
 const _require = createNativeRequire()
 const chokidar: typeof import('chokidar') = _require('chokidar')
-import { RalphLoop } from './loop/RalphLoop'
 import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
 import { loadConfig } from './loop/RcParser'
 import { CircuitBreaker } from './loop/CircuitBreaker'
@@ -50,13 +49,12 @@ import { EnableOptions } from './types'
 const execAsync = promisify(exec)
 
 const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
-const loops = new Map<string, RalphLoop>()
 const swarms = new Map<string, SwarmOrchestrator>()
 const telegramBots = new Map<string, TelegramBot>()
 const telegramBridges = new Map<string, TelegramBridge>()
 
 /**
- * Gracefully shut down all active swarms, stop loops/watchers,
+ * Gracefully shut down all active swarms, stop watchers,
  * and clean up orphaned git worktrees.
  */
 export async function gracefulShutdown(storePath: string, timeoutMs = 30_000): Promise<void> {
@@ -80,15 +78,11 @@ export async function gracefulShutdown(storePath: string, timeoutMs = 30_000): P
   await Promise.allSettled(botDisconnects)
   telegramBots.clear()
 
-  // 3. Stop legacy loops
-  loops.forEach(l => l.stop())
-  loops.clear()
-
-  // 4. Close file watchers
+  // 3. Close file watchers
   watchers.forEach(w => w.close())
   watchers.clear()
 
-  // 5. Clean up orphaned worktrees across known projects
+  // 4. Clean up orphaned worktrees across known projects
   const projectPaths = readProjectStore(storePath)
   for (const projectPath of projectPaths) {
     cleanOrphanedWorktrees(projectPath)
@@ -306,42 +300,6 @@ export function registerIpc(
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
-
-  // ── Slashbot loop ──────────────────────────────────────────────────────────
-
-  ipcMain.handle('slashbot:start', (_e, projectPath: string) => {
-    if (loops.has(projectPath)) return { ok: false, error: 'Already running' }
-    const loop = new RalphLoop(projectPath)
-    loop.on('status', (s) => broadcast('status:update', projectPath, s))
-    loop.on('circuit', (c) => broadcast('circuit:update', projectPath, c))
-    loop.on('log', (level: string, msg: string) =>
-      broadcast('logs:lines', projectPath, [`[${new Date().toISOString()}] [${level}] ${msg}`]))
-    loop.on('output', (chunk: string) => broadcast('pty:data', projectPath, chunk))
-    loop.on('exit', (reason: string, detail?: string) => {
-      loops.delete(projectPath)
-      broadcast('slashbot:exit', projectPath, reason, detail)
-    })
-    loops.set(projectPath, loop)
-    addToStore(projectPath)
-    if (!watchers.has(projectPath)) setTimeout(() => subscribeProject(projectPath), 300)
-    loop.start().catch(err => {
-      loops.delete(projectPath)
-      broadcast('slashbot:exit', projectPath, 'error', err instanceof Error ? err.message : String(err))
-    })
-    return { ok: true }
-  })
-
-  ipcMain.handle('slashbot:stop', (_e, projectPath: string) => {
-    loops.get(projectPath)?.stop()
-    loops.delete(projectPath)
-  })
-
-  ipcMain.handle('slashbot:running', (_e, projectPath: string) => loops.has(projectPath))
-
-  // ── PTY (placeholder) ──────────────────────────────────────────────────
-
-  ipcMain.handle('pty:write', () => {})
-  ipcMain.handle('pty:resize', () => {})
 
   // ── Circuit breaker & session ──────────────────────────────────────────
 
@@ -964,14 +922,12 @@ export function registerIpc(
   ipcMain.handle('window:cleanup', async (_e, projectPath?: string) => {
     if (projectPath) {
       watchers.get(projectPath)?.close(); watchers.delete(projectPath)
-      loops.get(projectPath)?.stop(); loops.delete(projectPath)
       swarms.get(projectPath)?.stopAll(); swarms.delete(projectPath)
       telegramBridges.get(projectPath)?.stop(); telegramBridges.delete(projectPath)
       const bot = telegramBots.get(projectPath)
       if (bot) { await bot.disconnect(); telegramBots.delete(projectPath) }
     } else {
       watchers.forEach(w => w.close()); watchers.clear()
-      loops.forEach(l => l.stop()); loops.clear()
       swarms.forEach(s => s.stopAll()); swarms.clear()
       telegramBridges.forEach(b => b.stop()); telegramBridges.clear()
       await Promise.allSettled([...telegramBots.values()].map(b => b.disconnect()))
