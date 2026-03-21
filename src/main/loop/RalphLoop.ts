@@ -1,9 +1,9 @@
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
-// Use createRequire to load node-pty at runtime (prevents rollup from bundling the native module)
-import { createRequire } from 'module'
-const _require = createRequire(import.meta.url ?? __filename)
+// Use createNativeRequire to load node-pty at runtime (prevents rollup from bundling the native module)
+import { createNativeRequire } from '../nativeRequire'
+const _require = createNativeRequire()
 const pty: typeof import('node-pty') = _require('node-pty')
 import { RalphConfig, LoopStatus } from '../types'
 import { CircuitBreaker } from './CircuitBreaker'
