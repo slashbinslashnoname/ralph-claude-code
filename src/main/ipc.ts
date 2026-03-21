@@ -42,6 +42,8 @@ import {
   validateSwarmKnowledge,
   validateSwarmBuildMonitorToggle,
   validateSwarmBuildMonitorStatus,
+  validateSwarmActivityForBead,
+  validateSwarmActivityForAgent,
 } from './loop/swarmValidation'
 import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
@@ -680,6 +682,26 @@ export function registerIpc(
       const v = validateSwarmActivity(projectPath, limit)
       const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
       return swarm.getActivity(v.limit)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:activity-for-bead', (_e, projectPath: unknown, beadId: unknown, limit: unknown) => {
+    try {
+      const v = validateSwarmActivityForBead(projectPath, beadId, limit)
+      const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
+      return swarm.getActivityForBead(v.beadId, v.limit)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:activity-for-agent', (_e, projectPath: unknown, agentId: unknown, limit: unknown) => {
+    try {
+      const v = validateSwarmActivityForAgent(projectPath, agentId, limit)
+      const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
+      return swarm.getActivityForAgent(v.agentId, v.limit)
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }

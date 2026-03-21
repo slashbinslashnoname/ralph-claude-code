@@ -4,7 +4,7 @@
  * returns { ok: false, error } to the renderer.
  */
 
-import { validateProjectPath, validateStatusFilter } from './beadValidation'
+import { validateProjectPath, validateStatusFilter, validateBeadId } from './beadValidation'
 
 // ── Worker count validation ──────────────────────────────────────────────────
 const MIN_WORKERS = 1
@@ -139,6 +139,26 @@ export function validateSwarmActivity(projectPath: unknown, limit: unknown): {
 } {
   return {
     projectPath: validateProjectPath(projectPath),
+    limit: validateActivityLimit(limit),
+  }
+}
+
+export function validateSwarmActivityForBead(projectPath: unknown, beadId: unknown, limit: unknown): {
+  projectPath: string; beadId: string; limit: number
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+    beadId: validateBeadId(beadId, 'beadId'),
+    limit: validateActivityLimit(limit),
+  }
+}
+
+export function validateSwarmActivityForAgent(projectPath: unknown, agentId: unknown, limit: unknown): {
+  projectPath: string; agentId: string; limit: number
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+    agentId: validateAgentId(agentId),
     limit: validateActivityLimit(limit),
   }
 }

@@ -23,6 +23,8 @@ import {
   validateBuildMonitorEnabled,
   validateSwarmBuildMonitorToggle,
   validateSwarmBuildMonitorStatus,
+  validateSwarmActivityForBead,
+  validateSwarmActivityForAgent,
 } from './swarmValidation'
 
 // ── validateWorkerCount ────────────────────────────────────────────────────
@@ -491,6 +493,62 @@ describe('validateSwarmBuildMonitorToggle', () => {
     expect(() => validateSwarmBuildMonitorToggle('/path', 1)).toThrow(/boolean/)
     expect(() => validateSwarmBuildMonitorToggle('/path', null)).toThrow(/boolean/)
     expect(() => validateSwarmBuildMonitorToggle('/path', undefined)).toThrow(/boolean/)
+  })
+})
+
+// ── validateSwarmActivityForBead ─────────────────────────────────────────
+
+describe('validateSwarmActivityForBead', () => {
+  it('validates projectPath, beadId, and limit', () => {
+    const result = validateSwarmActivityForBead('/path', 'abc-123', 100)
+    expect(result).toEqual({ projectPath: '/path', beadId: 'abc-123', limit: 100 })
+  })
+
+  it('uses default limit when undefined', () => {
+    const result = validateSwarmActivityForBead('/path', 'abc-123', undefined)
+    expect(result.limit).toBe(50)
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmActivityForBead('', 'abc-123', 50)).toThrow(/projectPath/)
+  })
+
+  it('rejects invalid beadId', () => {
+    expect(() => validateSwarmActivityForBead('/path', '', 50)).toThrow(/non-empty/)
+    expect(() => validateSwarmActivityForBead('/path', null, 50)).toThrow(/non-empty/)
+  })
+
+  it('rejects invalid limit', () => {
+    expect(() => validateSwarmActivityForBead('/path', 'abc-123', 0)).toThrow(/between 1 and 1000/)
+    expect(() => validateSwarmActivityForBead('/path', 'abc-123', 1001)).toThrow(/between 1 and 1000/)
+  })
+})
+
+// ── validateSwarmActivityForAgent ────────────────────────────────────────
+
+describe('validateSwarmActivityForAgent', () => {
+  it('validates projectPath, agentId, and limit', () => {
+    const result = validateSwarmActivityForAgent('/path', 'agent-0', 100)
+    expect(result).toEqual({ projectPath: '/path', agentId: 'agent-0', limit: 100 })
+  })
+
+  it('uses default limit when undefined', () => {
+    const result = validateSwarmActivityForAgent('/path', 'agent-0', undefined)
+    expect(result.limit).toBe(50)
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmActivityForAgent('', 'agent-0', 50)).toThrow(/projectPath/)
+  })
+
+  it('rejects invalid agentId', () => {
+    expect(() => validateSwarmActivityForAgent('/path', 'bad-id', 50)).toThrow(/agent-N/)
+    expect(() => validateSwarmActivityForAgent('/path', '', 50)).toThrow(/non-empty/)
+  })
+
+  it('rejects invalid limit', () => {
+    expect(() => validateSwarmActivityForAgent('/path', 'agent-0', 0)).toThrow(/between 1 and 1000/)
+    expect(() => validateSwarmActivityForAgent('/path', 'agent-0', 1001)).toThrow(/between 1 and 1000/)
   })
 })
 
