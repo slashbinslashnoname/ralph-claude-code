@@ -20,6 +20,9 @@ import {
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
   validateSwarmKnowledge,
+  validateBuildMonitorEnabled,
+  validateSwarmBuildMonitorToggle,
+  validateSwarmBuildMonitorStatus,
 } from './swarmValidation'
 
 // ── validateWorkerCount ────────────────────────────────────────────────────
@@ -426,5 +429,81 @@ describe('validateSwarmKnowledge', () => {
     expect(() => validateSwarmKnowledge('/path', 0)).toThrow(/between 1 and 1000/)
     expect(() => validateSwarmKnowledge('/path', 1001)).toThrow(/between 1 and 1000/)
     expect(() => validateSwarmKnowledge('/path', 1.5)).toThrow(/integer/)
+  })
+})
+
+// ── validateBuildMonitorEnabled ───────────────────────────────────────────
+
+describe('validateBuildMonitorEnabled', () => {
+  it('accepts true', () => {
+    expect(validateBuildMonitorEnabled(true)).toBe(true)
+  })
+
+  it('accepts false', () => {
+    expect(validateBuildMonitorEnabled(false)).toBe(false)
+  })
+
+  it('rejects string "true"', () => {
+    expect(() => validateBuildMonitorEnabled('true')).toThrow(/boolean/)
+  })
+
+  it('rejects string "false"', () => {
+    expect(() => validateBuildMonitorEnabled('false')).toThrow(/boolean/)
+  })
+
+  it('rejects number 1', () => {
+    expect(() => validateBuildMonitorEnabled(1)).toThrow(/boolean/)
+  })
+
+  it('rejects number 0', () => {
+    expect(() => validateBuildMonitorEnabled(0)).toThrow(/boolean/)
+  })
+
+  it('rejects null', () => {
+    expect(() => validateBuildMonitorEnabled(null)).toThrow(/boolean/)
+  })
+
+  it('rejects undefined', () => {
+    expect(() => validateBuildMonitorEnabled(undefined)).toThrow(/boolean/)
+  })
+})
+
+// ── validateSwarmBuildMonitorToggle ──────────────────────────────────────
+
+describe('validateSwarmBuildMonitorToggle', () => {
+  it('validates projectPath and enabled=true', () => {
+    const result = validateSwarmBuildMonitorToggle('/path/to/project', true)
+    expect(result).toEqual({ projectPath: '/path/to/project', enabled: true })
+  })
+
+  it('validates projectPath and enabled=false', () => {
+    const result = validateSwarmBuildMonitorToggle('/path/to/project', false)
+    expect(result).toEqual({ projectPath: '/path/to/project', enabled: false })
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmBuildMonitorToggle('', true)).toThrow(/projectPath/)
+    expect(() => validateSwarmBuildMonitorToggle(null, true)).toThrow(/projectPath/)
+  })
+
+  it('rejects non-boolean enabled', () => {
+    expect(() => validateSwarmBuildMonitorToggle('/path', 'true')).toThrow(/boolean/)
+    expect(() => validateSwarmBuildMonitorToggle('/path', 1)).toThrow(/boolean/)
+    expect(() => validateSwarmBuildMonitorToggle('/path', null)).toThrow(/boolean/)
+    expect(() => validateSwarmBuildMonitorToggle('/path', undefined)).toThrow(/boolean/)
+  })
+})
+
+// ── validateSwarmBuildMonitorStatus ──────────────────────────────────────
+
+describe('validateSwarmBuildMonitorStatus', () => {
+  it('validates projectPath', () => {
+    const result = validateSwarmBuildMonitorStatus('/path/to/project')
+    expect(result).toEqual({ projectPath: '/path/to/project' })
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmBuildMonitorStatus('')).toThrow(/projectPath/)
+    expect(() => validateSwarmBuildMonitorStatus(null)).toThrow(/projectPath/)
   })
 })
