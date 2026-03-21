@@ -415,7 +415,9 @@ describe('AgentCoordinator — activity log', () => {
     const activityFile = path.join(slashbotDir, 'activity.jsonl')
     const validEvent = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'ok' })
     fs.writeFileSync(activityFile, validEvent + '\n' + 'NOT_JSON{{{corrupt\n' + validEvent + '\n')
-    const events = coord.readActivity()
+    // Recreate coordinator so it seeds its cache from the file (including corrupt lines)
+    const freshCoord = new AgentCoordinator(slashbotDir, tmpDir)
+    const events = freshCoord.readActivity()
     expect(events.length).toBe(2)
     expect(events[0].summary).toBe('ok')
     expect(events[1].summary).toBe('ok')
@@ -748,5 +750,66 @@ describe('AgentCoordinator — hasOpenWork and getStats', () => {
     const expected = { total: 5, pending: 1, ready: 2, claimed: 1, done: 1, failed: 0, pct: 20 }
     vi.spyOn(coord.bd, 'stats').mockReturnValue(expected)
     expect(coord.getStats()).toEqual(expected)
+  })
+})
+
+describe('AgentCoordinator — activity cache', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('seeds cache from existing JSONL on construction', () => {
+    const activityFile = path.join(slashbotDir, 'activity.jsonl')
+    const entries = [
+      { ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'one' },
+      { ts: '2026-01-01T00:01:00Z', agentId: 'agent-0', type: 'stopped', summary: 'two' },
+    ]
+    fs.writeFileSync(activityFile, entries.map(e => JSON.stringify(e)).join('\n') + '\n')
+
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    const events = coord.readActivity(10)
+    expect(events.length).toBe(2)
+    expect(events[0].summary).toBe('one')
+    expect(events[1].summary).toBe('two')
+  })
+
+  it('caps cache at 1000 entries, keeping newest', () => {
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    for (let i = 0; i < 1050; i++) {
+      coord.postActivity({ agentId: 'agent-0', type: 'executing', summary: `step-${i}` })
+    }
+    const events = coord.readActivity(2000)
+    expect(events.length).toBe(1000)
+    expect(events[0].summary).toBe('step-50')
+    expect(events[999].summary).toBe('step-1049')
+  })
+
+  it('cache still works when disk write fails', () => {
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    // Point activity file to a non-existent directory so disk writes fail
+    ;(coord as any).activityFile = path.join(tmpDir, 'no', 'such', 'dir', 'activity.jsonl')
+
+    coord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'cached-only' })
+    const events = coord.readActivity()
+    expect(events.length).toBe(1)
+    expect(events[0].summary).toBe('cached-only')
+  })
+
+  it('readActivity returns from cache without re-reading disk', () => {
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    coord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'hello' })
+
+    // Delete the file on disk — readActivity should still return the cached entry
+    const activityFile = path.join(slashbotDir, 'activity.jsonl')
+    if (fs.existsSync(activityFile)) fs.unlinkSync(activityFile)
+
+    const events = coord.readActivity()
+    expect(events.length).toBe(1)
+    expect(events[0].summary).toBe('hello')
   })
 })

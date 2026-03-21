@@ -16,6 +16,8 @@ export class AgentCoordinator {
   private lockFile: string
   private agentsFile: string
   private activityFile: string
+  private _activityCache: ActivityEvent[] = []
+  private static readonly CACHE_CAP = 1000
   bd: BdClient
   planningActive = false
 
@@ -25,6 +27,23 @@ export class AgentCoordinator {
     this.activityFile = path.join(slashbotDir, 'activity.jsonl')
     fs.mkdirSync(slashbotDir, { recursive: true })
     this.bd = new BdClient(projectPath)
+    this._loadActivityFromDisk()
+  }
+
+  private _loadActivityFromDisk(): void {
+    if (!fs.existsSync(this.activityFile)) return
+    try {
+      const lines = fs
+        .readFileSync(this.activityFile, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+      for (const line of lines) {
+        try { this._activityCache.push(JSON.parse(line)) } catch { /* skip corrupt */ }
+      }
+      if (this._activityCache.length > AgentCoordinator.CACHE_CAP) {
+        this._activityCache = this._activityCache.slice(-AgentCoordinator.CACHE_CAP)
+      }
+    } catch { /* file unreadable — start with empty cache */ }
   }
 
   // ── File locks ────────────────────────────────────────────────────────────
@@ -102,7 +121,13 @@ export class AgentCoordinator {
   // ── Activity log (replaces mail) ─────────────────────────────────────────
 
   postActivity(event: Omit<ActivityEvent, 'ts'>): void {
-    const full = { ts: new Date().toISOString(), ...event }
+    const full: ActivityEvent = { ts: new Date().toISOString(), ...event } as ActivityEvent
+    // Append to in-memory cache
+    this._activityCache.push(full)
+    if (this._activityCache.length > AgentCoordinator.CACHE_CAP) {
+      this._activityCache = this._activityCache.slice(-AgentCoordinator.CACHE_CAP)
+    }
+    // Best-effort disk sync
     const line = JSON.stringify(full) + '\n'
     let fd: number | undefined
     try {
@@ -118,19 +143,7 @@ export class AgentCoordinator {
   }
 
   readActivity(limit = 50): ActivityEvent[] {
-    if (!fs.existsSync(this.activityFile)) return []
-    try {
-      const lines = fs
-        .readFileSync(this.activityFile, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .slice(-limit)
-      const results: ActivityEvent[] = []
-      for (const line of lines) {
-        try { results.push(JSON.parse(line)) } catch { /* skip corrupt line */ }
-      }
-      return results
-    } catch { return [] }
+    return this._activityCache.slice(-limit)
   }
 
   // ── Git worktree management ─────────────────────────────────────────────
