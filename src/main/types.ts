@@ -34,6 +34,9 @@ export interface RalphConfig {
   autoSplitThreshold: number
   buildMonitorCmd: string
   buildMonitorInterval: number
+  claudeModelThink: string
+  claudeModelExecute: string
+  claudeModelReview: string
   telegram?: TelegramConfig
 }
 

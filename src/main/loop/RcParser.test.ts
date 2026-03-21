@@ -273,6 +273,45 @@ describe('validateConfig', () => {
     expect(DEFAULT_CONFIG.buildMonitorCmd).toBe('')
     expect(DEFAULT_CONFIG.buildMonitorInterval).toBe(120)
   })
+
+  it('rejects empty claudeModelThink and falls back to default', () => {
+    const { config, warnings } = validateConfig({ claudeModelThink: '' })
+    expect(config.claudeModelThink).toBe('sonnet')
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Empty value for claudeModelThink')
+  })
+
+  it('rejects empty claudeModelExecute and falls back to default', () => {
+    const { config, warnings } = validateConfig({ claudeModelExecute: '' })
+    expect(config.claudeModelExecute).toBe('opus')
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Empty value for claudeModelExecute')
+  })
+
+  it('rejects empty claudeModelReview and falls back to default', () => {
+    const { config, warnings } = validateConfig({ claudeModelReview: '' })
+    expect(config.claudeModelReview).toBe('sonnet')
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Empty value for claudeModelReview')
+  })
+
+  it('accepts valid non-empty model strings without warning', () => {
+    const { config, warnings } = validateConfig({
+      claudeModelThink: 'opus',
+      claudeModelExecute: 'haiku',
+      claudeModelReview: 'opus'
+    })
+    expect(warnings).toEqual([])
+    expect(config.claudeModelThink).toBe('opus')
+    expect(config.claudeModelExecute).toBe('haiku')
+    expect(config.claudeModelReview).toBe('opus')
+  })
+
+  it('DEFAULT_CONFIG includes model fields with correct defaults', () => {
+    expect(DEFAULT_CONFIG.claudeModelThink).toBe('sonnet')
+    expect(DEFAULT_CONFIG.claudeModelExecute).toBe('opus')
+    expect(DEFAULT_CONFIG.claudeModelReview).toBe('sonnet')
+  })
 })
 
 // ── telegram config ──────────────────────────────────────────────────────────
@@ -396,6 +435,24 @@ describe('loadConfig', () => {
     for (const key of keys) {
       expect(config[key as keyof typeof config]).not.toBe(undefined)
     }
+  })
+
+  it('parses per-phase model overrides from rc file', () => {
+    writeRc(
+      'CLAUDE_MODEL_THINK=opus\nCLAUDE_MODEL_EXECUTE=sonnet\nCLAUDE_MODEL_REVIEW=haiku'
+    )
+    const config = loadConfig(tmpDir)
+    expect(config.claudeModelThink).toBe('opus')
+    expect(config.claudeModelExecute).toBe('sonnet')
+    expect(config.claudeModelReview).toBe('haiku')
+  })
+
+  it('defaults per-phase model fields to sonnet/opus/sonnet', () => {
+    writeRc('')
+    const config = loadConfig(tmpDir)
+    expect(config.claudeModelThink).toBe('sonnet')
+    expect(config.claudeModelExecute).toBe('opus')
+    expect(config.claudeModelReview).toBe('sonnet')
   })
 
   it('falls back to defaults for invalid values in .slashbotrc', () => {
