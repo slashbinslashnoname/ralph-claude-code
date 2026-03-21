@@ -112,6 +112,19 @@ export interface ActivityEvent {
   commitSha?: string
 }
 
+export type KnowledgeCategory = 'pattern' | 'gotcha' | 'dependency' | 'convention' | 'environment' | 'risk'
+export type KnowledgeConfidence = 'high' | 'medium' | 'low'
+
+export interface KnowledgeEntry {
+  ts: string
+  agentId: string
+  beadId: string
+  category: KnowledgeCategory
+  summary: string
+  detail: string
+  confidence: KnowledgeConfidence
+}
+
 export interface LoopStatus {
   timestamp: string
   loop_count: number
