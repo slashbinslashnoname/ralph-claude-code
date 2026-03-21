@@ -263,7 +263,8 @@ export class WorkerLoop extends EventEmitter {
               this.coordinator.postActivity({
                 agentId: this.agentId, type: 'merged', beadId: bead.id,
                 beadTitle: bead.title, branch: wt.branch,
-                filesChanged, summary: `Merged ${filesChanged.length} files`
+                filesChanged, summary: `Merged ${filesChanged.length} files`,
+                commitSha: result.commitSha
               })
             } else {
               this._log('ERROR', `[${this.agentId}] Merge failed: ${result.error}`)

@@ -97,6 +97,8 @@ describe('AgentCoordinator — atomic merge', () => {
     expect(result.merged).toBe(true)
     expect(result.filesChanged).toContain('new-file.txt')
     expect(fs.existsSync(path.join(tmpDir, 'new-file.txt'))).toBe(true)
+    expect(result.commitSha).toBeDefined()
+    expect(result.commitSha).toMatch(/^[0-9a-f]{40}$/)
   })
 
   it('merge uses update-ref — base branch ref is updated atomically', async () => {
@@ -240,6 +242,16 @@ describe('AgentCoordinator — atomic merge', () => {
     const result = await coord.mergeWorktree('agent-0', 'nonexist', 'agent/agent-0/nonexist', '/tmp/fake-wt')
     expect(result.merged).toBe(true)
     expect(result.filesChanged).toEqual([])
+    expect(result.commitSha).toBeUndefined()
+  })
+
+  it('no-op merge (no new commits) returns no commitSha', async () => {
+    const wt = coord.createWorktree('agent-0', 'noop1')
+    expect(wt).toBeTruthy()
+    // Don't make any commits in the worktree
+    const result = await coord.mergeWorktree('agent-0', 'noop1', wt!.branch, wt!.worktreePath)
+    expect(result.merged).toBe(true)
+    expect(result.commitSha).toBeUndefined()
   })
 
   it('concurrent merge — three agents merging non-overlapping files', async () => {

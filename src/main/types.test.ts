@@ -3,7 +3,10 @@ import type {
   TelegramConfig,
   TelegramStatus,
   TelegramNotifyLevel,
-  RalphConfig
+  RalphConfig,
+  KnowledgeEntry,
+  KnowledgeCategory,
+  KnowledgeConfidence
 } from './types'
 
 describe('Telegram types', () => {
@@ -77,5 +80,53 @@ describe('Telegram types', () => {
     }
     expect(withTelegram.telegram?.enabled).toBe(false)
     expect(withTelegram.telegram?.notifyOn).toBe('errors')
+  })
+})
+
+describe('KnowledgeEntry types', () => {
+  it('KnowledgeCategory covers all expected values', () => {
+    const categories: KnowledgeCategory[] = ['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk']
+    expect(categories).toHaveLength(6)
+  })
+
+  it('KnowledgeConfidence covers all expected values', () => {
+    const levels: KnowledgeConfidence[] = ['high', 'medium', 'low']
+    expect(levels).toHaveLength(3)
+  })
+
+  it('KnowledgeEntry accepts valid entry', () => {
+    const entry: KnowledgeEntry = {
+      ts: '2026-03-21T10:00:00Z',
+      agentId: 'agent-0',
+      beadId: 'sb-0o0.1',
+      category: 'pattern',
+      summary: 'Use worktrees for isolation',
+      detail: 'Each agent should create a git worktree to avoid conflicts',
+      confidence: 'high'
+    }
+    expect(entry.ts).toBe('2026-03-21T10:00:00Z')
+    expect(entry.agentId).toBe('agent-0')
+    expect(entry.beadId).toBe('sb-0o0.1')
+    expect(entry.category).toBe('pattern')
+    expect(entry.summary).toBe('Use worktrees for isolation')
+    expect(entry.detail).toBe('Each agent should create a git worktree to avoid conflicts')
+    expect(entry.confidence).toBe('high')
+  })
+
+  it('KnowledgeEntry works with all category values', () => {
+    const categories: KnowledgeCategory[] = ['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk']
+    const entries: KnowledgeEntry[] = categories.map((cat) => ({
+      ts: '2026-03-21T10:00:00Z',
+      agentId: 'agent-1',
+      beadId: 'sb-abc.1',
+      category: cat,
+      summary: `Test ${cat}`,
+      detail: `Detail for ${cat}`,
+      confidence: 'medium' as KnowledgeConfidence
+    }))
+    expect(entries).toHaveLength(6)
+    entries.forEach((e, i) => {
+      expect(e.category).toBe(categories[i])
+    })
   })
 })
