@@ -964,6 +964,42 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+/* ── Telegram Section ─────────────────────────────────────────────────────── */
+.telegram-section { padding: 4px 0; }
+
+.telegram-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.telegram-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.telegram-dot.connected { background: var(--success); box-shadow: 0 0 4px var(--success); }
+.telegram-dot.disconnected { background: var(--text-2); opacity: 0.4; }
+
+.telegram-status-text { color: var(--text-1); }
+.telegram-msg-count { margin-left: auto; color: var(--text-2); font-size: 12px; }
+
+.telegram-warning {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+  font-size: 12px;
+}
+
 /* ── Setup ────────────────────────────────────────────────────────────────── */
 .setup-page {
   display: flex;
