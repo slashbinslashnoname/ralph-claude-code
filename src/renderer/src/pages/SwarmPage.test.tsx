@@ -52,7 +52,7 @@ vi.mock('../components/AgentOutputRenderer', () => ({
   default: ({ output }: { output: string }) => React.createElement('div', null, output),
 }))
 
-import SwarmPage from './SwarmPage'
+import SwarmPage, { TelegramStatusIndicator } from './SwarmPage'
 
 beforeEach(() => {
   mockSwarmStatus.mockReset().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
@@ -87,17 +87,8 @@ describe('SwarmPage', () => {
 
 describe('TelegramStatusIndicator', () => {
   test('connected state renders green dot with tooltip', () => {
-    const status = { connected: true, botUsername: 'mybot', messagesSent: 42, messagesReceived: 7, lastError: null }
     const html = renderToStaticMarkup(
-      <span
-        className={`stat-chip telegram-status ${status.connected ? 'connected' : 'disconnected'}`}
-        title={`Telegram: @${status.botUsername}\nSent: ${status.messagesSent} | Received: ${status.messagesReceived}`}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-        </svg>
-        <span className={`telegram-dot ${status.connected ? 'green' : 'red'}`} />
-      </span>
+      <TelegramStatusIndicator status={{ connected: true, botUsername: 'mybot', messagesSent: 42, messagesReceived: 7, lastError: null }} />
     )
     expect(html).toContain('telegram-status connected')
     expect(html).toContain('telegram-dot green')
@@ -107,21 +98,27 @@ describe('TelegramStatusIndicator', () => {
   })
 
   test('disconnected state renders red dot with error', () => {
-    const status = { connected: false, botUsername: null, messagesSent: 0, messagesReceived: 0, lastError: 'Token invalid' }
     const html = renderToStaticMarkup(
-      <span
-        className={`stat-chip telegram-status ${status.connected ? 'connected' : 'disconnected'}`}
-        title={`Telegram: disconnected\n${status.lastError}`}
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-        </svg>
-        <span className={`telegram-dot ${status.connected ? 'green' : 'red'}`} />
-      </span>
+      <TelegramStatusIndicator status={{ connected: false, botUsername: null, messagesSent: 0, messagesReceived: 0, lastError: 'Token invalid' }} />
     )
     expect(html).toContain('telegram-status disconnected')
     expect(html).toContain('telegram-dot red')
     expect(html).toContain('Telegram: disconnected')
     expect(html).toContain('Token invalid')
+  })
+
+  test('connected with null botUsername shows unknown', () => {
+    const html = renderToStaticMarkup(
+      <TelegramStatusIndicator status={{ connected: true, botUsername: null, messagesSent: 0, messagesReceived: 0, lastError: null }} />
+    )
+    expect(html).toContain('Telegram: @unknown')
+  })
+
+  test('disconnected without error omits error line', () => {
+    const html = renderToStaticMarkup(
+      <TelegramStatusIndicator status={{ connected: false, botUsername: null, messagesSent: 0, messagesReceived: 0, lastError: null }} />
+    )
+    expect(html).toContain('Telegram: disconnected')
+    expect(html).not.toContain('\n')
   })
 })
