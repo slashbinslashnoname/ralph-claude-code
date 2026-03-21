@@ -81,8 +81,10 @@ describe('BeadsPage', () => {
   test('renders view mode toggle buttons', () => {
     const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
     expect(html).toContain('data-testid="view-mode-list"')
+    expect(html).toContain('data-testid="view-mode-kanban"')
     expect(html).toContain('data-testid="view-mode-tree"')
     expect(html).toContain('>List<')
+    expect(html).toContain('>Kanban<')
     expect(html).toContain('>Tree<')
     expect(html).not.toContain('data-testid="view-mode-graph"')
   })
