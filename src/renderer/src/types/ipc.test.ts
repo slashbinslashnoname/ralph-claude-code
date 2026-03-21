@@ -1,0 +1,209 @@
+/**
+ * Compile-time type tests for renderer IPC types.
+ * These verify that the exported types are structurally correct.
+ */
+import { describe, it, expect } from 'vitest'
+import type {
+  Bead,
+  BeadStatus,
+  BeadType,
+  AgentInfo,
+  AgentPhase,
+  ActivityEvent,
+  KnowledgeEntry,
+  KnowledgeCategory,
+  KnowledgeConfidence,
+  CircuitBreakerSnapshot,
+  SwarmStatus,
+  ProgressStats,
+  PlanQueueItem
+} from './ipc'
+
+describe('IPC types', () => {
+  it('Bead has required fields', () => {
+    const bead: Bead = {
+      id: 'sb-1',
+      title: 'Test bead',
+      description: 'A test',
+      type: 'task',
+      status: 'pending',
+      deps: [],
+      files: ['src/foo.ts'],
+      priority: 1,
+      tags: ['test']
+    }
+    expect(bead.id).toBe('sb-1')
+    expect(bead.claimedBy).toBeUndefined()
+  })
+
+  it('Bead accepts optional fields', () => {
+    const bead: Bead = {
+      id: 'sb-2',
+      title: 'Claimed bead',
+      description: 'With optionals',
+      type: 'subtask',
+      status: 'claimed',
+      deps: ['sb-1'],
+      files: [],
+      priority: 2,
+      tags: [],
+      claimedBy: 'agent-0',
+      claimedAt: '2026-03-21T10:00:00Z',
+      epicId: 'sb-epic',
+      taskId: 'sb-task'
+    }
+    expect(bead.claimedBy).toBe('agent-0')
+  })
+
+  it('BeadStatus covers all values', () => {
+    const statuses: BeadStatus[] = ['pending', 'ready', 'claimed', 'done', 'failed']
+    expect(statuses).toHaveLength(5)
+  })
+
+  it('BeadType covers all values', () => {
+    const types: BeadType[] = ['epic', 'task', 'subtask']
+    expect(types).toHaveLength(3)
+  })
+
+  it('AgentPhase covers all values', () => {
+    const phases: AgentPhase[] = [
+      'idle', 'routing', 'waiting', 'claiming', 'thinking',
+      'executing', 'reviewing', 'merging', 'closing', 'paused'
+    ]
+    expect(phases).toHaveLength(10)
+  })
+
+  it('AgentInfo has required and optional fields', () => {
+    const agent: AgentInfo = {
+      id: 'agent-0',
+      index: 0,
+      phase: 'executing',
+      currentBeadId: 'sb-1',
+      currentBeadTitle: 'Test',
+      loopCount: 5,
+      lastActivity: '2026-03-21T10:00:00Z',
+      worktreeBranch: 'feat/test',
+      thinkingSummary: 'Analyzing...'
+    }
+    expect(agent.id).toBe('agent-0')
+    expect(agent.lastHeartbeat).toBeUndefined()
+    expect(agent.staleReason).toBeUndefined()
+  })
+
+  it('AgentInfo accepts lastHeartbeat and staleReason', () => {
+    const agent: AgentInfo = {
+      id: 'agent-1',
+      index: 1,
+      phase: 'idle',
+      currentBeadId: null,
+      currentBeadTitle: null,
+      loopCount: 0,
+      lastActivity: '2026-03-21T09:00:00Z',
+      worktreeBranch: null,
+      thinkingSummary: null,
+      lastHeartbeat: '2026-03-21T09:00:00Z',
+      staleReason: 'No activity for 5 minutes'
+    }
+    expect(agent.lastHeartbeat).toBe('2026-03-21T09:00:00Z')
+    expect(agent.staleReason).toBe('No activity for 5 minutes')
+  })
+
+  it('ActivityEvent has required and optional fields', () => {
+    const event: ActivityEvent = {
+      ts: '2026-03-21T10:00:00Z',
+      agentId: 'agent-0',
+      type: 'completed',
+      beadId: 'sb-1',
+      summary: 'Done'
+    }
+    expect(event.type).toBe('completed')
+    expect(event.filesChanged).toBeUndefined()
+  })
+
+  it('KnowledgeEntry is structurally valid', () => {
+    const entry: KnowledgeEntry = {
+      ts: '2026-03-21T10:00:00Z',
+      agentId: 'agent-0',
+      beadId: 'sb-1',
+      category: 'gotcha',
+      summary: 'Watch out',
+      detail: 'Details here',
+      confidence: 'high'
+    }
+    expect(entry.category).toBe('gotcha')
+  })
+
+  it('KnowledgeCategory and KnowledgeConfidence cover all values', () => {
+    const cats: KnowledgeCategory[] = ['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk']
+    const confs: KnowledgeConfidence[] = ['high', 'medium', 'low']
+    expect(cats).toHaveLength(6)
+    expect(confs).toHaveLength(3)
+  })
+
+  it('CircuitBreakerSnapshot has all fields', () => {
+    const cb: CircuitBreakerSnapshot = {
+      state: 'CLOSED',
+      last_change: '2026-03-21T10:00:00Z',
+      consecutive_no_progress: 0,
+      consecutive_same_error: 0,
+      consecutive_permission_denials: 0,
+      last_progress_loop: 0,
+      total_opens: 0,
+      reason: '',
+      current_loop: 1
+    }
+    expect(cb.state).toBe('CLOSED')
+    expect(cb.opened_at).toBeUndefined()
+  })
+
+  it('SwarmStatus has all fields', () => {
+    const status: SwarmStatus = {
+      running: true,
+      planning: false,
+      planRequest: null,
+      workerCount: 2,
+      agents: [],
+      stats: { total: 10, pending: 3, ready: 2, claimed: 1, done: 3, failed: 1, pct: 30 },
+      sessionStartedAt: '2026-03-21T08:00:00Z',
+      stoppingGracefully: false
+    }
+    expect(status.running).toBe(true)
+    expect(status.stats?.pct).toBe(30)
+  })
+
+  it('SwarmStatus with null stats', () => {
+    const status: SwarmStatus = {
+      running: false,
+      planning: false,
+      planRequest: null,
+      workerCount: 0,
+      agents: [],
+      stats: null,
+      sessionStartedAt: null,
+      stoppingGracefully: false
+    }
+    expect(status.stats).toBeNull()
+  })
+
+  it('ProgressStats has all numeric fields', () => {
+    const stats: ProgressStats = {
+      total: 20,
+      pending: 5,
+      ready: 4,
+      claimed: 3,
+      done: 6,
+      failed: 2,
+      pct: 30
+    }
+    expect(stats.total).toBe(20)
+  })
+
+  it('PlanQueueItem has id and request', () => {
+    const item: PlanQueueItem = {
+      id: 'plan-1',
+      request: 'Add auth middleware'
+    }
+    expect(item.id).toBe('plan-1')
+    expect(item.request).toBe('Add auth middleware')
+  })
+})
