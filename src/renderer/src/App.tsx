@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import type { ActivityEvent } from './types/ipc'
+import type { ActivityEvent, CircuitBreakerSnapshot } from './types/ipc'
 
 // Page components
 import Dashboard from './pages/Dashboard'
@@ -26,7 +26,7 @@ interface TabState {
   path: string
   page: Page
   isEnabled: boolean
-  circuit: any
+  circuit: CircuitBreakerSnapshot | null
 }
 
 // Global agent output + activity buffers (survive page navigation)
@@ -121,7 +121,7 @@ export default function App() {
     }
 
     const unsubs = [
-      sb.onCircuitUpdate((proj: string, c: any) => {
+      sb.onCircuitUpdate((proj: string, c: CircuitBreakerSnapshot) => {
         setTabs(prev => prev.map(t => t.path === proj ? { ...t, circuit: c } : t))
       }),
       sb.swarm.onOutput((_p: string, agentId: string, chunk: string) => {

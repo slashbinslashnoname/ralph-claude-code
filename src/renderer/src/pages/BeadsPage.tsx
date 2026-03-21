@@ -4,6 +4,7 @@ import BeadDetailPanel from '../components/BeadDetailPanel'
 import TreeBrowser from '../components/TreeBrowser'
 import type { DAGBead } from '../components/TreeBrowser'
 import KanbanBoard from '../components/KanbanBoard'
+import type { Bead, PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
 
@@ -19,7 +20,7 @@ const TABS: { id: BeadFilter; label: string }[] = [
 ]
 
 export default function BeadsPage({ projectPath }: Props) {
-  const [beads, setBeads] = useState<any[]>([])
+  const [beads, setBeads] = useState<Bead[]>([])
   const [filter, setFilter] = useState<BeadFilter>('all')
   const [bdAvailable, setBdAvailable] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -31,14 +32,14 @@ export default function BeadsPage({ projectPath }: Props) {
   const [newDeps, setNewDeps] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<SortField>('deps')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
-  const [editing, setEditing] = useState<any>(null)
+  const [editing, setEditing] = useState<Bead | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [planPrompt, setPlanPrompt] = useState('')
   const [isPlanning, setIsPlanning] = useState(false)
   const [planPhase, setPlanPhase] = useState('')
   const [planRequest, setPlanRequest] = useState('')
-  const [planQueue, setPlanQueue] = useState<any[]>([])
+  const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'list' | 'tree' | 'kanban'>('list')
@@ -70,7 +71,7 @@ export default function BeadsPage({ projectPath }: Props) {
         setIsPlanning(phase !== '' && phase !== 'done')
         if (phase === 'done') { setPlanRequest(''); setTimeout(refresh, 1000) }
       }),
-      sb.swarm.onPlanQueue((_p: string, q: any[]) => setPlanQueue(q)),
+      sb.swarm.onPlanQueue((_p: string, q: PlanQueueItem[]) => setPlanQueue(q)),
       sb.swarm.onStopped(() => { setIsPlanning(false); setPlanRequest(''); refresh() }),
     ]
     return () => unsubs.forEach(u => u())
@@ -126,7 +127,7 @@ export default function BeadsPage({ projectPath }: Props) {
     refresh()
   }, [projectPath, refresh])
 
-  const startEdit = useCallback((bead: any) => {
+  const startEdit = useCallback((bead: Bead) => {
     setEditing(bead)
     setEditTitle(bead.title)
     setEditDesc(bead.description ?? '')
@@ -134,7 +135,7 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const saveEdit = useCallback(async () => {
     if (!editing) return
-    const updates: any = {}
+    const updates: Record<string, string> = {}
     if (editTitle !== editing.title) updates.title = editTitle
     if (editDesc !== (editing.description ?? '')) updates.description = editDesc
     if (Object.keys(updates).length > 0) {
