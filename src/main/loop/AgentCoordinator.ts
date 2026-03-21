@@ -530,6 +530,7 @@ export class AgentCoordinator {
   // ── Bead operations via bd CLI ─────────────────────────────────────────
 
   private claimSemaphore = new AsyncSemaphore()
+  private commitSemaphore = new AsyncSemaphore()
   private mergeSemaphore = new AsyncSemaphore()
 
   async claimBestBead(agentId: string): Promise<Bead | null> {
@@ -602,7 +603,7 @@ export class AgentCoordinator {
     }
   }
 
-  completeBead(agentId: string, beadId: string, filesChanged?: string[], autoPush = true): void {
+  async completeBead(agentId: string, beadId: string, filesChanged?: string[], autoPush = true): Promise<void> {
     // Idempotency: skip if bead is already done
     try {
       const current = this.bd.show(beadId)
@@ -623,55 +624,60 @@ export class AgentCoordinator {
     this.releaseFiles(agentId, beadId)
 
     // Commit and push first so we can capture the SHA
-    const commitSha = this.commitAndPush(agentId, beadId, autoPush)
+    const commitSha = await this.commitAndPush(agentId, beadId, autoPush)
 
     this.postActivity({ agentId, type: 'completed', beadId, filesChanged, commitSha: commitSha ?? undefined, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
   }
 
   /** Commit any pending changes and push to remote. Returns the commit SHA or null. */
-  commitAndPush(agentId: string, beadId: string, autoPush = true): string | null {
+  async commitAndPush(agentId: string, beadId: string, autoPush = true): Promise<string | null> {
+    await this.commitSemaphore.acquire(15000)
     try {
-      // Stage everything (merged code + .beads db changes)
-      execSync('git add -A', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
-
-      // Check if there's anything to commit
       try {
-        execSync('git diff --cached --quiet', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
-        return null // nothing staged
-      } catch { /* has staged changes — continue */ }
+        // Stage everything (merged code + .beads db changes)
+        execSync('git add -A', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
 
-      // Commit
-      const msg = `feat: complete bead ${beadId} [${agentId}]`
-      execSync(`git commit -m ${JSON.stringify(msg)}`, {
-        cwd: this.projectPath, timeout: 10000, stdio: 'pipe',
-        env: { ...process.env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
-      })
-
-      // Capture the commit SHA
-      let commitSha: string | null = null
-      try {
-        commitSha = execSync('git rev-parse HEAD', {
-          cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
-        }).toString().trim()
-      } catch { /* non-fatal — SHA capture failed */ }
-
-      // Push to remote (current branch)
-      if (autoPush) {
+        // Check if there's anything to commit
         try {
-          const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+          execSync('git diff --cached --quiet', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+          return null // nothing staged
+        } catch { /* has staged changes — continue */ }
+
+        // Commit
+        const msg = `feat: complete bead ${beadId} [${agentId}]`
+        execSync(`git commit -m ${JSON.stringify(msg)}`, {
+          cwd: this.projectPath, timeout: 10000, stdio: 'pipe',
+          env: { ...process.env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
+        })
+
+        // Capture the commit SHA
+        let commitSha: string | null = null
+        try {
+          commitSha = execSync('git rev-parse HEAD', {
             cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
           }).toString().trim()
-          execSync(`git push origin ${branch}`, { cwd: this.projectPath, timeout: 30000, stdio: 'pipe' })
-        } catch (err) {
-          // Push may fail if no remote or no upstream — non-fatal
-          const msg = err instanceof Error ? err.message : String(err)
-          this.postActivity({ agentId, type: 'info' as any, summary: `Push failed (non-fatal): ${msg.slice(0, 100)}` })
-        }
-      }
+        } catch { /* non-fatal — SHA capture failed */ }
 
-      return commitSha
-    } catch { /* commit failed — non-fatal */ }
-    return null
+        // Push to remote (current branch)
+        if (autoPush) {
+          try {
+            const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+              cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+            }).toString().trim()
+            execSync(`git push origin ${branch}`, { cwd: this.projectPath, timeout: 30000, stdio: 'pipe' })
+          } catch (err) {
+            // Push may fail if no remote or no upstream — non-fatal
+            const msg = err instanceof Error ? err.message : String(err)
+            this.postActivity({ agentId, type: 'info' as any, summary: `Push failed (non-fatal): ${msg.slice(0, 100)}` })
+          }
+        }
+
+        return commitSha
+      } catch { /* commit failed — non-fatal */ }
+      return null
+    } finally {
+      this.commitSemaphore.release()
+    }
   }
 
   reopenBead(agentId: string, beadId: string): void {

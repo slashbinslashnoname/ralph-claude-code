@@ -370,7 +370,7 @@ export class WorkerLoop extends EventEmitter {
       }
 
       this._setPhase('closing', bead.id, bead.title)
-      this.coordinator.completeBead(this.agentId, bead.id, filesChanged, this.config.autoPush)
+      await this.coordinator.completeBead(this.agentId, bead.id, filesChanged, this.config.autoPush)
       this._log('SUCCESS', `[${this.agentId}] ✓ Closed bead [${bead.id}]`)
       this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
       await this._sleep(1500)

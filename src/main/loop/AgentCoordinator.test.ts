@@ -838,11 +838,11 @@ describe('AgentCoordinator — completeBead and failBead', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('completeBead calls bd.close, releases files, and logs activity', () => {
+  it('completeBead calls bd.close, releases files, and logs activity', async () => {
     const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
-    coord.completeBead('agent-0', 'b1', ['a.ts'])
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
     expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
     expect(coord.readLocks().length).toBe(0)
@@ -852,24 +852,24 @@ describe('AgentCoordinator — completeBead and failBead', () => {
     expect(completed!.summary).toContain('b1')
   })
 
-  it('commitAndPush returns the commit SHA after a successful commit', () => {
+  it('commitAndPush returns the commit SHA after a successful commit', async () => {
     // Create a file change so there's something to commit
     fs.writeFileSync(path.join(tmpDir, 'new.txt'), 'hello')
-    const sha = coord.commitAndPush('agent-0', 'b1', false)
+    const sha = await coord.commitAndPush('agent-0', 'b1', false)
     expect(sha).toMatch(/^[0-9a-f]{40}$/)
   })
 
-  it('commitAndPush returns null when there is nothing to commit', () => {
-    const sha = coord.commitAndPush('agent-0', 'b1', false)
+  it('commitAndPush returns null when there is nothing to commit', async () => {
+    const sha = await coord.commitAndPush('agent-0', 'b1', false)
     expect(sha).toBeNull()
   })
 
-  it('completeBead includes commitSha in activity event when changes exist', () => {
+  it('completeBead includes commitSha in activity event when changes exist', async () => {
     vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
     // Create a file change so commitAndPush produces a SHA
     fs.writeFileSync(path.join(tmpDir, 'changed.txt'), 'data')
 
-    coord.completeBead('agent-0', 'b1', ['changed.txt'], false)
+    await coord.completeBead('agent-0', 'b1', ['changed.txt'], false)
 
     const events = coord.readActivity()
     const completed = events.find(e => e.type === 'completed')
@@ -877,11 +877,26 @@ describe('AgentCoordinator — completeBead and failBead', () => {
     expect(completed!.commitSha).toMatch(/^[0-9a-f]{40}$/)
   })
 
-  it('commitAndPush returns null when nothing is staged', () => {
+  it('commitAndPush returns null when nothing is staged', async () => {
     // Commit everything first so the working tree is clean
     execSync('git add -A && git commit -m "clean" --allow-empty', { cwd: tmpDir, stdio: 'pipe' })
-    const sha = coord.commitAndPush('agent-0', 'b1', false)
+    const sha = await coord.commitAndPush('agent-0', 'b1', false)
     expect(sha).toBeNull()
+  })
+
+  it('concurrent commitAndPush calls are serialized by semaphore', async () => {
+    // Create a file so the first call has something to commit
+    fs.writeFileSync(path.join(tmpDir, 'file1.txt'), 'a')
+
+    const [r1, r2] = await Promise.all([
+      coord.commitAndPush('agent-0', 'b1', false),
+      coord.commitAndPush('agent-1', 'b2', false),
+    ])
+
+    // Because of serialization, only the first caller commits; the second finds nothing staged
+    const results = [r1, r2]
+    expect(results.filter(r => r !== null).length).toBe(1)
+    expect(results.filter(r => r === null).length).toBe(1)
   })
 
   it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', () => {
@@ -1361,7 +1376,7 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('completeBead skips bd.close and commitAndPush when bead is already done', () => {
+  it('completeBead skips bd.close and commitAndPush when bead is already done', async () => {
     const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'done', deps: [], files: [], priority: 2, tags: []
@@ -1369,7 +1384,7 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
-    coord.completeBead('agent-0', 'b1', ['a.ts'])
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
     expect(showSpy).toHaveBeenCalledWith('b1')
     expect(closeSpy).not.toHaveBeenCalled()
@@ -1382,23 +1397,23 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     expect(completed!.summary).toContain('already done')
   })
 
-  it('completeBead proceeds normally when bead is not yet done', () => {
+  it('completeBead proceeds normally when bead is not yet done', async () => {
     vi.spyOn(coord.bd, 'show').mockReturnValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'claimed', deps: [], files: [], priority: 2, tags: []
     })
     const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
 
-    coord.completeBead('agent-0', 'b1', ['a.ts'])
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
     expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
   })
 
-  it('completeBead proceeds when bd.show throws (bead not found)', () => {
+  it('completeBead proceeds when bd.show throws (bead not found)', async () => {
     vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
     const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
 
-    coord.completeBead('agent-0', 'b1', ['a.ts'])
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
     expect(closeSpy).toHaveBeenCalled()
   })
