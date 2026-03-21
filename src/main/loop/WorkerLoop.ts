@@ -173,8 +173,11 @@ export class WorkerLoop extends EventEmitter {
         let thinkingOutput = ''
         try {
           thinkingOutput = await this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir)
-          const summary = this._extractThinkingSummary(stripAnsi(thinkingOutput))
+          const strippedThinking = stripAnsi(thinkingOutput)
+          const summary = this._extractThinkingSummary(strippedThinking)
           this.coordinator.updateAgent(this.agentId, { thinkingSummary: summary })
+          // Extract and share knowledge discoveries
+          try { this._extractKnowledge(strippedThinking, bead.id) } catch { /* best-effort */ }
           this.coordinator.postActivity({
             agentId: this.agentId, type: 'thinking', beadId: bead.id,
             beadTitle: bead.title, summary
@@ -438,12 +441,18 @@ export class WorkerLoop extends EventEmitter {
     return sections.join('\n\n')
   }
 
-  /** Build context from the shared knowledge log */
-  private _buildKnowledgeContext(): string {
-    const entries = this.coordinator.readKnowledge(30)
+  /** Build context from the shared knowledge log, filtering out self-entries for the current bead */
+  private _buildKnowledgeContext(currentBeadId?: string): string {
+    const allEntries = this.coordinator.readKnowledge(50)
+    // Filter out entries from this agent for the current bead (keep entries from other beads or other agents)
+    const filtered = allEntries.filter(
+      e => !(e.agentId === this.agentId && e.beadId === currentBeadId)
+    )
+    // Cap at 20 entries (most recent)
+    const entries = filtered.slice(-20)
     if (entries.length === 0) return ''
 
-    const lines: string[] = ['## Shared knowledge from other agents']
+    const lines: string[] = ['## Collective Knowledge']
     for (const entry of entries) {
       const conf = entry.confidence === 'high' ? '' : ` [${entry.confidence}]`
       lines.push(`- **${entry.category}**${conf}: ${entry.summary}`)
@@ -456,7 +465,7 @@ export class WorkerLoop extends EventEmitter {
     const agentMd = path.join(this.slashbotDir, 'AGENT.md')
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const parentContext = this._buildParentContext(bead)
-    const knowledgeContext = this._buildKnowledgeContext()
+    const knowledgeContext = this._buildKnowledgeContext(bead.id)
 
     let currentBranch = ''
     try {
@@ -502,6 +511,16 @@ What could go wrong and how will you mitigate it?
 ### Test strategy
 How will you verify correctness?
 
+### Discoveries
+Share any non-obvious findings that would help other agents working on related beads.
+Format each discovery as a bullet with category, confidence, and summary:
+- **category** (confidence): summary text
+
+Valid categories: pattern, gotcha, dependency, convention, environment, risk
+Valid confidence levels: high, medium, low
+
+If you have no discoveries, write "None."
+
 ### Split Analysis
 Evaluate whether this bead is too large or covers multiple concerns that should be separate tasks.
 Output a JSON block (fenced with \`\`\`json) with this schema:
@@ -544,7 +563,7 @@ DO NOT write any implementation code. Analysis only.`
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(thinkingContext)) : ''
     const parentContext = this._buildParentContext(bead)
-    const knowledgeContext = this._buildKnowledgeContext()
+    const knowledgeContext = this._buildKnowledgeContext(bead.id)
 
     let currentBranch = ''
     try {
@@ -594,7 +613,7 @@ DO NOT write any implementation code. Analysis only.`
     let inSection = false
     let inFence = false
     for (const line of lines) {
-      if (/^###?\s+(Understanding|Approach|Risks|Test|Split Analysis)/i.test(line)) {
+      if (/^###?\s+(Understanding|Approach|Risks|Test|Discoveries|Split Analysis)/i.test(line)) {
         inSection = true
         summary.push(line)
         continue
@@ -622,6 +641,40 @@ DO NOT write any implementation code. Analysis only.`
     // Fallback: take the last meaningful chunk
     const trimmed = raw.trim()
     return trimmed.slice(Math.max(0, trimmed.length - 2000))
+  }
+
+  /** Extract knowledge discoveries from thinking output and post them to the coordinator */
+  _extractKnowledge(raw: string, beadId: string): void {
+    const headingIdx = raw.indexOf('### Discoveries')
+    if (headingIdx === -1) return
+
+    const afterHeading = raw.slice(headingIdx + '### Discoveries'.length)
+    // Stop at the next heading (### or ##)
+    const nextHeading = afterHeading.search(/\n#{2,3}\s/)
+    const section = nextHeading !== -1 ? afterHeading.slice(0, nextHeading) : afterHeading
+
+    // Check for "None." — no discoveries
+    if (/^\s*None\.?\s*$/m.test(section.trim())) return
+
+    const validCategories = new Set(['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk'])
+    const validConfidences = new Set(['high', 'medium', 'low'])
+
+    // Parse bullets: - **category** (confidence): summary
+    const bulletRegex = /^-\s+\*\*(\w+)\*\*\s+\((\w+)\):\s*(.+)/gm
+    let match: RegExpExecArray | null
+    while ((match = bulletRegex.exec(section)) !== null) {
+      const [, category, confidence, summary] = match
+      if (!validCategories.has(category) || !validConfidences.has(confidence)) continue
+      if (!summary.trim()) continue
+      this.coordinator.postKnowledge({
+        agentId: this.agentId,
+        beadId,
+        category: category as any,
+        summary: summary.trim(),
+        detail: '',
+        confidence: confidence as any
+      })
+    }
   }
 
   /** Wait for API quota to reset, probing periodically. Like main branch: wait 5min, then probe every 5min up to ~60min. */
