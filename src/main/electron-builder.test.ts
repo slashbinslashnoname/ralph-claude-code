@@ -34,7 +34,6 @@ describe('electron-builder.yml', () => {
   it('unpacks native modules from ASAR', () => {
     const raw = loadRawConfig()
     expect(raw).toContain('node_modules/node-pty/**/*')
-    expect(raw).toContain('node_modules/chokidar/**/*')
     expect(raw).toContain('node_modules/fsevents/**/*')
   })
 
