@@ -227,7 +227,7 @@ export class AgentCoordinator {
   async mergeWorktree(
     agentId: string, beadId: string, branch: string, worktreePath: string,
     opts?: { maxRetries?: number; stoppedFn?: () => boolean; claudeCmd?: string; env?: NodeJS.ProcessEnv }
-  ): Promise<{ merged: boolean; filesChanged: string[]; error?: string }> {
+  ): Promise<{ merged: boolean; filesChanged: string[]; error?: string; commitSha?: string }> {
     // No outer semaphore — atomic update-ref handles concurrency.
     // The mergeSemaphore is only held briefly for main working tree sync.
     return this._mergeWorktreeInner(agentId, beadId, branch, worktreePath, opts)
@@ -236,7 +236,7 @@ export class AgentCoordinator {
   private async _mergeWorktreeInner(
     agentId: string, beadId: string, branch: string, worktreePath: string,
     opts?: { maxRetries?: number; stoppedFn?: () => boolean; claudeCmd?: string; env?: NodeJS.ProcessEnv }
-  ): Promise<{ merged: boolean; filesChanged: string[]; error?: string }> {
+  ): Promise<{ merged: boolean; filesChanged: string[]; error?: string; commitSha?: string }> {
     const maxRetries = opts?.maxRetries ?? 2
     const stoppedFn = opts?.stoppedFn
 
@@ -348,7 +348,7 @@ export class AgentCoordinator {
         await this._syncMainWorkingTree()
 
         this._cleanupWorktree(worktreePath, branch)
-        return { merged: true, filesChanged }
+        return { merged: true, filesChanged, commitSha: newRef }
       }
 
       // Exhausted retries
