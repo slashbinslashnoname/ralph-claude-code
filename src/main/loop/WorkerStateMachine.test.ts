@@ -256,8 +256,9 @@ describe('WorkerStateMachine', () => {
       coordinator.createWorktree.mockReturnValue(null)
       const ctx = makeCtx({ coordinator })
 
-      await routing(ctx)
+      const next = await routing(ctx)
 
+      expect(next).toBe('thinking')
       expect(ctx.worktreePath).toBeNull()
       expect(ctx.worktreeBranch).toBeNull()
     })
