@@ -2,18 +2,26 @@ import * as fs from 'fs'
 import * as child_process from 'child_process'
 
 export function buildEnv(): NodeJS.ProcessEnv {
+  const home = process.env.HOME ?? ''
   const extraPaths = [
     '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
     '/opt/homebrew/bin', '/opt/homebrew/sbin',
-    `${process.env.HOME ?? ''}/.local/bin`,
-    `${process.env.HOME ?? ''}/.npm-global/bin`,
-    `${process.env.HOME ?? ''}/.volta/bin`,
-    `${process.env.HOME ?? ''}/.cargo/bin`,
+    `${home}/.local/bin`,
+    `${home}/.npm-global/bin`,
+    `${home}/.volta/bin`,
+    `${home}/.cargo/bin`,
+    `${home}/.local/share/mise/shims`,
   ]
   let loginPath = ''
-  try {
-    loginPath = child_process.execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim()
-  } catch { /* ignore */ }
+  // Try bash first, then zsh (macOS default shell) as fallback
+  for (const shell of ['bash', 'zsh']) {
+    try {
+      const raw = child_process.execSync(`${shell} -l -c "echo \\$PATH"`, { timeout: 3000 }).toString().trim()
+      // Take only the last line — login shells may emit motd or other text before PATH
+      loginPath = raw.split('\n').pop() ?? ''
+      if (loginPath) break
+    } catch { /* ignore — shell may not exist */ }
+  }
   const merged = [...new Set(
     [process.env.PATH ?? '', loginPath, ...extraPaths].flatMap(p => p.split(':').filter(Boolean))
   )].join(':')

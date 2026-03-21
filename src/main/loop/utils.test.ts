@@ -1,5 +1,17 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('child_process')>()) }))
+import * as child_process from 'child_process'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
+
+let mockExecSync: any
+
+beforeEach(() => {
+  mockExecSync = vi.spyOn(child_process, 'execSync')
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('stripAnsi', () => {
   it('removes SGR escape sequences', () => {
@@ -65,6 +77,45 @@ describe('buildEnv', () => {
   it('preserves existing env vars', () => {
     const env = buildEnv()
     expect(env.HOME).toBe(process.env.HOME)
+  })
+
+  it('includes mise shim path', () => {
+    const env = buildEnv()
+    expect(env.PATH).toContain('.local/share/mise/shims')
+  })
+
+  it('falls back to zsh when bash probe fails', () => {
+    mockExecSync.mockImplementation((cmd: any, opts: any) => {
+      const cmdStr = String(cmd)
+      if (cmdStr.startsWith('bash -l -c')) {
+        throw new Error('bash not available')
+      }
+      if (cmdStr.startsWith('zsh -l -c')) {
+        return Buffer.from('/zsh/probe/path:/usr/bin')
+      }
+      // Delegate 'which' and other calls to real implementation
+      return child_process.execFileSync(cmd.split(' ')[0], cmd.split(' ').slice(1), opts)
+    })
+
+    const env = buildEnv()
+    expect(env.PATH).toContain('/zsh/probe/path')
+  })
+
+  it('takes last line of shell output to skip motd', () => {
+    mockExecSync.mockImplementation((cmd: any, _opts: any) => {
+      const cmdStr = String(cmd)
+      if (cmdStr.startsWith('bash -l -c')) {
+        return Buffer.from('Welcome to bash\nSome motd line\n/actual/path:/usr/bin')
+      }
+      if (cmdStr.startsWith('zsh -l -c')) {
+        throw new Error('not needed')
+      }
+      return Buffer.from('')
+    })
+
+    const env = buildEnv()
+    expect(env.PATH).toContain('/actual/path')
+    expect(env.PATH).not.toContain('Welcome')
   })
 })
 

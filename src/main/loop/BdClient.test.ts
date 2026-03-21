@@ -498,6 +498,23 @@ describe('BdClient', () => {
       expect(result.reason).toContain('not found on PATH')
     })
 
+    it('uses enriched env for which command', () => {
+      mockExecSync.mockReturnValue('/usr/local/bin/bd')
+
+      const fs = require('fs')
+      const spy = vi.spyOn(fs, 'existsSync').mockReturnValue(true)
+
+      client.check()
+
+      // The 'which bd' call should pass env with enriched PATH
+      const whichCall = mockExecSync.mock.calls[0]
+      const opts = whichCall[1] as Record<string, unknown>
+      const env = opts.env as NodeJS.ProcessEnv
+      expect(env.PATH).toContain('.local/share/mise/shims')
+
+      spy.mockRestore()
+    })
+
     it('returns unavailable when .beads dir missing', () => {
       mockExecSync.mockReturnValue('/usr/local/bin/bd')
 
@@ -643,7 +660,7 @@ describe('BdClient', () => {
       expect(() => client.list()).toThrow()
     })
 
-    it('passes correct exec options', () => {
+    it('passes correct exec options with enriched PATH', () => {
       mockExecSync.mockReturnValue('[]')
       client.list()
 
@@ -651,6 +668,9 @@ describe('BdClient', () => {
       expect(opts.cwd).toBe('/fake/project')
       expect(opts.timeout).toBe(15_000)
       expect(opts.encoding).toBe('utf8')
+      // ENV should come from buildEnv() and include mise shims
+      const env = opts.env as NodeJS.ProcessEnv
+      expect(env.PATH).toContain('.local/share/mise/shims')
     })
 
     it('uses custom bd command name', () => {
