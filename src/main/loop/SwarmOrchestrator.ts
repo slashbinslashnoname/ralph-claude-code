@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
-import { RalphConfig, PlanQueueItem, Bead, BeadStats, AgentInfo, ActivityEvent } from '../types'
+import { RalphConfig, PlanQueueItem, Bead, BeadStats, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
 import { loadConfig } from './RcParser'
 import { AgentCoordinator } from './AgentCoordinator'
 import { PlanLoop } from './PlanLoop'
@@ -267,6 +267,7 @@ export class SwarmOrchestrator extends EventEmitter {
   isPlanning(): boolean { return this.planning }
   getAgents(): AgentInfo[] { return this.coordinator.getAgents() }
   getActivity(limit = 50): ActivityEvent[] { return this.coordinator.readActivity(limit) }
+  getKnowledge(limit = 50): KnowledgeEntry[] { return this.coordinator.readKnowledge(limit) }
 
   getBeads(status?: string): Bead[] {
     if (status && status !== 'all') return this.coordinator.bd.listByStatus(status)

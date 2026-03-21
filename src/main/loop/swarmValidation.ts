@@ -212,3 +212,12 @@ export function validateSwarmPauseResume(projectPath: unknown, agentId: unknown)
     agentId: validateAgentId(agentId),
   }
 }
+
+export function validateSwarmKnowledge(projectPath: unknown, limit: unknown): {
+  projectPath: string; limit: number
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+    limit: validateActivityLimit(limit),
+  }
+}
