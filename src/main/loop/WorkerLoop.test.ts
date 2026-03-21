@@ -1398,6 +1398,120 @@ describe('WorkerLoop', () => {
       await promise
     })
 
+    it('loop executes on child bead when split decision is detected', async () => {
+      const coord = makeCoordinator()
+
+      const originalBead = makeBead({ id: 'sb-orig', title: 'Original Task', tags: [] })
+      const childBead = makeBead({ id: 'sb-child-1', title: 'Child A', tags: ['auto-split'] })
+
+      // Return original bead once, then stop the worker
+      let claimCount = 0
+      let worker: WorkerLoop
+      coord.claimBestBead.mockImplementation(async () => {
+        claimCount++
+        if (claimCount === 1) return originalBead
+        worker.stopped = true
+        worker.running = false
+        return null
+      })
+      coord.hasOpenWork.mockReturnValue(true)
+      coord.createWorktree.mockReturnValue(null)
+
+      // _splitBead dependencies
+      let createCount = 0
+      coord.bd.createAsync.mockImplementation(async (opts: any) => {
+        createCount++
+        return makeBead({ id: `sb-child-${createCount}`, title: opts.title, description: opts.description, tags: ['auto-split'] })
+      })
+      coord.bd.show.mockReturnValue(childBead)
+
+      const thinkingOutput = [
+        'Analysis complete.',
+        '### Split Analysis',
+        '```json',
+        '{ "shouldSplit": true, "concerns": ["UI", "API", "tests"],',
+        '  "reason": "Multiple concerns",',
+        '  "children": [',
+        '    { "title": "Child A", "description": "UI work", "files": ["src/ui.ts"] },',
+        '    { "title": "Child B", "description": "API work", "files": ["src/api.ts"] }',
+        '  ] }',
+        '```'
+      ].join('\n')
+
+      // Track which prompts _runClaude receives
+      const runClaudePrompts: { label: string; prompt: string }[] = []
+
+      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord)
+
+      // Mock _runClaude to capture prompts and return controlled output
+      ;(worker as any)._runClaude = vi.fn(async (prompt: string, label: string) => {
+        runClaudePrompts.push({ label, prompt })
+        if (label === 'think') return thinkingOutput
+        return 'done'
+      })
+      // Mock _sleep to avoid real delays
+      ;(worker as any)._sleep = vi.fn(async () => {})
+
+      await worker.start()
+
+      // Verify coordinator.updateAgent was called with child bead ID after split
+      expect(coord.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
+        currentBeadId: 'sb-child-1',
+        currentBeadTitle: 'Child A'
+      }))
+
+      // Verify execute phase prompt references child bead, not original
+      const executeCall = runClaudePrompts.find(c => c.label === 'execute')
+      expect(executeCall).toBeDefined()
+      expect(executeCall!.prompt).toContain('sb-child-1')
+      expect(executeCall!.prompt).toContain('Child A')
+      expect(executeCall!.prompt).not.toContain('[sb-orig]')
+    })
+
+    it('loop executes on original bead when no split decision is detected', async () => {
+      const coord = makeCoordinator()
+
+      const originalBead = makeBead({ id: 'sb-orig', title: 'Original Task', tags: [] })
+
+      let claimCount = 0
+      let worker: WorkerLoop
+      coord.claimBestBead.mockImplementation(async () => {
+        claimCount++
+        if (claimCount === 1) return originalBead
+        worker.stopped = true
+        worker.running = false
+        return null
+      })
+      coord.hasOpenWork.mockReturnValue(true)
+      coord.createWorktree.mockReturnValue(null)
+
+      const runClaudePrompts: { label: string; prompt: string }[] = []
+
+      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 3 }), coord)
+
+      ;(worker as any)._runClaude = vi.fn(async (prompt: string, label: string) => {
+        runClaudePrompts.push({ label, prompt })
+        // Return thinking output WITHOUT split analysis
+        if (label === 'think') return 'Analysis complete. This bead is straightforward.'
+        return 'done'
+      })
+      ;(worker as any)._sleep = vi.fn(async () => {})
+
+      await worker.start()
+
+      // Verify coordinator.updateAgent was only called with original bead ID
+      const updateCalls = coord.updateAgent.mock.calls
+        .filter((c: any) => c[1]?.currentBeadId)
+        .map((c: any) => c[1].currentBeadId)
+      expect(updateCalls.every((id: string) => id === 'sb-orig')).toBe(true)
+
+      // Verify execute phase prompt references original bead
+      const executeCall = runClaudePrompts.find(c => c.label === 'execute')
+      expect(executeCall).toBeDefined()
+      expect(executeCall!.prompt).toContain('sb-orig')
+      expect(executeCall!.prompt).toContain('Original Task')
+    })
+
     it('source contains split check between thinking and execute phases', () => {
       const workerSource = require('fs').readFileSync(
         require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
