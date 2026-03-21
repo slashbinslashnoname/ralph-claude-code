@@ -522,6 +522,54 @@ describe('SwarmOrchestrator — build monitor integration', () => {
     expect(orch.getBuildMonitorStatus()).toEqual({ enabled: false, running: false })
   })
 
+  it('build monitor lifecycle follows swarm lifecycle (created on start, destroyed on stop)', () => {
+    // Configure buildMonitorCmd so startWorkers auto-creates the monitor
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+
+    // Mock bd CLI-dependent methods to avoid needing a real beads database
+    vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
+    vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+
+    // startWorkers should create the build monitor
+    orch.startWorkers(1)
+    const statusAfterStart = orch.getBuildMonitorStatus()
+    expect(statusAfterStart.enabled).toBe(true)
+    expect(statusAfterStart.running).toBe(true)
+
+    // stopWorkers should destroy it
+    orch.stopWorkers()
+    const statusAfterStop = orch.getBuildMonitorStatus()
+    expect(statusAfterStop).toEqual({ enabled: false, running: false })
+  })
+
+  it('toggle works mid-session (enable/disable while swarm is running)', () => {
+    // Configure buildMonitorCmd
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+
+    // Simulate a running swarm by injecting fake workers
+    const fakeWorker = { stop: vi.fn(), pause: vi.fn(), resume: vi.fn() }
+    ;(orch as any).workers.set('agent-0', fakeWorker)
+
+    // Toggle on — monitor should be created
+    orch.toggleBuildMonitor(true)
+    expect(orch.getBuildMonitorStatus().enabled).toBe(true)
+    expect(orch.getBuildMonitorStatus().running).toBe(true)
+
+    // Toggle off — monitor should be destroyed
+    orch.toggleBuildMonitor(false)
+    expect(orch.getBuildMonitorStatus()).toEqual({ enabled: false, running: false })
+
+    // Toggle on again — monitor should be re-created
+    orch.toggleBuildMonitor(true)
+    expect(orch.getBuildMonitorStatus().enabled).toBe(true)
+    expect(orch.getBuildMonitorStatus().running).toBe(true)
+
+    // Clean up fake workers so afterEach stopAll doesn't error
+    ;(orch as any).workers.clear()
+  })
+
   it('forwards build monitor status events as build-status', () => {
     fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
