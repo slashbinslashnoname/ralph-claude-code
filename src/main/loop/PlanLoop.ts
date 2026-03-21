@@ -5,29 +5,7 @@ import * as cp from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { RalphConfig } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
-import { stripAnsi } from './utils'
-
-function buildEnv(): NodeJS.ProcessEnv {
-  const extras = ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
-    '/opt/homebrew/bin', '/opt/homebrew/sbin',
-    `${process.env.HOME ?? ''}/.local/bin`, `${process.env.HOME ?? ''}/.npm-global/bin`,
-    `${process.env.HOME ?? ''}/.volta/bin`, `${process.env.HOME ?? ''}/.cargo/bin`]
-  let loginPath = ''
-  try { loginPath = cp.execSync('bash -l -c "echo $PATH"', { timeout: 3000 }).toString().trim() } catch { /* ignore */ }
-  const merged = [...new Set(
-    [process.env.PATH ?? '', loginPath, ...extras].flatMap(p => p.split(':').filter(Boolean))
-  )].join(':')
-  return { ...process.env, PATH: merged }
-}
-
-function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
-  if (cmd.startsWith('/') && fs.existsSync(cmd)) return cmd
-  try {
-    const r = cp.execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
-    if (r.startsWith('/')) return r
-  } catch { /* ignore */ }
-  return cmd
-}
+import { stripAnsi, buildEnv, resolveCmd } from './utils'
 
 export class PlanLoop extends EventEmitter {
   stopped = false
