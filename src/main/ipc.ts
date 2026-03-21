@@ -23,6 +23,9 @@ import {
 } from './loop/beadValidation'
 import { validateConfigRead, validateConfigWrite } from './loop/configValidation'
 import { validateProjectPathArg, validateSaveTabs } from './loop/projectValidation'
+import { validateTelegramProjectPath, validateTelegramConfigure } from './loop/telegramValidation'
+import { TelegramBot } from './loop/TelegramBot'
+import { TelegramBridge } from './loop/TelegramBridge'
 import {
   validateSwarmStart,
   validateSwarmStop,
@@ -38,6 +41,7 @@ import {
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
 } from './loop/swarmValidation'
+import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
@@ -45,6 +49,8 @@ const execAsync = promisify(exec)
 const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
 const loops = new Map<string, RalphLoop>()
 const swarms = new Map<string, SwarmOrchestrator>()
+const telegramBots = new Map<string, TelegramBot>()
+const telegramBridges = new Map<string, TelegramBridge>()
 
 /**
  * Gracefully shut down all active swarms, stop loops/watchers,
@@ -60,15 +66,26 @@ export async function gracefulShutdown(storePath: string, timeoutMs = 30_000): P
   await Promise.allSettled(shutdownPromises)
   swarms.clear()
 
-  // 2. Stop legacy loops
+  // 2. Disconnect Telegram bridges and bots
+  telegramBridges.forEach(bridge => bridge.stop())
+  telegramBridges.clear()
+  const botDisconnects = [...telegramBots.values()].map(bot =>
+    bot.disconnect().catch((err: unknown) => {
+      console.error('[gracefulShutdown] telegram bot disconnect failed:', err)
+    })
+  )
+  await Promise.allSettled(botDisconnects)
+  telegramBots.clear()
+
+  // 3. Stop legacy loops
   loops.forEach(l => l.stop())
   loops.clear()
 
-  // 3. Close file watchers
+  // 4. Close file watchers
   watchers.forEach(w => w.close())
   watchers.clear()
 
-  // 4. Clean up orphaned worktrees across known projects
+  // 5. Clean up orphaned worktrees across known projects
   const projectPaths = readProjectStore(storePath)
   for (const projectPath of projectPaths) {
     cleanOrphanedWorktrees(projectPath)
@@ -538,11 +555,40 @@ export function registerIpc(
     }
   })
 
-  ipcMain.handle('swarm:start', (_e, projectPath: unknown, workerCount: unknown) => {
+  ipcMain.handle('swarm:start', async (_e, projectPath: unknown, workerCount: unknown) => {
     try {
       const v = validateSwarmStart(projectPath, workerCount)
       const swarm = getOrCreateSwarm(v.projectPath)
       swarm.startWorkers(v.workerCount)
+
+      // Auto-connect Telegram bridge if configured and not already connected
+      if (!telegramBots.has(v.projectPath)) {
+        try {
+          const config = loadConfig(v.projectPath)
+          if (config.telegram?.enabled && config.telegram.botToken && config.telegram.chatId) {
+            await connectTelegramForProject(
+              v.projectPath,
+              config.telegram.botToken,
+              config.telegram.chatId,
+              config.telegram.notifyOn ?? 'errors'
+            )
+          }
+        } catch (err) {
+          console.error('[swarm:start] telegram auto-connect failed:', err)
+        }
+      } else if (!telegramBridges.has(v.projectPath)) {
+        // Bot exists but no bridge yet — attach it to the new swarm
+        const bot = telegramBots.get(v.projectPath)!
+        const config = loadConfig(v.projectPath)
+        const bridge = new TelegramBridge({
+          orchestrator: swarm,
+          bot,
+          notifyOn: config.telegram?.notifyOn ?? 'errors',
+        })
+        bridge.start()
+        telegramBridges.set(v.projectPath, bridge)
+      }
+
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -713,17 +759,173 @@ export function registerIpc(
     }
   })
 
+  // ── Telegram ─────────────────────────────────────────────────────────
+
+  function persistTelegramToRc(
+    projectPath: string,
+    botToken: string,
+    chatId: string,
+    enabled: boolean,
+    notifyLevel: string
+  ): void {
+    const rcPath = path.join(projectPath, '.slashbotrc')
+    let content = ''
+    try { content = fs.readFileSync(rcPath, 'utf8') } catch { /* file may not exist */ }
+
+    const keys = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'TELEGRAM_ENABLED', 'TELEGRAM_NOTIFY_LEVEL']
+    const lines = content.split('\n').filter(line => {
+      const trimmed = line.trim()
+      return !keys.some(k => trimmed.startsWith(k + '='))
+    })
+
+    // Remove trailing empty lines, then add telegram config
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop()
+    lines.push(
+      `TELEGRAM_BOT_TOKEN=${botToken}`,
+      `TELEGRAM_CHAT_ID=${chatId}`,
+      `TELEGRAM_ENABLED=${enabled}`,
+      `TELEGRAM_NOTIFY_LEVEL=${notifyLevel}`,
+    )
+
+    fs.writeFileSync(rcPath, lines.join('\n') + '\n')
+  }
+
+  async function connectTelegramForProject(
+    projectPath: string,
+    botToken: string,
+    chatId: string,
+    notifyLevel: TelegramNotifyLevel
+  ): Promise<TelegramBot> {
+    // Disconnect existing bot if any
+    const existingBridge = telegramBridges.get(projectPath)
+    if (existingBridge) {
+      existingBridge.stop()
+      telegramBridges.delete(projectPath)
+    }
+    const existingBot = telegramBots.get(projectPath)
+    if (existingBot) {
+      await existingBot.disconnect()
+      telegramBots.delete(projectPath)
+    }
+
+    const bot = new TelegramBot()
+    await bot.connect({ botToken, chatId, enabled: true, notifyOn: notifyLevel })
+    telegramBots.set(projectPath, bot)
+
+    // If there's an active swarm, attach a bridge
+    const swarm = swarms.get(projectPath)
+    if (swarm) {
+      const bridge = new TelegramBridge({
+        orchestrator: swarm,
+        bot,
+        notifyOn: notifyLevel,
+      })
+      bridge.start()
+      telegramBridges.set(projectPath, bridge)
+    }
+
+    return bot
+  }
+
+  ipcMain.handle('telegram:status', (_e, projectPath: unknown) => {
+    try {
+      const pp = validateTelegramProjectPath(projectPath)
+      const bot = telegramBots.get(pp)
+      if (!bot) {
+        return {
+          connected: false,
+          botUsername: null,
+          lastError: null,
+          messagesSent: 0,
+          messagesReceived: 0,
+        }
+      }
+      return bot.getStatus()
+    } catch (e) {
+      return {
+        connected: false,
+        botUsername: null,
+        lastError: e instanceof Error ? e.message : String(e),
+        messagesSent: 0,
+        messagesReceived: 0,
+      }
+    }
+  })
+
+  ipcMain.handle('telegram:configure', async (_e, projectPath: unknown, opts: unknown) => {
+    try {
+      const v = validateTelegramConfigure(projectPath, opts)
+
+      // Persist to .slashbotrc
+      persistTelegramToRc(v.projectPath, v.botToken, v.chatId, true, v.notifyLevel)
+
+      // Connect the bot
+      await connectTelegramForProject(v.projectPath, v.botToken, v.chatId, v.notifyLevel)
+
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('telegram:test', async (_e, projectPath: unknown) => {
+    try {
+      const pp = validateTelegramProjectPath(projectPath)
+      const bot = telegramBots.get(pp)
+      if (!bot || !bot.isConnected()) {
+        return { ok: false, error: 'Telegram bot is not connected' }
+      }
+      const sent = await bot.sendMessage('🤖 Slashbot test message — Telegram integration is working!')
+      return sent ? { ok: true } : { ok: false, error: 'Failed to send test message' }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('telegram:disconnect', async (_e, projectPath: unknown) => {
+    try {
+      const pp = validateTelegramProjectPath(projectPath)
+
+      // Stop bridge if active
+      const bridge = telegramBridges.get(pp)
+      if (bridge) {
+        bridge.stop()
+        telegramBridges.delete(pp)
+      }
+
+      // Disconnect bot
+      const bot = telegramBots.get(pp)
+      if (bot) {
+        await bot.disconnect()
+        telegramBots.delete(pp)
+      }
+
+      // Update .slashbotrc to mark as disabled
+      persistTelegramToRc(pp, '', '', false, 'errors')
+
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // ── Cleanup ────────────────────────────────────────────────────────────
 
-  ipcMain.handle('window:cleanup', (_e, projectPath?: string) => {
+  ipcMain.handle('window:cleanup', async (_e, projectPath?: string) => {
     if (projectPath) {
       watchers.get(projectPath)?.close(); watchers.delete(projectPath)
       loops.get(projectPath)?.stop(); loops.delete(projectPath)
       swarms.get(projectPath)?.stopAll(); swarms.delete(projectPath)
+      telegramBridges.get(projectPath)?.stop(); telegramBridges.delete(projectPath)
+      const bot = telegramBots.get(projectPath)
+      if (bot) { await bot.disconnect(); telegramBots.delete(projectPath) }
     } else {
       watchers.forEach(w => w.close()); watchers.clear()
       loops.forEach(l => l.stop()); loops.clear()
       swarms.forEach(s => s.stopAll()); swarms.clear()
+      telegramBridges.forEach(b => b.stop()); telegramBridges.clear()
+      await Promise.allSettled([...telegramBots.values()].map(b => b.disconnect()))
+      telegramBots.clear()
     }
   })
 }
