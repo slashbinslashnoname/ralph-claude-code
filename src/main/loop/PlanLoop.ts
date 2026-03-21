@@ -7,6 +7,20 @@ import { RalphConfig } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 
+const MAX_ENCODE_RETRIES = 2
+const HARD_CAP = 50
+
+interface ValidationError {
+  index: number
+  id: string
+  errors: string[]
+}
+
+interface ParseResult {
+  count: number
+  failures: number
+}
+
 export class PlanLoop extends EventEmitter {
   stopped = false
   private childProc: ChildProcess | null = null
@@ -53,15 +67,67 @@ export class PlanLoop extends EventEmitter {
 
     if (this.stopped) return
 
-    // Step 2 — Encode to beads via bd
+    // Step 2 — Encode to beads via bd (with validation + retry)
     this.emit('phase', 'encoding')
     this._log('INFO', 'Step 2 \u2014 Encoding plan to beads via bd CLI\u2026')
     try {
-      const raw = await this._runClaude(this._buildEncodePrompt(planMd, userRequest), 'encode', this.config.claudeModelExecute)
-      const beadCount = await this._parseAndCreateBeads(stripAnsi(raw))
-      this._log('SUCCESS', `Beads created via bd: ${beadCount} beads`)
-      this.emit('phase', 'done')
-      this.emit('done', beadCount)
+      let lastErrors: string[] = []
+      for (let attempt = 0; attempt <= MAX_ENCODE_RETRIES; attempt++) {
+        if (this.stopped) return
+        if (attempt > 0) {
+          this._log('INFO', `Encode retry ${attempt}/${MAX_ENCODE_RETRIES} \u2014 feeding ${lastErrors.length} validation errors back to Claude`)
+        }
+
+        const prompt = attempt === 0
+          ? this._buildEncodePrompt(planMd, userRequest)
+          : this._buildEncodeRetryPrompt(planMd, userRequest, lastErrors)
+
+        const raw = await this._runClaude(prompt, `encode-attempt-${attempt}`, this.config.claudeModelExecute)
+        const stripped = stripAnsi(raw)
+
+        // Parse candidates for validation before creating
+        const jsonMatch = stripped.match(/\[[\s\S]*\]/)
+        if (!jsonMatch) {
+          lastErrors = ['No JSON array found in encode response']
+          if (attempt < MAX_ENCODE_RETRIES) continue
+          this._log('WARN', 'No JSON array found after all retries')
+          this.emit('phase', 'done')
+          this.emit('done', 0)
+          return
+        }
+
+        let candidates: Record<string, unknown>[]
+        try {
+          candidates = JSON.parse(jsonMatch[0])
+        } catch (e) {
+          lastErrors = [`JSON parse failed: ${e instanceof Error ? e.message : e}`]
+          if (attempt < MAX_ENCODE_RETRIES) continue
+          this._log('ERROR', lastErrors[0])
+          this.emit('phase', 'done')
+          this.emit('done', 0)
+          return
+        }
+
+        const validationErrors = this._validateCandidates(candidates)
+        if (validationErrors.length > 0) {
+          lastErrors = validationErrors.map(
+            ve => `Bead ${ve.index} (${ve.id}): ${ve.errors.join('; ')}`
+          )
+          this._log('WARN', `Validation found ${validationErrors.length} issues: ${lastErrors.join(' | ')}`)
+          if (attempt < MAX_ENCODE_RETRIES) continue
+          this._log('WARN', 'Proceeding despite validation errors after max retries')
+        }
+
+        const result = await this._parseAndCreateBeads(stripped)
+        const total = result.count + result.failures
+        if (total > 0 && result.failures / total > 0.2) {
+          throw new Error(`High bead creation failure rate: ${result.failures}/${total} failed (>20%)`)
+        }
+        this._log('SUCCESS', `Beads created via bd: ${result.count} beads (${result.failures} failures)`)
+        this.emit('phase', 'done')
+        this.emit('done', result.count)
+        return
+      }
     } catch (err) {
       this._log('ERROR', `Encode failed: ${err instanceof Error ? err.message : err}`)
       this.emit('error', err instanceof Error ? err.message : String(err))
@@ -228,12 +294,95 @@ Rules:
 Output ONLY a valid JSON array. No markdown fences, no explanation.`
   }
 
+  private _buildEncodeRetryPrompt(planMd: string, userRequest: string, errors: string[]): string {
+    const base = this._buildEncodePrompt(planMd, userRequest)
+    return `${base}
+
+## PREVIOUS ATTEMPT FAILED VALIDATION
+
+The following errors were found in your previous output. Fix ALL of them:
+
+${errors.map((e, i) => `${i + 1}. ${e}`).join('\n')}
+
+Output ONLY a valid JSON array. No markdown fences, no explanation.`
+  }
+
+  /** Validate candidate beads before creation */
+  _validateCandidates(candidates: Record<string, unknown>[]): ValidationError[] {
+    const errors: ValidationError[] = []
+
+    if (candidates.length > HARD_CAP) {
+      errors.push({ index: -1, id: '_batch_', errors: [`Batch too large: ${candidates.length} beads exceeds hard cap of ${HARD_CAP}`] })
+    }
+
+    // Gather batch IDs for dep resolution
+    const batchIds = new Set(candidates.map(c => String(c.id ?? '')))
+
+    // Gather live open bead IDs for dep resolution
+    let liveOpenIds = new Set<string>()
+    try {
+      const openBeads = this.coordinator.bd.listAll()
+        .filter((b: { status: string }) => b.status !== 'done')
+      liveOpenIds = new Set(openBeads.map((b: { id: string }) => b.id))
+    } catch { /* ignore */ }
+
+    // Gather closed bead titles for duplicate detection
+    let closedTitles = new Set<string>()
+    try {
+      const closedBeads = this.coordinator.bd.listAll()
+        .filter((b: { status: string }) => b.status === 'done')
+      closedTitles = new Set(closedBeads.map((b: { title: string }) => b.title.toLowerCase().trim()))
+    } catch { /* ignore */ }
+
+    // Soft ratio warning for large batches
+    if (candidates.length > 20) {
+      errors.push({ index: -1, id: '_batch_', errors: [`Large batch: ${candidates.length} beads (consider splitting)`] })
+    }
+
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i]
+      const id = String(c.id ?? '')
+      const beadErrors: string[] = []
+
+      // Title validation: non-empty, > 3 chars
+      const title = String(c.title ?? '')
+      if (title.length <= 3) {
+        beadErrors.push(`Title too short (${title.length} chars, need >3): "${title}"`)
+      }
+
+      // Description validation: non-empty, > 10 chars
+      const desc = String(c.description ?? '')
+      if (desc.length <= 10) {
+        beadErrors.push(`Description too short (${desc.length} chars, need >10): "${desc}"`)
+      }
+
+      // Dep resolution: all deps must be in batch IDs or live open bead IDs
+      const deps = Array.isArray(c.deps) ? c.deps.map(String) : []
+      for (const dep of deps) {
+        if (!batchIds.has(dep) && !liveOpenIds.has(dep)) {
+          beadErrors.push(`Unresolvable dependency: "${dep}"`)
+        }
+      }
+
+      // Duplicate detection vs closed beads
+      if (closedTitles.has(title.toLowerCase().trim())) {
+        beadErrors.push(`Duplicate of closed bead: "${title}"`)
+      }
+
+      if (beadErrors.length > 0) {
+        errors.push({ index: i, id, errors: beadErrors })
+      }
+    }
+
+    return errors
+  }
+
   /** Parse JSON bead array from Claude output and create via bd CLI */
-  private async _parseAndCreateBeads(raw: string): Promise<number> {
+  private async _parseAndCreateBeads(raw: string): Promise<ParseResult> {
     const jsonMatch = raw.match(/\[[\s\S]*\]/)
     if (!jsonMatch) {
       this._log('WARN', 'No JSON array found in encode response')
-      return 0
+      return { count: 0, failures: 0 }
     }
 
     let parsed: Record<string, unknown>[]
@@ -241,14 +390,15 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
       parsed = JSON.parse(jsonMatch[0])
     } catch (e) {
       this._log('ERROR', `JSON parse failed: ${e instanceof Error ? e.message : e}`)
-      return 0
+      return { count: 0, failures: 0 }
     }
 
     const bd = this.coordinator.bd
     let created = 0
+    let failures = 0
     const idMap = new Map<string, string>() // planned-id -> actual bd id
 
-    // Create beads top-down so parent refs resolve: epics → tasks → subtasks
+    // Create beads top-down so parent refs resolve: epics \u2192 tasks \u2192 subtasks
     const epics = parsed.filter(b => b.type === 'epic')
     const tasks = parsed.filter(b => b.type === 'task')
     const subtasks = parsed.filter(b => b.type === 'subtask')
@@ -278,6 +428,7 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
       }
 
       created += groupCreated.length
+      failures += groupFailed.length
       for (const f of groupFailed) {
         this._log('WARN', `Failed to create bead "${f.opts.title}": ${f.error}`)
       }
@@ -301,7 +452,7 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
       summary: `${created} beads created via bd CLI`
     })
 
-    return created
+    return { count: created, failures }
   }
 
   private _log(level: string, msg: string): void {
