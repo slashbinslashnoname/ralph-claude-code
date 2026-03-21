@@ -46,6 +46,7 @@ interface SlashbotAPI {
     queue: (p: string) => Promise<any[]>
     start: (p: string, n?: number) => Promise<{ ok: boolean }>
     stop: (p: string) => Promise<{ ok: boolean }>
+    gracefulStop: (p: string) => Promise<{ ok: boolean }>
     status: (p: string) => Promise<any>
     beads: (p: string, status?: string) => Promise<any[]>
     beadStats: (p: string) => Promise<any>
@@ -57,6 +58,7 @@ interface SlashbotAPI {
     onOutput: (cb: (...a: any[]) => void) => () => void
     onGraph: (cb: (...a: any[]) => void) => () => void
     onAgents: (cb: (...a: any[]) => void) => () => void
+    onActivity: (cb: (...a: any[]) => void) => () => void
     onPlanPhase: (cb: (...a: any[]) => void) => () => void
     onPlanQueue: (cb: (...a: any[]) => void) => () => void
     onStopped: (cb: (...a: any[]) => void) => () => void
