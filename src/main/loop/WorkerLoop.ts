@@ -125,7 +125,7 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('routing')
       this._log('INFO', `[${this.agentId}] Routing: looking for best available bead…`)
 
-      const bead = await this.coordinator.claimBestBead(this.agentId)
+      let bead = await this.coordinator.claimBestBead(this.agentId)
       if (!bead) {
         if (!this.coordinator.hasOpenWork()) {
           this.emptyRetries++
@@ -188,6 +188,20 @@ export class WorkerLoop extends EventEmitter {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('WARN', `[${this.agentId}] Thinking phase failed (continuing): ${msg}`)
+        }
+
+        // ── Auto-split check: split large beads before executing ──────
+        if (thinkingOutput && !apiLimited && !this.stopped) {
+          const splitDecision = this._parseSplitDecision(stripAnsi(thinkingOutput), bead)
+          if (splitDecision) {
+            this._log('INFO', `[${this.agentId}] Split decision detected for [${bead.id}] — creating ${splitDecision.children.length} children`)
+            const firstChild = await this._splitBead(bead, splitDecision)
+            if (firstChild) {
+              this._log('INFO', `[${this.agentId}] Split complete — swapping to first child [${firstChild.id}] ${firstChild.title}`)
+              bead = firstChild
+              this.coordinator.updateAgent(this.agentId, { currentBeadId: bead.id, currentBeadTitle: bead.title })
+            }
+          }
         }
 
         // Skip remaining phases if stopped, paused, or rate-limited

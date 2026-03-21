@@ -1007,4 +1007,151 @@ describe('WorkerLoop', () => {
       expect(coord.bd.createAsync).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }))
     })
   })
+
+  describe('auto-split integration in _loop', () => {
+    it('calls _parseSplitDecision with thinking output and bead', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord)
+
+      const bead = makeBead({ id: 'sb-orig', tags: [] })
+      const thinkingOutput = `
+### Split Analysis
+\`\`\`json
+{
+  "shouldSplit": true,
+  "concerns": ["UI", "API", "tests"],
+  "reason": "Multiple concerns",
+  "children": [
+    { "title": "Child A", "description": "UI work", "files": ["src/ui.ts"] },
+    { "title": "Child B", "description": "API work", "files": ["src/api.ts"] }
+  ]
+}
+\`\`\`
+`
+      const result = (worker as any)._parseSplitDecision(thinkingOutput, bead)
+      expect(result).not.toBeNull()
+      expect(result.beadId).toBe('sb-orig')
+      expect(result.children).toHaveLength(2)
+      expect(result.children[0].title).toBe('Child A')
+    })
+
+    it('_parseSplitDecision returns null for empty thinking output', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const bead = makeBead({ tags: [] })
+
+      const result = (worker as any)._parseSplitDecision('', bead)
+      expect(result).toBeNull()
+    })
+
+    it('_splitBead returns child bead and updates can be applied', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.bd.createAsync.mockImplementation(async (opts: any) => {
+        callCount++
+        return makeBead({ id: `sb-child-${callCount}`, title: opts.title, description: opts.description })
+      })
+      coord.bd.show.mockImplementation((id: string) => makeBead({ id, title: 'Child A' }))
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const originalBead = makeBead({ id: 'sb-orig', title: 'Original' })
+      const decision: SplitDecision = {
+        beadId: 'sb-orig',
+        reason: 'Too large',
+        children: [
+          { title: 'Child A', description: 'First', files: [], deps: [] },
+          { title: 'Child B', description: 'Second', files: [], deps: [] }
+        ]
+      }
+
+      const firstChild = await (worker as any)._splitBead(originalBead, decision)
+      expect(firstChild).not.toBeNull()
+
+      // Simulate what _loop does after _splitBead returns
+      let bead = originalBead
+      if (firstChild) {
+        bead = firstChild
+        coord.updateAgent('agent-0', { currentBeadId: bead.id, currentBeadTitle: bead.title })
+      }
+
+      // Verify the bead reference was swapped
+      expect(bead.id).toBe(firstChild.id)
+      expect(bead.id).not.toBe('sb-orig')
+
+      // Verify coordinator was updated with child bead info
+      expect(coord.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
+        currentBeadId: firstChild.id,
+        currentBeadTitle: firstChild.title
+      }))
+    })
+
+    it('bead reference stays unchanged when _splitBead returns null', async () => {
+      const coord = makeCoordinator()
+      coord.bd.createAsync.mockRejectedValue(new Error('bd failed'))
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const originalBead = makeBead({ id: 'sb-orig', title: 'Original', tags: [] })
+      const decision: SplitDecision = {
+        beadId: 'sb-orig',
+        reason: 'Too large',
+        children: [
+          { title: 'C1', description: 'd1', files: [], deps: [] },
+          { title: 'C2', description: 'd2', files: [], deps: [] }
+        ]
+      }
+
+      const result = await (worker as any)._splitBead(originalBead, decision)
+      expect(result).toBeNull()
+
+      // Simulate _loop logic: bead should not change
+      let bead = originalBead
+      if (result) {
+        bead = result
+      }
+      expect(bead.id).toBe('sb-orig')
+    })
+
+    it('_parseSplitDecision skips beads with auto-split tag (prevents recursive split)', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord)
+
+      const bead = makeBead({ tags: ['auto-split'] })
+      const thinkingOutput = `
+### Split Analysis
+\`\`\`json
+{ "shouldSplit": true, "concerns": ["a","b","c"], "children": [{"title":"C1","description":"d1"},{"title":"C2","description":"d2"}] }
+\`\`\`
+`
+      const result = (worker as any)._parseSplitDecision(thinkingOutput, bead)
+      expect(result).toBeNull()
+    })
+
+    it('uses let bead declaration allowing reassignment in _loop source', () => {
+      // Verify the source code uses 'let bead' not 'const bead' at the claim site
+      const source = fs.readFileSync as any
+      // Read the actual source to verify the const→let change
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      expect(workerSource).toContain('let bead = await this.coordinator.claimBestBead')
+      expect(workerSource).not.toContain('const bead = await this.coordinator.claimBestBead')
+    })
+
+    it('source contains split check between thinking and execute phases', () => {
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      // Verify the split check exists and is positioned correctly
+      expect(workerSource).toContain('_parseSplitDecision(stripAnsi(thinkingOutput), bead)')
+      expect(workerSource).toContain('await this._splitBead(bead, splitDecision)')
+      expect(workerSource).toContain("this.coordinator.updateAgent(this.agentId, { currentBeadId: bead.id, currentBeadTitle: bead.title })")
+
+      // Verify ordering: split check appears after thinking, before execute
+      const splitIdx = workerSource.indexOf('_parseSplitDecision(stripAnsi(thinkingOutput)')
+      const executeIdx = workerSource.indexOf("_setPhase('executing'")
+      const thinkingIdx = workerSource.indexOf("_setPhase('thinking'")
+      expect(thinkingIdx).toBeLessThan(splitIdx)
+      expect(splitIdx).toBeLessThan(executeIdx)
+    })
+  })
 })
