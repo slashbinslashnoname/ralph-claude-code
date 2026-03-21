@@ -475,7 +475,7 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
 
 /**
  * cleanup — Transition back to idle for the next bead iteration.
- * Handles bead reopen/fail based on context flags.
+ * Bead reopen/fail decisions are made in closing before reaching here.
  */
 export async function cleanup(ctx: WorkerContext): Promise<StateId> {
   // All bead-specific state will be reset in idle
@@ -483,10 +483,10 @@ export async function cleanup(ctx: WorkerContext): Promise<StateId> {
 }
 
 /**
- * stopping — Terminal state. Deregisters the agent and exits.
+ * stopping — Terminal state. Signals the run loop to exit.
+ * Agent deregistration and activity posting are the caller's responsibility.
  */
 export async function stopping(ctx: WorkerContext): Promise<StateId> {
-  // Terminal — returns 'stopping' to signal the run loop to exit
   return 'stopping'
 }
 
@@ -517,9 +517,6 @@ export async function runStateMachine(ctx: WorkerContext): Promise<StateId> {
     const fn = STATE_TABLE[state]
     state = await fn(ctx)
   }
-
-  // Execute stopping state once for cleanup
-  await STATE_TABLE.stopping(ctx)
 
   return 'stopping'
 }

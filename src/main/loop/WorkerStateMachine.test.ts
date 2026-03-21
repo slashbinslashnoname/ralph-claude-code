@@ -315,6 +315,21 @@ describe('WorkerStateMachine', () => {
       }))
     })
 
+    it('keeps original bead when split decision is detected but splitBead returns null', async () => {
+      const original = makeBead()
+      const caps = makeCapabilities({
+        parseSplitDecision: vi.fn().mockReturnValue({
+          beadId: 'sb-1', reason: 'too large', children: [{ title: 'c1' }]
+        }),
+        splitBead: vi.fn().mockResolvedValue(null)
+      })
+      const ctx = makeCtx({ currentBead: original, capabilities: caps })
+
+      await thinking(ctx)
+
+      expect(ctx.currentBead).toBe(original)
+    })
+
     it('transitions to merging when stopped', async () => {
       const ctx = makeCtx({
         currentBead: makeBead(),
