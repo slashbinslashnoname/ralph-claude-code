@@ -24,11 +24,6 @@ interface SlashbotAPI {
   listLogs: (p: string) => Promise<string[]>
   readFile: (p: string, rel: string) => Promise<{ ok: boolean; content?: string; error?: string }>
   writeFile: (p: string, rel: string, c: string) => Promise<{ ok: boolean; error?: string }>
-  startSlashbot: (p: string) => Promise<{ ok: boolean; error?: string }>
-  stopSlashbot: (p: string) => Promise<void>
-  slashbotRunning: (p: string) => Promise<boolean>
-  ptyWrite: (p: string, d: string) => Promise<void>
-  ptyResize: (c: number, r: number) => Promise<void>
   resetCircuit: (p: string) => Promise<{ ok: boolean }>
   resetSession: (p: string) => Promise<{ ok: boolean }>
   beads: {

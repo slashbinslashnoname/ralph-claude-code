@@ -41,15 +41,6 @@ contextBridge.exposeInMainWorld('slashbot', {
   writeFile: (projectPath: string, relPath: string, content: string) =>
     ipcRenderer.invoke('file:write', projectPath, relPath, content),
 
-  // ── Slashbot loop ────────────────────────────────────────────────────────
-  startSlashbot: (projectPath: string) => ipcRenderer.invoke('slashbot:start', projectPath),
-  stopSlashbot: (projectPath: string) => ipcRenderer.invoke('slashbot:stop', projectPath),
-  slashbotRunning: (projectPath: string) => ipcRenderer.invoke('slashbot:running', projectPath),
-
-  // ── Terminal ──────────────────────────────────────────────────────────
-  ptyWrite: (projectPath: string, data: string) => ipcRenderer.invoke('pty:write', projectPath, data),
-  ptyResize: (cols: number, rows: number) => ipcRenderer.invoke('pty:resize', cols, rows),
-
   // ── Circuit breaker & session ────────────────────────────────────────
   resetCircuit: (projectPath: string) => ipcRenderer.invoke('circuit:reset', projectPath),
   resetSession: (projectPath: string) => ipcRenderer.invoke('session:reset', projectPath),
