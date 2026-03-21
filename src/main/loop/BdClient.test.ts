@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
+vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('child_process')>()) }))
 import * as cp from 'child_process'
+import type { exec as execType } from 'child_process'
 import { BdClient } from './BdClient'
 
 let mockExecSync: any
@@ -121,7 +124,7 @@ describe('BdClient', () => {
     it('creates a bead asynchronously', async () => {
       mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         ;(cb as Function)(null, JSON.stringify(rawBead({ id: 'async-1' })), '')
-        return {} as ReturnType<typeof exec>
+        return {} as ReturnType<typeof execType>
       })
 
       const result = await client.createAsync({ title: 'Async bead' })
@@ -131,7 +134,7 @@ describe('BdClient', () => {
     it('rejects on exec error', async () => {
       mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         ;(cb as Function)(new Error('spawn failed'), '', 'bd not found')
-        return {} as ReturnType<typeof exec>
+        return {} as ReturnType<typeof execType>
       })
 
       await expect(client.createAsync({ title: 'Fail' }))
@@ -147,7 +150,7 @@ describe('BdClient', () => {
       mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         callCount++
         ;(cb as Function)(null, JSON.stringify(rawBead({ id: `many-${callCount}` })), '')
-        return {} as ReturnType<typeof exec>
+        return {} as ReturnType<typeof execType>
       })
 
       const result = await client.createMany([
@@ -169,7 +172,7 @@ describe('BdClient', () => {
         } else {
           ;(cb as Function)(null, JSON.stringify(rawBead({ id: 'survived' })), '')
         }
-        return {} as ReturnType<typeof exec>
+        return {} as ReturnType<typeof execType>
       })
 
       const spy = vi.spyOn(console, 'error').mockImplementation(() => {})

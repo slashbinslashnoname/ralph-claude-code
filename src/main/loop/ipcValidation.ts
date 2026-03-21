@@ -73,7 +73,7 @@ export interface ValidateStringOptions {
   optional?: boolean
 }
 
-export function validateString(value: unknown, opts: ValidateStringOptions = {}): string
+export function validateString(value: unknown, opts?: ValidateStringOptions): string
 export function validateString(value: unknown, opts: ValidateStringOptions & { optional: true }): string | undefined
 export function validateString(value: unknown, opts: ValidateStringOptions = {}): string | undefined {
   const field = opts.field ?? 'value'
@@ -124,7 +124,7 @@ export interface ValidateNumberOptions {
   defaultValue?: number
 }
 
-export function validateNumber(value: unknown, opts: ValidateNumberOptions = {}): number
+export function validateNumber(value: unknown, opts?: ValidateNumberOptions): number
 export function validateNumber(value: unknown, opts: ValidateNumberOptions & { optional: true }): number | undefined
 export function validateNumber(value: unknown, opts: ValidateNumberOptions = {}): number | undefined {
   const field = opts.field ?? 'value'
@@ -166,7 +166,7 @@ export interface ValidateEnumOptions {
   defaultValue?: string
 }
 
-export function validateEnum(value: unknown, allowed: readonly string[], opts: ValidateEnumOptions = {}): string
+export function validateEnum(value: unknown, allowed: readonly string[], opts?: ValidateEnumOptions): string
 export function validateEnum(value: unknown, allowed: readonly string[], opts: ValidateEnumOptions & { optional: true }): string | undefined
 export function validateEnum(value: unknown, allowed: readonly string[], opts: ValidateEnumOptions = {}): string | undefined {
   const field = opts.field ?? 'value'

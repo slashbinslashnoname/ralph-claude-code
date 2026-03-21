@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as fs from 'fs'
 import * as path from 'path'
 import { CircuitBreaker } from './CircuitBreaker'
@@ -21,6 +22,7 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     cbPermissionDenialThreshold: 3,
     cbCooldownMinutes: 30,
     autoPush: false,
+    maxRetries: 3,
     ...overrides
   }
 }
