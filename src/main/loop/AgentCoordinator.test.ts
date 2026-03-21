@@ -1109,6 +1109,30 @@ describe('AgentCoordinator — knowledge log', () => {
     expect(parsed.summary).toBe('test persist')
     expect(parsed.detail).toBe('detail here')
   })
+
+  it('rapid sequential postKnowledge calls do not lose data', () => {
+    const count = 50
+    for (let i = 0; i < count; i++) {
+      coord.postKnowledge({
+        agentId: `agent-${i % 3}`, beadId: `b${i}`, category: 'pattern',
+        summary: `rapid-${i}`, detail: '', confidence: 'high'
+      })
+    }
+    // All entries present in cache
+    const entries = coord.readKnowledge(count)
+    expect(entries.length).toBe(count)
+    // Ordered correctly
+    for (let i = 0; i < count; i++) {
+      expect(entries[i].summary).toBe(`rapid-${i}`)
+    }
+    // All entries present on disk
+    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const lines = fs.readFileSync(knowledgeFile, 'utf8').split('\n').filter(Boolean)
+    expect(lines.length).toBe(count)
+    // Each line is distinct and parseable
+    const summaries = lines.map(l => JSON.parse(l).summary)
+    expect(new Set(summaries).size).toBe(count)
+  })
 })
 
 describe('AgentCoordinator — rollbackBead', () => {
