@@ -1349,3 +1349,142 @@ describe('AgentCoordinator — rollbackBead', () => {
     expect(coord.readLocks().length).toBe(0)
   })
 })
+
+describe('AgentCoordinator — idempotent bead operations', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('completeBead skips bd.close and commitAndPush when bead is already done', () => {
+    const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'done', deps: [], files: [], priority: 2, tags: []
+    })
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    coord.reserveFiles('agent-0', 'b1', ['a.ts'])
+    coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    expect(showSpy).toHaveBeenCalledWith('b1')
+    expect(closeSpy).not.toHaveBeenCalled()
+    // File locks should still be released
+    expect(coord.readLocks().length).toBe(0)
+    // Activity event should still be posted
+    const events = coord.readActivity()
+    const completed = events.find(e => e.type === 'completed')
+    expect(completed).toBeDefined()
+    expect(completed!.summary).toContain('already done')
+  })
+
+  it('completeBead proceeds normally when bead is not yet done', () => {
+    vi.spyOn(coord.bd, 'show').mockReturnValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'claimed', deps: [], files: [], priority: 2, tags: []
+    })
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+  })
+
+  it('completeBead proceeds when bd.show throws (bead not found)', () => {
+    vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    expect(closeSpy).toHaveBeenCalled()
+  })
+
+  it('reopenBead skips bd.reopen when bead is already open', () => {
+    const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'ready', deps: [], files: [], priority: 2, tags: []
+    })
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    coord.reserveFiles('agent-0', 'b1', ['a.ts'])
+    coord.reopenBead('agent-0', 'b1')
+
+    expect(showSpy).toHaveBeenCalledWith('b1')
+    expect(reopenSpy).not.toHaveBeenCalled()
+    // File locks should still be released
+    expect(coord.readLocks().length).toBe(0)
+  })
+
+  it('reopenBead proceeds normally when bead is not open', () => {
+    vi.spyOn(coord.bd, 'show').mockReturnValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'done', deps: [], files: [], priority: 2, tags: []
+    })
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    coord.reopenBead('agent-0', 'b1')
+
+    expect(reopenSpy).toHaveBeenCalledWith('b1', expect.any(String))
+  })
+
+  it('reopenBead proceeds when bd.show throws (bead not found)', () => {
+    vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    coord.reopenBead('agent-0', 'b1')
+
+    expect(reopenSpy).toHaveBeenCalled()
+  })
+
+  it('failBead skips bd.addLabel and bd.close when bead is already failed', () => {
+    const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'failed', deps: [], files: [], priority: 2, tags: ['failed']
+    })
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    coord.reserveFiles('agent-0', 'b1', ['a.ts'])
+    coord.failBead('agent-0', 'b1', 'timeout')
+
+    expect(showSpy).toHaveBeenCalledWith('b1')
+    expect(addLabelSpy).not.toHaveBeenCalled()
+    expect(closeSpy).not.toHaveBeenCalled()
+    // File locks should still be released
+    expect(coord.readLocks().length).toBe(0)
+    // Activity event should still be posted
+    const events = coord.readActivity()
+    const failed = events.find(e => e.type === 'failed')
+    expect(failed).toBeDefined()
+    expect(failed!.summary).toContain('already failed')
+  })
+
+  it('failBead proceeds normally when bead is not yet failed', () => {
+    vi.spyOn(coord.bd, 'show').mockReturnValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'claimed', deps: [], files: [], priority: 2, tags: []
+    })
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    coord.failBead('agent-0', 'b1', 'timeout')
+
+    expect(addLabelSpy).toHaveBeenCalledWith('b1', 'failed')
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+  })
+
+  it('failBead proceeds when bd.show throws (bead not found)', () => {
+    vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    coord.failBead('agent-0', 'b1', 'timeout')
+
+    expect(addLabelSpy).toHaveBeenCalled()
+    expect(closeSpy).toHaveBeenCalled()
+  })
+})

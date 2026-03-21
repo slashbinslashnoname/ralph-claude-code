@@ -603,6 +603,16 @@ export class AgentCoordinator {
   }
 
   completeBead(agentId: string, beadId: string, filesChanged?: string[], autoPush = true): void {
+    // Idempotency: skip if bead is already done
+    try {
+      const current = this.bd.show(beadId)
+      if (current?.status === 'done') {
+        this.releaseFiles(agentId, beadId)
+        this.postActivity({ agentId, type: 'completed', beadId, filesChanged, summary: `Completed [${beadId}] (already done)` })
+        return
+      }
+    } catch { /* bead not found — proceed and let bd.close handle the error */ }
+
     try {
       this.bd.close(beadId, `Completed by ${agentId}`)
     } catch (err) {
@@ -665,6 +675,15 @@ export class AgentCoordinator {
   }
 
   reopenBead(agentId: string, beadId: string): void {
+    // Idempotency: skip if bead is already open
+    try {
+      const current = this.bd.show(beadId)
+      if (current?.status === 'ready') {
+        this.releaseFiles(agentId, beadId)
+        return
+      }
+    } catch { /* bead not found — proceed and let bd.reopen handle the error */ }
+
     this.bd.reopen(beadId, `Reopened by ${agentId} for retry`)
     this.releaseFiles(agentId, beadId)
   }
@@ -770,6 +789,16 @@ export class AgentCoordinator {
   }
 
   failBead(agentId: string, beadId: string, reason: string): void {
+    // Idempotency: skip if bead is already failed
+    try {
+      const current = this.bd.show(beadId)
+      if (current?.status === 'failed') {
+        this.releaseFiles(agentId, beadId)
+        this.postActivity({ agentId, type: 'failed', beadId, summary: `${reason} (already failed)` })
+        return
+      }
+    } catch { /* bead not found — proceed and let bd.close handle the error */ }
+
     this.bd.addLabel(beadId, 'failed')
     this.bd.close(beadId, `Failed: ${reason}`)
     this.releaseFiles(agentId, beadId)
