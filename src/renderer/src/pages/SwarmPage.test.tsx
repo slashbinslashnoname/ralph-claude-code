@@ -54,7 +54,7 @@ vi.mock('../components/AgentOutputRenderer', () => ({
   default: ({ output }: { output: string }) => React.createElement('div', null, output),
 }))
 
-import SwarmPage, { TelegramStatusIndicator } from './SwarmPage'
+import SwarmPage, { TelegramStatusIndicator, knowledgeCategoryColor } from './SwarmPage'
 
 beforeEach(() => {
   mockSwarmStatus.mockReset().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
@@ -126,71 +126,51 @@ describe('TelegramStatusIndicator', () => {
   })
 })
 
-describe('Knowledge entries in activity feed', () => {
-  const knowledgeEntries = [
-    {
-      ts: '2026-03-21T10:00:00Z',
-      agentId: 'agent-0',
-      beadId: 'sb-123',
-      category: 'gotcha' as const,
-      summary: 'Config must be loaded before init',
-      detail: 'The config file must exist before the init function runs',
-      confidence: 'high' as const,
-    },
-    {
-      ts: '2026-03-21T10:01:00Z',
-      agentId: 'agent-1',
-      beadId: 'sb-456',
-      category: 'pattern' as const,
-      summary: 'Use factory pattern for services',
-      detail: 'All services use factory pattern',
-      confidence: 'medium' as const,
-    },
-  ]
+describe('knowledgeCategoryColor', () => {
+  test('maps danger categories', () => {
+    expect(knowledgeCategoryColor('gotcha')).toBe('danger')
+    expect(knowledgeCategoryColor('risk')).toBe('danger')
+  })
 
-  const activityEvents = [
-    {
-      ts: '2026-03-21T10:00:30Z',
-      agentId: 'agent-0',
-      type: 'executing',
-      beadId: 'sb-123',
-      summary: 'Working on task',
-    },
-  ]
+  test('maps accent categories', () => {
+    expect(knowledgeCategoryColor('pattern')).toBe('accent')
+    expect(knowledgeCategoryColor('convention')).toBe('accent')
+  })
 
-  test('renders knowledge entries with lightbulb icon and category badge', () => {
+  test('maps dependency to warning', () => {
+    expect(knowledgeCategoryColor('dependency')).toBe('warning')
+  })
+
+  test('maps environment to info', () => {
+    expect(knowledgeCategoryColor('environment')).toBe('info')
+  })
+
+  test('defaults unknown categories to info', () => {
+    expect(knowledgeCategoryColor('unknown')).toBe('info')
+    expect(knowledgeCategoryColor('')).toBe('info')
+  })
+})
+
+describe('Activity tab with activity events', () => {
+  test('tab label includes activity count from props', () => {
+    const events = [
+      { ts: '2026-03-21T10:00:00Z', agentId: 'agent-0', type: 'executing', beadId: 'sb-1', summary: 'Working' },
+      { ts: '2026-03-21T10:01:00Z', agentId: 'agent-0', type: 'completed', beadId: 'sb-1', summary: 'Done' },
+    ]
     const html = renderToStaticMarkup(
       <SwarmPage
         projectPath="/tmp/test"
         agentOutputs={{}}
         setAgentOutputs={vi.fn()}
-        activity={activityEvents}
+        activity={events}
         setActivity={vi.fn()}
       />
     )
-    // Activity tab is not active by default (overview is), but we can verify the merged count in the tab label
-    // The tab shows the merged feed count
-    expect(html).toContain('Activity (')
+    // Knowledge is fetched async (empty during SSR), so merged feed = activity count
+    expect(html).toContain('Activity (2)')
   })
 
-  test('renders knowledge items interleaved with activity when activity tab is shown', () => {
-    // We test the rendering logic by creating a component that starts on the activity tab
-    // Since SSR doesn't support useState changes, we test the static content structure
-    const html = renderToStaticMarkup(
-      <SwarmPage
-        projectPath="/tmp/test"
-        agentOutputs={{}}
-        setAgentOutputs={vi.fn()}
-        activity={activityEvents}
-        setActivity={vi.fn()}
-      />
-    )
-    // The component renders with overview as default tab
-    expect(html).toContain('overview-grid')
-  })
-
-  test('knowledge entry structure contains expected classes', () => {
-    // Verify the CSS class exists
+  test('tab label shows 0 when no activity or knowledge', () => {
     const html = renderToStaticMarkup(
       <SwarmPage
         projectPath="/tmp/test"
@@ -200,7 +180,6 @@ describe('Knowledge entries in activity feed', () => {
         setActivity={vi.fn()}
       />
     )
-    // With empty activity and knowledge, the merged feed is empty
-    expect(html).toContain('Agent Flywheel')
+    expect(html).toContain('Activity (0)')
   })
 })

@@ -15,6 +15,16 @@ interface KnowledgeEntry {
   confidence: KnowledgeConfidence
 }
 
+export function knowledgeCategoryColor(cat: string): string {
+  switch (cat) {
+    case 'gotcha': case 'risk': return 'danger'
+    case 'pattern': case 'convention': return 'accent'
+    case 'dependency': return 'warning'
+    case 'environment': return 'info'
+    default: return 'info'
+  }
+}
+
 const sb = window.slashbot
 
 export interface TelegramStatus {
@@ -203,16 +213,6 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     items.sort((a, b) => b.ts.localeCompare(a.ts)) // newest first
     return items.slice(0, 200)
   }, [activity, knowledge])
-
-  const knowledgeCategoryColor = (cat: string) => {
-    switch (cat) {
-      case 'gotcha': case 'risk': return 'danger'
-      case 'pattern': case 'convention': return 'accent'
-      case 'dependency': return 'warning'
-      case 'environment': return 'info'
-      default: return 'info'
-    }
-  }
 
   const activityIcon = (type: string) => {
     switch (type) {
