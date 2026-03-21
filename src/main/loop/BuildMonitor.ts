@@ -74,7 +74,7 @@ export class BuildMonitor extends EventEmitter {
   }
 
   /** Run the build command and handle the result. */
-  _runCheck(): void {
+  private _runCheck(): void {
     if (this.checking) return
     if (!this.running) return
 
@@ -100,7 +100,7 @@ export class BuildMonitor extends EventEmitter {
   }
 
   /** Handle a build failure: fingerprint, dedup, and optionally create a bead. */
-  _handleFailure(output: string): void {
+  private _handleFailure(output: string): void {
     const fingerprint = createHash('sha256').update(output).digest('hex').slice(0, 16)
     const record = this.failures.get(fingerprint) ?? { count: 0, beadFiled: false }
     record.count++
@@ -133,7 +133,7 @@ export class BuildMonitor extends EventEmitter {
   }
 
   /** Handle a passing build: reset all failure counters. */
-  _handlePass(): void {
+  private _handlePass(): void {
     if (this.failures.size > 0) {
       this.emit('log', 'info', 'BuildMonitor: build passed, resetting failure counters')
       this.failures.clear()

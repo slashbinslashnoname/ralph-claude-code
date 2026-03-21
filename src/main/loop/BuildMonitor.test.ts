@@ -166,10 +166,10 @@ describe('BuildMonitor', () => {
     simulateExec(new Error('fail'), '', errorOutput)
     expect(bd.create).toHaveBeenCalledTimes(1)
 
-    // 4th identical failure — no new bead (fingerprint removed after filing)
+    // 4th identical failure — counter restarted from 0 (fingerprint removed after filing)
+    // so needs 3 more consecutive failures before a new bead is filed
     vi.advanceTimersByTime(1_000)
     simulateExec(new Error('fail'), '', errorOutput)
-    // Count restarted because fingerprint was removed, so needs 3 more
     expect(bd.create).toHaveBeenCalledTimes(1)
     monitor.stop()
   })
@@ -252,6 +252,26 @@ describe('BuildMonitor', () => {
     simulateExec(null, 'ok')
     expect(statuses).toHaveLength(2)
     expect(statuses[1][0]).toBe('passed')
+    monitor.stop()
+  })
+
+  it('logs error when bd.create throws', () => {
+    const bd = makeBd()
+    ;(bd.create as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('bd CLI not found')
+    })
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const logs: Array<[string, string]> = []
+    monitor.on('log', (level: string, msg: string) => logs.push([level, msg]))
+
+    monitor.start()
+    for (let i = 0; i < 3; i++) {
+      simulateExec(new Error('fail'), '', 'build error')
+      if (i < 2) vi.advanceTimersByTime(1_000)
+    }
+
+    expect(bd.create).toHaveBeenCalledTimes(1)
+    expect(logs.some(([level, msg]) => level === 'error' && msg.includes('bd CLI not found'))).toBe(true)
     monitor.stop()
   })
 
