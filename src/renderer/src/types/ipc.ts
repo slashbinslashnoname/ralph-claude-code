@@ -57,10 +57,6 @@ export interface AgentInfo {
   lastActivity: string
   worktreeBranch: string | null
   thinkingSummary: string | null
-  /** Timestamp of last heartbeat signal (ISO string), if available */
-  lastHeartbeat?: string | null
-  /** Human-readable reason if the agent is considered stale */
-  staleReason?: string | null
 }
 
 // ---------------------------------------------------------------------------

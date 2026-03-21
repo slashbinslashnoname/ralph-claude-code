@@ -73,7 +73,7 @@ describe('IPC types', () => {
     expect(phases).toHaveLength(10)
   })
 
-  it('AgentInfo has required and optional fields', () => {
+  it('AgentInfo has all required fields', () => {
     const agent: AgentInfo = {
       id: 'agent-0',
       index: 0,
@@ -86,11 +86,9 @@ describe('IPC types', () => {
       thinkingSummary: 'Analyzing...'
     }
     expect(agent.id).toBe('agent-0')
-    expect(agent.lastHeartbeat).toBeUndefined()
-    expect(agent.staleReason).toBeUndefined()
   })
 
-  it('AgentInfo accepts lastHeartbeat and staleReason', () => {
+  it('AgentInfo accepts null nullable fields', () => {
     const agent: AgentInfo = {
       id: 'agent-1',
       index: 1,
@@ -100,12 +98,9 @@ describe('IPC types', () => {
       loopCount: 0,
       lastActivity: '2026-03-21T09:00:00Z',
       worktreeBranch: null,
-      thinkingSummary: null,
-      lastHeartbeat: '2026-03-21T09:00:00Z',
-      staleReason: 'No activity for 5 minutes'
+      thinkingSummary: null
     }
-    expect(agent.lastHeartbeat).toBe('2026-03-21T09:00:00Z')
-    expect(agent.staleReason).toBe('No activity for 5 minutes')
+    expect(agent.currentBeadId).toBeNull()
   })
 
   it('ActivityEvent has required and optional fields', () => {
