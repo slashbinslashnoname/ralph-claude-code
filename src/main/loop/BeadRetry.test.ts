@@ -33,6 +33,7 @@ function makeMockCoordinator() {
     reopenBead: vi.fn(),
     failBead: vi.fn(),
     completeBead: vi.fn(),
+    heartbeat: vi.fn(),
     _stateStore: stateStore
   }
 }

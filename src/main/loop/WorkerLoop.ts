@@ -175,15 +175,34 @@ export class WorkerLoop extends EventEmitter {
     )
     this._stateMachineCtx = ctx
 
+    // Emit heartbeat every 30s so the orchestrator can detect dead agents
+    const heartbeatTimer = setInterval(() => {
+      this.coordinator.heartbeat(this.agentId)
+      this.emit('heartbeat')
+    }, 30_000)
+    this.coordinator.heartbeat(this.agentId)
+    this.emit('heartbeat')
+
     try {
       await runStateMachine(ctx)
     } finally {
+      clearInterval(heartbeatTimer)
       this._stateMachineCtx = null
       this._exit(ctx.flags.stopped ? 'stopped' : 'all_beads_done')
     }
   }
 
   private async _loop(): Promise<void> {
+    // Emit heartbeat every 30s so the orchestrator can detect dead agents
+    const heartbeatTimer = setInterval(() => {
+      this.coordinator.heartbeat(this.agentId)
+      this.emit('heartbeat')
+    }, 30_000)
+    // Emit initial heartbeat immediately
+    this.coordinator.heartbeat(this.agentId)
+    this.emit('heartbeat')
+
+    try {
     while (this.running && !this.stopped) {
       // Pause gate: wait before claiming next bead
       if (await this._waitIfPaused()) break
@@ -442,6 +461,9 @@ export class WorkerLoop extends EventEmitter {
       await this._sleep(1500)
     }
     this._exit('stopped')
+    } finally {
+      clearInterval(heartbeatTimer)
+    }
   }
 
   private _runClaude(prompt: string, label: string, cwd?: string, model?: string): Promise<string> {

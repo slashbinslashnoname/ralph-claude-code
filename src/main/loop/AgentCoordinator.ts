@@ -273,6 +273,25 @@ export class AgentCoordinator {
     return this._knowledgeCache.slice(-limit)
   }
 
+  // ── Agent heartbeats ─────────────────────────────────────────────────────
+
+  private _heartbeats = new Map<string, number>()
+
+  /** Record a heartbeat for the given agent (epoch ms). */
+  heartbeat(agentId: string): void {
+    this._heartbeats.set(agentId, Date.now())
+  }
+
+  /** Return the last heartbeat timestamp (epoch ms) for an agent, or undefined if unknown. */
+  getLastHeartbeat(agentId: string): number | undefined {
+    return this._heartbeats.get(agentId)
+  }
+
+  /** Remove heartbeat tracking for an agent (call on deregister). */
+  clearHeartbeat(agentId: string): void {
+    this._heartbeats.delete(agentId)
+  }
+
   // ── Git worktree management ─────────────────────────────────────────────
 
   /** Create a git worktree for an agent's isolated work */

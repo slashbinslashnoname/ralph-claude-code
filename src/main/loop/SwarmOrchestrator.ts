@@ -381,6 +381,8 @@ export class SwarmOrchestrator extends EventEmitter {
     this.emit('agents', this.coordinator.getAgents())
   }
 
+  private _deadAgentPollCount = 0
+
   private _startActivityPoll(): void {
     if (this.activityPollTimer) return
     this.activityPollTimer = setInterval(() => {
@@ -392,7 +394,51 @@ export class SwarmOrchestrator extends EventEmitter {
         this.lastActivityIndex = events.length
         this._broadcastGraph()
       }
+
+      // Dead-agent detection: check every ~20 polls (~30s at 1500ms interval)
+      this._deadAgentPollCount++
+      if (this._deadAgentPollCount >= 20) {
+        this._deadAgentPollCount = 0
+        this._detectDeadAgents()
+      }
     }, 1500)
+  }
+
+  /** Check for agents whose heartbeat is older than 2× claudeTimeoutMinutes and reopen their beads. */
+  private _detectDeadAgents(): void {
+    const config = loadConfig(this.projectPath)
+    const thresholdMs = 2 * config.claudeTimeoutMinutes * 60_000
+    const now = Date.now()
+
+    for (const [agentId, lastTs] of this._heartbeatMap) {
+      if (!this.workers.has(agentId)) continue
+      if (now - lastTs > thresholdMs) {
+        this._log('WARN', `Dead agent detected: ${agentId} (no heartbeat for ${Math.round((now - lastTs) / 60_000)}m)`)
+
+        // Find the agent's current bead and reopen it
+        const agentInfo = this.coordinator.getAgents().find(a => a.id === agentId)
+        if (agentInfo?.currentBeadId) {
+          this.coordinator.reopenBead(agentId, agentInfo.currentBeadId)
+          this.coordinator.postActivity({
+            agentId: 'system',
+            type: 'dead_agent',
+            beadId: agentInfo.currentBeadId,
+            beadTitle: agentInfo.currentBeadTitle ?? undefined,
+            summary: `Reopened bead [${agentInfo.currentBeadId}] — agent ${agentId} unresponsive`
+          })
+          this._log('INFO', `Reopened bead [${agentInfo.currentBeadId}] from dead agent ${agentId}`)
+        }
+
+        // Stop the dead worker
+        const worker = this.workers.get(agentId)
+        if (worker) {
+          worker.stop()
+          this.workers.delete(agentId)
+          this._heartbeatMap.delete(agentId)
+        }
+        this._broadcastAgents()
+      }
+    }
   }
 
   private _stopActivityPoll(): void {

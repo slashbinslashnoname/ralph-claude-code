@@ -117,6 +117,7 @@ function makeCoordinator() {
     deregisterAgent: vi.fn(),
     readKnowledge: vi.fn().mockReturnValue([]),
     postKnowledge: vi.fn(),
+    heartbeat: vi.fn(),
     getAgents: vi.fn().mockReturnValue([]),
     releaseAllForAgent: vi.fn(),
     bd: { getState: vi.fn().mockReturnValue(''), setState: vi.fn() }
