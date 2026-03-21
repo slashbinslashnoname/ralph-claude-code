@@ -174,6 +174,38 @@ export class SwarmOrchestrator extends EventEmitter {
     this._log('INFO', 'Graceful stop requested — workers will finish current beads then exit')
   }
 
+  /** Pause a single worker agent. */
+  pauseWorker(agentId: string): boolean {
+    const worker = this.workers.get(agentId)
+    if (!worker) return false
+    worker.pause()
+    this._broadcastAgents()
+    return true
+  }
+
+  /** Resume a single paused worker agent. */
+  resumeWorker(agentId: string): boolean {
+    const worker = this.workers.get(agentId)
+    if (!worker) return false
+    worker.resume()
+    this._broadcastAgents()
+    return true
+  }
+
+  /** Pause all workers. */
+  pauseAllWorkers(): void {
+    for (const worker of this.workers.values()) worker.pause()
+    this._broadcastAgents()
+    this._log('INFO', 'All workers paused')
+  }
+
+  /** Resume all paused workers. */
+  resumeAllWorkers(): void {
+    for (const worker of this.workers.values()) worker.resume()
+    this._broadcastAgents()
+    this._log('INFO', 'All workers resumed')
+  }
+
   stopAll(): void {
     this.planner?.stop()
     this.planner = null

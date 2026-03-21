@@ -19,6 +19,9 @@ const BD_SYSTEM_PROMPT = `
 export class WorkerLoop extends EventEmitter {
   running = false
   stopped = false
+  paused = false
+  private _pauseResolve: (() => void) | null = null
+  private _phaseBeforePause: string | null = null
   private childProc: ReturnType<typeof cp.spawn> | null = null
   loopCount = 0
   private emptyRetries = 0
@@ -61,6 +64,9 @@ export class WorkerLoop extends EventEmitter {
   stop(): void {
     this.stopped = true
     this.running = false
+    this.paused = false
+    // Release pause gate so the loop can exit
+    if (this._pauseResolve) { this._pauseResolve(); this._pauseResolve = null }
     if (this.childProc) {
       try { this.childProc.kill('SIGTERM') } catch { /* ignore */ }
       const p = this.childProc
@@ -75,14 +81,46 @@ export class WorkerLoop extends EventEmitter {
 
   /** Signal worker to stop after current bead finishes (no process kill). */
   gracefulStop(): void {
+    // Auto-resume if paused so the worker can finish its current bead and exit
+    if (this.paused) this.resume()
     this.stopped = true
     this.running = false
     this._log('INFO', `[${this.agentId}] Graceful stop requested — will finish current bead`)
     this.coordinator.postActivity({ agentId: this.agentId, type: 'stopped', summary: 'Graceful stop — finishing current bead' })
   }
 
+  /** Pause the worker after the current phase completes. */
+  pause(): void {
+    if (this.paused || this.stopped) return
+    this.paused = true
+    this._phaseBeforePause = this.coordinator.getAgents().find(a => a.id === this.agentId)?.phase ?? null
+    this._setPhase('paused')
+    this._log('INFO', `[${this.agentId}] Paused`)
+    this.coordinator.postActivity({ agentId: this.agentId, type: 'paused', summary: 'Agent paused' })
+  }
+
+  /** Resume a paused worker. */
+  resume(): void {
+    if (!this.paused) return
+    this.paused = false
+    this._log('INFO', `[${this.agentId}] Resumed`)
+    this.coordinator.postActivity({ agentId: this.agentId, type: 'resumed', summary: 'Agent resumed' })
+    // Restore previous phase if available, otherwise idle
+    if (this._phaseBeforePause && this._phaseBeforePause !== 'paused') {
+      this._setPhase(this._phaseBeforePause)
+    }
+    this._phaseBeforePause = null
+    // Release the pause gate so the loop continues
+    if (this._pauseResolve) {
+      this._pauseResolve()
+      this._pauseResolve = null
+    }
+  }
+
   private async _loop(): Promise<void> {
     while (this.running && !this.stopped) {
+      // Pause gate: wait before claiming next bead
+      if (await this._waitIfPaused()) break
       this.loopCount++
       this._setPhase('routing')
       this._log('INFO', `[${this.agentId}] Routing: looking for best available bead…`)
@@ -154,6 +192,9 @@ export class WorkerLoop extends EventEmitter {
 
         if (this.stopped) return // will still run finally → merge
 
+        // Pause gate: wait between thinking and executing
+        if (await this._waitIfPaused()) return
+
         // ── Phase 2: Execute — implement the bead ───────────────────
         this._setPhase('executing', bead.id, bead.title)
         this._log('INFO', `[${this.agentId}] Executing bead…`)
@@ -172,6 +213,9 @@ export class WorkerLoop extends EventEmitter {
         }
 
         if (this.stopped) return
+
+        // Pause gate: wait between executing and reviewing
+        if (await this._waitIfPaused()) return
 
         if (detectApiLimit(stripAnsi(executeOutput))) {
           this._log('WARN', `[${this.agentId}] API limit detected`)
@@ -541,6 +585,22 @@ DO NOT write any implementation code. Analysis only.`
   /** Exponential backoff: 3s * 2^attempt, capped at 60s. */
   _backoffMs(attempt: number): number {
     return Math.min(3000 * Math.pow(2, attempt), 60_000)
+  }
+
+  /** Block until resumed (or stopped). Returns true if stopped while paused. */
+  private _waitIfPaused(): Promise<boolean> {
+    if (!this.paused) return Promise.resolve(false)
+    return new Promise(resolve => {
+      this._pauseResolve = () => resolve(false)
+      // If stop() is called while paused, _sleep polling will set stopped
+      const poll = setInterval(() => {
+        if (this.stopped || !this.paused) {
+          clearInterval(poll)
+          this._pauseResolve = null
+          resolve(this.stopped)
+        }
+      }, 250)
+    })
   }
 
   private _sleep(ms: number): Promise<void> {

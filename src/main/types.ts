@@ -67,7 +67,7 @@ export interface FileLock {
   reservedAt: string
 }
 
-export type AgentPhase = 'idle' | 'routing' | 'waiting' | 'claiming' | 'thinking' | 'executing' | 'reviewing' | 'merging' | 'closing'
+export type AgentPhase = 'idle' | 'routing' | 'waiting' | 'claiming' | 'thinking' | 'executing' | 'reviewing' | 'merging' | 'closing' | 'paused'
 
 export interface AgentInfo {
   id: string
@@ -85,7 +85,7 @@ export interface AgentInfo {
 export interface ActivityEvent {
   ts: string
   agentId: string
-  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped'
+  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed'
   beadId?: string
   beadTitle?: string
   summary?: string

@@ -36,6 +36,7 @@ import {
   validateSwarmActivity,
   validateSwarmAgentOutput,
   validateSwarmAgentLogContent,
+  validateSwarmPauseResume,
 } from './loop/swarmValidation'
 import { EnableOptions } from './types'
 
@@ -550,6 +551,50 @@ export function registerIpc(
       const v = validateSwarmStop(projectPath)
       const swarm = swarms.get(v.projectPath)
       if (swarm) swarm.gracefulStopWorkers()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:pause-agent', (_e, projectPath: unknown, agentId: unknown) => {
+    try {
+      const v = validateSwarmPauseResume(projectPath, agentId)
+      const swarm = swarms.get(v.projectPath)
+      if (!swarm) return { ok: false, error: 'No swarm' }
+      return { ok: swarm.pauseWorker(v.agentId) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:resume-agent', (_e, projectPath: unknown, agentId: unknown) => {
+    try {
+      const v = validateSwarmPauseResume(projectPath, agentId)
+      const swarm = swarms.get(v.projectPath)
+      if (!swarm) return { ok: false, error: 'No swarm' }
+      return { ok: swarm.resumeWorker(v.agentId) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:pause-all', (_e, projectPath: unknown) => {
+    try {
+      const v = validateSwarmStop(projectPath)
+      const swarm = swarms.get(v.projectPath)
+      if (swarm) swarm.pauseAllWorkers()
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:resume-all', (_e, projectPath: unknown) => {
+    try {
+      const v = validateSwarmStop(projectPath)
+      const swarm = swarms.get(v.projectPath)
+      if (swarm) swarm.resumeAllWorkers()
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

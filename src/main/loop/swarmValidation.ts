@@ -203,3 +203,12 @@ export function validateSwarmAgentLogs(projectPath: unknown): {
     projectPath: validateProjectPath(projectPath),
   }
 }
+
+export function validateSwarmPauseResume(projectPath: unknown, agentId: unknown): {
+  projectPath: string; agentId: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+    agentId: validateAgentId(agentId),
+  }
+}

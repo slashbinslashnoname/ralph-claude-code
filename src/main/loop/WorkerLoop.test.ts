@@ -126,6 +126,93 @@ describe('WorkerLoop', () => {
     })
   })
 
+  describe('pause', () => {
+    it('sets paused flag and posts activity', () => {
+      const coord = makeCoordinator()
+      coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.pause()
+      expect(worker.paused).toBe(true)
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0',
+        type: 'paused'
+      }))
+      expect(coord.updateAgent).toHaveBeenCalledWith('agent-0', { phase: 'paused' })
+    })
+
+    it('is idempotent — second call is no-op', () => {
+      const coord = makeCoordinator()
+      coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.pause()
+      const callCount = coord.postActivity.mock.calls.length
+      worker.pause()
+      expect(coord.postActivity.mock.calls.length).toBe(callCount)
+    })
+
+    it('does nothing when stopped', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.stopped = true
+      worker.pause()
+      expect(worker.paused).toBe(false)
+    })
+  })
+
+  describe('resume', () => {
+    it('clears paused flag and posts activity', () => {
+      const coord = makeCoordinator()
+      coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.pause()
+      worker.resume()
+      expect(worker.paused).toBe(false)
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0',
+        type: 'resumed'
+      }))
+    })
+
+    it('is no-op when not paused', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.resume()
+      expect(coord.postActivity).not.toHaveBeenCalledWith(expect.objectContaining({
+        type: 'resumed'
+      }))
+    })
+  })
+
+  describe('gracefulStop while paused', () => {
+    it('auto-resumes before stopping', () => {
+      const coord = makeCoordinator()
+      coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.pause()
+      expect(worker.paused).toBe(true)
+      worker.gracefulStop()
+      expect(worker.paused).toBe(false)
+      expect(worker.stopped).toBe(true)
+    })
+  })
+
+  describe('stop while paused', () => {
+    it('clears paused flag', () => {
+      const coord = makeCoordinator()
+      coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker.running = true
+      worker.pause()
+      worker.stop()
+      expect(worker.paused).toBe(false)
+      expect(worker.stopped).toBe(true)
+    })
+  })
+
   describe('_backoffMs', () => {
     it('returns 3000ms for attempt 0', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())

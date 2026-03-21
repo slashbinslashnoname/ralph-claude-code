@@ -280,6 +280,64 @@ describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
   })
 })
 
+describe('SwarmOrchestrator — pause/resume workers', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('pauseWorker returns false for unknown agent', () => {
+    expect(orch.pauseWorker('agent-99')).toBe(false)
+  })
+
+  it('resumeWorker returns false for unknown agent', () => {
+    expect(orch.resumeWorker('agent-99')).toBe(false)
+  })
+
+  it('pauseWorker/resumeWorker returns true for existing worker', () => {
+    const fakeWorker = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('agent-0', fakeWorker)
+    expect(orch.pauseWorker('agent-0')).toBe(true)
+    expect(fakeWorker.pause).toHaveBeenCalled()
+    expect(orch.resumeWorker('agent-0')).toBe(true)
+    expect(fakeWorker.resume).toHaveBeenCalled()
+  })
+
+  it('pauseAllWorkers calls pause on all workers', () => {
+    const w0 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    const w1 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('agent-0', w0)
+    ;(orch as any).workers.set('agent-1', w1)
+    orch.pauseAllWorkers()
+    expect(w0.pause).toHaveBeenCalled()
+    expect(w1.pause).toHaveBeenCalled()
+  })
+
+  it('resumeAllWorkers calls resume on all workers', () => {
+    const w0 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    const w1 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('agent-0', w0)
+    ;(orch as any).workers.set('agent-1', w1)
+    orch.resumeAllWorkers()
+    expect(w0.resume).toHaveBeenCalled()
+    expect(w1.resume).toHaveBeenCalled()
+  })
+
+  it('pauseWorker broadcasts agents', () => {
+    const fakeWorker = { pause: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('agent-0', fakeWorker)
+    const broadcasts: any[] = []
+    orch.on('agents', (a: any) => broadcasts.push(a))
+    orch.pauseWorker('agent-0')
+    expect(broadcasts.length).toBe(1)
+  })
+})
+
 describe('SwarmOrchestrator — status queries', () => {
   beforeEach(() => {
     tmpDir = makeTmpProject()

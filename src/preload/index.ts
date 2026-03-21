@@ -82,6 +82,12 @@ contextBridge.exposeInMainWorld('slashbot', {
       ipcRenderer.invoke('swarm:start', projectPath, workerCount ?? 2),
     stop: (projectPath: string) => ipcRenderer.invoke('swarm:stop', projectPath),
     gracefulStop: (projectPath: string) => ipcRenderer.invoke('swarm:graceful-stop', projectPath),
+    pauseAgent: (projectPath: string, agentId: string) =>
+      ipcRenderer.invoke('swarm:pause-agent', projectPath, agentId),
+    resumeAgent: (projectPath: string, agentId: string) =>
+      ipcRenderer.invoke('swarm:resume-agent', projectPath, agentId),
+    pauseAll: (projectPath: string) => ipcRenderer.invoke('swarm:pause-all', projectPath),
+    resumeAll: (projectPath: string) => ipcRenderer.invoke('swarm:resume-all', projectPath),
     status: (projectPath: string) => ipcRenderer.invoke('swarm:status', projectPath),
     beads: (projectPath: string, status?: string) =>
       ipcRenderer.invoke('swarm:beads', projectPath, status),

@@ -102,6 +102,25 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     await sb.swarm.gracefulStop(projectPath)
   }, [projectPath])
 
+  const pauseAgent = useCallback(async (agentId: string) => {
+    await sb.swarm.pauseAgent(projectPath, agentId)
+  }, [projectPath])
+
+  const resumeAgent = useCallback(async (agentId: string) => {
+    await sb.swarm.resumeAgent(projectPath, agentId)
+  }, [projectPath])
+
+  const pauseAllAgents = useCallback(async () => {
+    await sb.swarm.pauseAll(projectPath)
+  }, [projectPath])
+
+  const resumeAllAgents = useCallback(async () => {
+    await sb.swarm.resumeAll(projectPath)
+  }, [projectPath])
+
+  const allPaused = agents.length > 0 && agents.every(a => a.phase === 'paused')
+  const anyPaused = agents.some(a => a.phase === 'paused')
+
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
   const isPlanning = swarmStatus?.planning ?? false
 
@@ -111,6 +130,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     if (phase === 'reviewing') return 'warning'
     if (phase === 'merging') return 'info'
     if (phase === 'routing' || phase === 'claiming') return 'info'
+    if (phase === 'paused') return 'warning'
     if (phase === 'rate_limited') return 'danger'
     return 'idle'
   }
@@ -125,6 +145,8 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       case 'failed': return '\u2717'
       case 'started': return '\u25B6'
       case 'stopped': return '\u25A0'
+      case 'paused': return '\u23F8'
+      case 'resumed': return '\u25B6'
       default: return '\u2022'
     }
   }
@@ -146,6 +168,17 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   onClick={() => { const n = workerCount + 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   +
                 </button>
+                {allPaused ? (
+                  <button className="btn btn-accent" onClick={resumeAllAgents}
+                    title="Resume all paused agents">
+                    Resume All
+                  </button>
+                ) : (
+                  <button className="btn btn-outline" onClick={pauseAllAgents}
+                    title="Pause all agents after current phase">
+                    {anyPaused ? 'Pause Rest' : 'Pause All'}
+                  </button>
+                )}
                 <button className="btn btn-warning" onClick={gracefulStopSwarm}
                   disabled={swarmStatus?.stoppingGracefully}
                   title="Finish current beads then stop">
@@ -271,7 +304,20 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                       <p>{a.thinkingSummary.slice(0, 200)}</p>
                     </div>
                   )}
-                  <span className="agent-loops">Loop #{a.loopCount}</span>
+                  <div className="agent-card-footer">
+                    <span className="agent-loops">Loop #{a.loopCount}</span>
+                    {a.phase === 'paused' ? (
+                      <button className="btn btn-xs btn-accent" onClick={e => { e.stopPropagation(); resumeAgent(a.id) }}
+                        title="Resume this agent">
+                        Resume
+                      </button>
+                    ) : (
+                      <button className="btn btn-xs btn-outline" onClick={e => { e.stopPropagation(); pauseAgent(a.id) }}
+                        title="Pause after current phase">
+                        Pause
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
