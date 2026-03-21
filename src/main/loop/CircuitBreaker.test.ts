@@ -24,6 +24,11 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     autoPush: false,
     maxRetries: 3,
     autoSplitThreshold: 3,
+    buildMonitorCmd: '',
+    buildMonitorInterval: 0,
+    claudeModelThink: 'sonnet',
+    claudeModelExecute: 'opus',
+    claudeModelReview: 'sonnet',
     ...overrides
   }
 }
