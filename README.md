@@ -285,8 +285,6 @@ bun run test:coverage    # Coverage report
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete contributor guide.
-
 ```bash
 # Fork, clone, and run tests
 git clone https://github.com/YOUR_USERNAME/ralph-claude-code.git
