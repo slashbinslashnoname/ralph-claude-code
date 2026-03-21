@@ -14,9 +14,7 @@ interface SlashbotAPI {
   subscribeStatus: (p: string) => Promise<void>
   unsubscribeStatus: (p: string) => Promise<void>
   onStatusUpdate: (cb: (...a: any[]) => void) => () => void
-  onProgressUpdate: (cb: (...a: any[]) => void) => () => void
   onCircuitUpdate: (cb: (...a: any[]) => void) => () => void
-  onAnalysisUpdate: (cb: (...a: any[]) => void) => () => void
   onLogLines: (cb: (...a: any[]) => void) => () => void
   readLogs: (p: string, lines?: number) => Promise<string[]>
   listLogs: (p: string) => Promise<string[]>
