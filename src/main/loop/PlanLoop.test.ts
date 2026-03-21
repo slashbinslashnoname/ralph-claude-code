@@ -51,10 +51,25 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
 }
 
 function makeCoordinator() {
+  let counter = 0
+  const createAsync = vi.fn(async (opts: any) => ({ id: `sb-${++counter}`, ...opts }))
   return {
     bd: {
       listAll: vi.fn(() => []),
-      createAsync: vi.fn(async (opts: any) => ({ id: `sb-${Math.random().toString(36).slice(2, 5)}`, ...opts })),
+      createAsync,
+      createMany: vi.fn(async (beads: any[]) => {
+        const created: any[] = []
+        const failed: any[] = []
+        for (const b of beads) {
+          try {
+            const bead = await createAsync(b)
+            created.push(bead)
+          } catch (err: any) {
+            failed.push({ opts: b, error: err.message })
+          }
+        }
+        return { created, failed }
+      }),
       addDep: vi.fn()
     },
     post: vi.fn(),
@@ -179,7 +194,7 @@ describe('PlanLoop', () => {
 
       await runPromise
       expect(doneCount).toBe(2)
-      expect(coord.bd.createAsync).toHaveBeenCalledTimes(2)
+      expect(coord.bd.createMany).toHaveBeenCalled()
       expect(coord.bd.addDep).toHaveBeenCalled()
     })
 
@@ -231,9 +246,14 @@ describe('PlanLoop', () => {
     it('creates beads in order: epics → tasks → subtasks', async () => {
       const coord = makeCoordinator()
       const createOrder: string[] = []
-      coord.bd.createAsync.mockImplementation(async (opts: any) => {
-        createOrder.push(opts.type)
-        return { id: `sb-${createOrder.length}` }
+      let counter = 0
+      coord.bd.createMany.mockImplementation(async (beads: any[]) => {
+        const created: any[] = []
+        for (const b of beads) {
+          createOrder.push(b.type)
+          created.push({ id: `sb-${++counter}`, ...b })
+        }
+        return { created, failed: [] }
       })
 
       const loop = new PlanLoop('/project', makeConfig(), coord)
@@ -274,6 +294,51 @@ describe('PlanLoop', () => {
       expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
         agentId: 'planner',
         type: 'info',
+        summary: expect.stringContaining('1 beads created')
+      }))
+    })
+
+    it('logs partial failures from createMany', async () => {
+      const coord = makeCoordinator()
+      coord.bd.createMany.mockImplementation(async (beads: any[]) => {
+        const created: any[] = []
+        const failed: any[] = []
+        for (const b of beads) {
+          if (b.title.includes('Fail')) {
+            failed.push({ opts: b, error: 'bd create failed: quota exceeded' })
+          } else {
+            created.push({ id: `sb-ok`, ...b })
+          }
+        }
+        return { created, failed }
+      })
+
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const logs: [string, string][] = []
+      loop.on('log', (level: string, msg: string) => logs.push([level, msg]))
+
+      const runPromise = loop.run('test')
+
+      mockProcesses[0].simulateStdout('plan')
+      mockProcesses[0].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      const beads = [
+        { id: 'b1', title: 'Good task', type: 'task', priority: 1, deps: [], description: '', tags: [] },
+        { id: 'b2', title: 'Fail task', type: 'task', priority: 1, deps: [], description: '', tags: [] },
+      ]
+      mockProcesses[1].simulateStdout(JSON.stringify(beads))
+      mockProcesses[1].simulateExit(0)
+
+      await runPromise
+
+      const warnLogs = logs.filter(([level]) => level === 'WARN')
+      expect(warnLogs.length).toBe(1)
+      expect(warnLogs[0][1]).toContain('Fail task')
+      expect(warnLogs[0][1]).toContain('quota exceeded')
+
+      // Activity should report 1 bead created (not 2)
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
         summary: expect.stringContaining('1 beads created')
       }))
     })

@@ -74,6 +74,21 @@ export interface Bead {
   taskId?: string
 }
 
+export interface CreateBeadOpts {
+  id?: string
+  title: string
+  type?: BeadType | 'bug' | 'feature'
+  priority?: number
+  description?: string
+  labels?: string[]
+  parentId?: string
+}
+
+export interface CreateManyResult {
+  created: Bead[]
+  failed: { opts: CreateBeadOpts; error: string }[]
+}
+
 export interface BeadStats {
   total: number
   pending: number

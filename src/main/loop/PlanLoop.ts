@@ -254,23 +254,32 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
     const subtasks = parsed.filter(b => b.type === 'subtask')
 
     for (const group of [epics, tasks, subtasks]) {
-      for (const b of group) {
-        try {
-          const bdType = String(b.type ?? 'task') as 'epic' | 'task' | 'subtask'
-          const parentId = b.epicId ? idMap.get(String(b.epicId)) : undefined
-          const result = await bd.createAsync({
-            title: String(b.title ?? 'Untitled').slice(0, 120),
-            type: bdType,
-            priority: typeof b.priority === 'number' ? Math.min(4, Math.max(0, b.priority)) : 2,
-            description: String(b.description ?? ''),
-            labels: Array.isArray(b.tags) ? b.tags.map(String) : [],
-            parentId,
-          })
-          idMap.set(String(b.id ?? ''), result.id)
-          created++
-        } catch (err) {
-          this._log('WARN', `Failed to create ${b.type} "${b.title}": ${err instanceof Error ? err.message : err}`)
+      const plannedIds = group.map(b => String(b.id ?? ''))
+      const opts = group.map(b => ({
+        title: String(b.title ?? 'Untitled').slice(0, 120),
+        type: String(b.type ?? 'task') as 'epic' | 'task' | 'subtask',
+        priority: typeof b.priority === 'number' ? Math.min(4, Math.max(0, b.priority)) : 2,
+        description: String(b.description ?? ''),
+        labels: Array.isArray(b.tags) ? b.tags.map(String) : [],
+        parentId: b.epicId ? idMap.get(String(b.epicId)) : undefined,
+      }))
+
+      const { created: groupCreated, failed: groupFailed } = await bd.createMany(opts)
+
+      // Map planned IDs to actual bd IDs for dependency wiring.
+      // createMany preserves input order: each input either ends up in created or failed.
+      let ci = 0
+      for (let i = 0; i < opts.length; i++) {
+        const isFailed = groupFailed.some(f => f.opts === opts[i])
+        if (!isFailed && ci < groupCreated.length) {
+          idMap.set(plannedIds[i], groupCreated[ci].id)
+          ci++
         }
+      }
+
+      created += groupCreated.length
+      for (const f of groupFailed) {
+        this._log('WARN', `Failed to create bead "${f.opts.title}": ${f.error}`)
       }
     }
 

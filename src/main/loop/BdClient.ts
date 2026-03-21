@@ -1,5 +1,5 @@
 import * as cp from 'child_process'
-import { Bead, BeadStats, BeadType } from '../types'
+import { Bead, BeadStats, BeadType, CreateBeadOpts, CreateManyResult } from '../types'
 import { buildEnv } from './utils'
 
 const ENV = buildEnv()
@@ -80,15 +80,7 @@ export class BdClient {
 
   // ── Create ─────────────────────────────────────────────────────────────
 
-  create(opts: {
-    title: string
-    type?: BeadType | 'bug' | 'feature'
-    priority?: number
-    description?: string
-    labels?: string[]
-    parentId?: string
-    id?: string
-  }): Bead {
+  create(opts: CreateBeadOpts): Bead {
     let args = `create ${JSON.stringify(opts.title)}`
     if (opts.type) args += ` -t ${opts.type}`
     if (opts.priority !== undefined) args += ` -p ${opts.priority}`
@@ -99,15 +91,7 @@ export class BdClient {
     return this.normalizeBead(this.runJson(args))
   }
 
-  async createAsync(opts: {
-    title: string
-    type?: BeadType | 'bug' | 'feature'
-    priority?: number
-    description?: string
-    labels?: string[]
-    parentId?: string
-    id?: string
-  }): Promise<Bead> {
+  async createAsync(opts: CreateBeadOpts): Promise<Bead> {
     let args = `create ${JSON.stringify(opts.title)}`
     if (opts.type) args += ` -t ${opts.type}`
     if (opts.priority !== undefined) args += ` -p ${opts.priority}`
@@ -120,26 +104,19 @@ export class BdClient {
 
   // ── Bulk create (for plan encoding) ────────────────────────────────────
 
-  async createMany(beads: Array<{
-    id?: string
-    title: string
-    type?: BeadType | 'bug' | 'feature'
-    priority?: number
-    description?: string
-    labels?: string[]
-    parentId?: string
-  }>): Promise<Bead[]> {
-    const results: Bead[] = []
+  async createMany(beads: CreateBeadOpts[]): Promise<CreateManyResult> {
+    const created: Bead[] = []
+    const failed: CreateManyResult['failed'] = []
     for (const b of beads) {
       try {
-        const created = await this.createAsync(b)
-        results.push(created)
+        const bead = await this.createAsync(b)
+        created.push(bead)
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error(`Failed to create bead "${b.title}": ${msg}`)
+        const error = err instanceof Error ? err.message : String(err)
+        failed.push({ opts: b, error })
       }
     }
-    return results
+    return { created, failed }
   }
 
   // ── List / Query ───────────────────────────────────────────────────────

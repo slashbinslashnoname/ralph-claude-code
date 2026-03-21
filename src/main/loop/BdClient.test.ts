@@ -145,7 +145,7 @@ describe('BdClient', () => {
   // ── createMany ─────────────────────────────────────────────────────────
 
   describe('createMany', () => {
-    it('creates multiple beads and returns results', async () => {
+    it('returns created beads and empty failed array on full success', async () => {
       let callCount = 0
       mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         callCount++
@@ -158,32 +158,70 @@ describe('BdClient', () => {
         { title: 'Second' },
       ])
 
-      expect(result).toHaveLength(2)
-      expect(result[0].id).toBe('many-1')
-      expect(result[1].id).toBe('many-2')
+      expect(result.created).toHaveLength(2)
+      expect(result.created[0].id).toBe('many-1')
+      expect(result.created[1].id).toBe('many-2')
+      expect(result.failed).toHaveLength(0)
     })
 
-    it('continues after individual failures', async () => {
+    it('returns partial results with failures on mixed outcomes', async () => {
       let callCount = 0
       mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
         callCount++
         if (callCount === 1) {
-          ;(cb as Function)(new Error('fail'), '', 'error')
+          ;(cb as Function)(new Error('fail'), '', 'bd create failed: spawn error')
         } else {
           ;(cb as Function)(null, JSON.stringify(rawBead({ id: 'survived' })), '')
         }
         return {} as ReturnType<typeof execType>
       })
 
-      const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
       const result = await client.createMany([
         { title: 'Will fail' },
         { title: 'Will succeed' },
       ])
 
-      expect(result).toHaveLength(1)
-      expect(result[0].id).toBe('survived')
-      spy.mockRestore()
+      expect(result.created).toHaveLength(1)
+      expect(result.created[0].id).toBe('survived')
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0].opts.title).toBe('Will fail')
+      expect(result.failed[0].error).toContain('bd create failed')
+    })
+
+    it('returns all failures when every create fails', async () => {
+      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
+        ;(cb as Function)(new Error('fail'), '', 'bd error')
+        return {} as ReturnType<typeof execType>
+      })
+
+      const result = await client.createMany([
+        { title: 'Fail A' },
+        { title: 'Fail B' },
+      ])
+
+      expect(result.created).toHaveLength(0)
+      expect(result.failed).toHaveLength(2)
+      expect(result.failed[0].opts.title).toBe('Fail A')
+      expect(result.failed[1].opts.title).toBe('Fail B')
+    })
+
+    it('returns empty results for empty input', async () => {
+      const result = await client.createMany([])
+
+      expect(result.created).toHaveLength(0)
+      expect(result.failed).toHaveLength(0)
+    })
+
+    it('preserves opts reference in failed entries', async () => {
+      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
+        ;(cb as Function)(new Error('fail'), '', 'error')
+        return {} as ReturnType<typeof execType>
+      })
+
+      const inputOpts = { title: 'Test', priority: 1, labels: ['urgent'] }
+      const result = await client.createMany([inputOpts])
+
+      expect(result.failed[0].opts).toBe(inputOpts)
     })
   })
 
