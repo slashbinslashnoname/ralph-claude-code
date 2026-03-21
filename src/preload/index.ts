@@ -110,6 +110,15 @@ contextBridge.exposeInMainWorld('slashbot', {
     onStopped: (cb: (...a: unknown[]) => void) => listen('swarm:stopped', cb),
   },
 
+  // ── Telegram ─────────────────────────────────────────────────────────
+  telegram: {
+    status: (projectPath: string) => ipcRenderer.invoke('telegram:status', projectPath),
+    configure: (projectPath: string, config: unknown) =>
+      ipcRenderer.invoke('telegram:configure', projectPath, config),
+    test: (projectPath: string) => ipcRenderer.invoke('telegram:test', projectPath),
+    disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
+  },
+
   // ── Shell ────────────────────────────────────────────────────────────
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),

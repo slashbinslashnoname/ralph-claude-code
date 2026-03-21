@@ -69,6 +69,18 @@ interface SlashbotAPI {
     onPlanQueue: (cb: (...a: any[]) => void) => () => void
     onStopped: (cb: (...a: any[]) => void) => () => void
   }
+  telegram: {
+    status: (p: string) => Promise<{
+      connected: boolean
+      botUsername: string | null
+      lastError: string | null
+      messagesSent: number
+      messagesReceived: number
+    }>
+    configure: (p: string, config: unknown) => Promise<{ ok: boolean; error?: string }>
+    test: (p: string) => Promise<{ ok: boolean; error?: string }>
+    disconnect: (p: string) => Promise<{ ok: boolean; error?: string }>
+  }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>
 }
