@@ -115,7 +115,7 @@ export class BuildMonitor extends EventEmitter {
       const description = `Build monitor detected a recurring build failure.\n\n**Fingerprint:** ${fingerprint}\n**Occurrences:** ${record.count}\n\n\`\`\`\n${cappedOutput}\n\`\`\``
 
       try {
-        this.bd.create({
+        const bead = this.bd.create({
           title: `[auto-fix] Build failure: ${fingerprint}`,
           type: 'bug',
           priority: 0,
@@ -123,6 +123,7 @@ export class BuildMonitor extends EventEmitter {
           labels: ['auto-fix', 'build-monitor'],
         })
         this.emit('log', 'info', `BuildMonitor: created bead for fingerprint ${fingerprint}`)
+        this.emit('bead-created', bead)
         // Remove from map after filing — keeps map bounded
         this.failures.delete(fingerprint)
       } catch (e) {
