@@ -72,7 +72,7 @@ describe('AgentCoordinator — atomic writes', () => {
   })
 })
 
-describe('AgentCoordinator — merge retry', () => {
+describe('AgentCoordinator — atomic merge', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
     slashbotDir = path.join(tmpDir, '.slashbot')
@@ -99,7 +99,26 @@ describe('AgentCoordinator — merge retry', () => {
     expect(fs.existsSync(path.join(tmpDir, 'new-file.txt'))).toBe(true)
   })
 
-  it('retries merge after conflict and succeeds when conflict is resolved', async () => {
+  it('merge uses update-ref — base branch ref is updated atomically', async () => {
+    const wt = coord.createWorktree('agent-0', 'b1')
+    expect(wt).toBeTruthy()
+
+    const baseBefore = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    fs.writeFileSync(path.join(wt!.worktreePath, 'atomic.txt'), 'atomic merge')
+    execSync('git add . && git commit -m "atomic"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    const result = await coord.mergeWorktree('agent-0', 'b1', wt!.branch, wt!.worktreePath)
+    expect(result.merged).toBe(true)
+
+    const baseAfter = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+    expect(baseAfter).not.toBe(baseBefore)
+    // The new base should contain the agent's commit
+    const log = execSync('git log --oneline', { cwd: tmpDir, stdio: 'pipe' }).toString()
+    expect(log).toContain('atomic')
+  })
+
+  it('retries merge after conflict and fails without claudeCmd', async () => {
     const wt = coord.createWorktree('agent-0', 'b2')
     expect(wt).toBeTruthy()
 
@@ -153,6 +172,128 @@ describe('AgentCoordinator — merge retry', () => {
 
     await coord.mergeWorktree('agent-0', 'b5', wt!.branch, wt!.worktreePath, { maxRetries: 0 })
     expect(fs.existsSync(wt!.worktreePath)).toBe(false)
+  })
+
+  it('no-op merge — agent branch has no new commits', async () => {
+    const wt = coord.createWorktree('agent-0', 'b6')
+    expect(wt).toBeTruthy()
+
+    // No commits on agent branch — should fast-return
+    const result = await coord.mergeWorktree('agent-0', 'b6', wt!.branch, wt!.worktreePath)
+    expect(result.merged).toBe(true)
+    expect(result.filesChanged).toEqual([])
+  })
+
+  it('concurrent merge — two agents merging different files simultaneously', async () => {
+    // Create two worktrees
+    const wt1 = coord.createWorktree('agent-0', 'c1')
+    const wt2 = coord.createWorktree('agent-1', 'c2')
+    expect(wt1).toBeTruthy()
+    expect(wt2).toBeTruthy()
+
+    // Agent 0 adds file-a.txt
+    fs.writeFileSync(path.join(wt1!.worktreePath, 'file-a.txt'), 'from agent-0')
+    execSync('git add . && git commit -m "add file-a"', { cwd: wt1!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    // Agent 1 adds file-b.txt
+    fs.writeFileSync(path.join(wt2!.worktreePath, 'file-b.txt'), 'from agent-1')
+    execSync('git add . && git commit -m "add file-b"', { cwd: wt2!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    // Merge both simultaneously — one will succeed via CAS, the other retries
+    const [r1, r2] = await Promise.all([
+      coord.mergeWorktree('agent-0', 'c1', wt1!.branch, wt1!.worktreePath),
+      coord.mergeWorktree('agent-1', 'c2', wt2!.branch, wt2!.worktreePath)
+    ])
+
+    expect(r1.merged).toBe(true)
+    expect(r2.merged).toBe(true)
+
+    // Both files should be present on the base branch
+    expect(fs.existsSync(path.join(tmpDir, 'file-a.txt'))).toBe(true)
+    expect(fs.existsSync(path.join(tmpDir, 'file-b.txt'))).toBe(true)
+    expect(fs.readFileSync(path.join(tmpDir, 'file-a.txt'), 'utf8')).toBe('from agent-0')
+    expect(fs.readFileSync(path.join(tmpDir, 'file-b.txt'), 'utf8')).toBe('from agent-1')
+  })
+
+  it('stale worktree — agent branched from old commit, base moved forward', async () => {
+    const wt = coord.createWorktree('agent-0', 's1')
+    expect(wt).toBeTruthy()
+
+    // Advance main after worktree was created
+    fs.writeFileSync(path.join(tmpDir, 'main-update.txt'), 'main moved ahead')
+    execSync('git add . && git commit -m "main advance"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+
+    // Agent makes changes on the stale branch
+    fs.writeFileSync(path.join(wt!.worktreePath, 'agent-work.txt'), 'agent work')
+    execSync('git add . && git commit -m "agent work"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    const result = await coord.mergeWorktree('agent-0', 's1', wt!.branch, wt!.worktreePath)
+    expect(result.merged).toBe(true)
+
+    // Both the main advance and agent work should be present
+    expect(fs.existsSync(path.join(tmpDir, 'main-update.txt'))).toBe(true)
+    expect(fs.existsSync(path.join(tmpDir, 'agent-work.txt'))).toBe(true)
+  })
+
+  it('unresolvable branch returns merged=true with empty filesChanged', async () => {
+    // Fake a branch that doesn't exist
+    const result = await coord.mergeWorktree('agent-0', 'nonexist', 'agent/agent-0/nonexist', '/tmp/fake-wt')
+    expect(result.merged).toBe(true)
+    expect(result.filesChanged).toEqual([])
+  })
+
+  it('concurrent merge — three agents merging non-overlapping files', async () => {
+    const wt1 = coord.createWorktree('agent-0', 'd1')
+    const wt2 = coord.createWorktree('agent-1', 'd2')
+    const wt3 = coord.createWorktree('agent-2', 'd3')
+    expect(wt1).toBeTruthy()
+    expect(wt2).toBeTruthy()
+    expect(wt3).toBeTruthy()
+
+    fs.writeFileSync(path.join(wt1!.worktreePath, 'alpha.txt'), 'a')
+    execSync('git add . && git commit -m "alpha"', { cwd: wt1!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    fs.writeFileSync(path.join(wt2!.worktreePath, 'beta.txt'), 'b')
+    execSync('git add . && git commit -m "beta"', { cwd: wt2!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    fs.writeFileSync(path.join(wt3!.worktreePath, 'gamma.txt'), 'c')
+    execSync('git add . && git commit -m "gamma"', { cwd: wt3!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    const [r1, r2, r3] = await Promise.all([
+      coord.mergeWorktree('agent-0', 'd1', wt1!.branch, wt1!.worktreePath),
+      coord.mergeWorktree('agent-1', 'd2', wt2!.branch, wt2!.worktreePath),
+      coord.mergeWorktree('agent-2', 'd3', wt3!.branch, wt3!.worktreePath)
+    ])
+
+    expect(r1.merged).toBe(true)
+    expect(r2.merged).toBe(true)
+    expect(r3.merged).toBe(true)
+
+    expect(fs.existsSync(path.join(tmpDir, 'alpha.txt'))).toBe(true)
+    expect(fs.existsSync(path.join(tmpDir, 'beta.txt'))).toBe(true)
+    expect(fs.existsSync(path.join(tmpDir, 'gamma.txt'))).toBe(true)
+  })
+
+  it('concurrent merge with conflict — first succeeds, second fails', async () => {
+    const wt1 = coord.createWorktree('agent-0', 'e1')
+    const wt2 = coord.createWorktree('agent-1', 'e2')
+    expect(wt1).toBeTruthy()
+    expect(wt2).toBeTruthy()
+
+    // Both agents modify the same file
+    fs.writeFileSync(path.join(wt1!.worktreePath, 'shared.txt'), 'version-a')
+    execSync('git add . && git commit -m "version a"', { cwd: wt1!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    fs.writeFileSync(path.join(wt2!.worktreePath, 'shared.txt'), 'version-b')
+    execSync('git add . && git commit -m "version b"', { cwd: wt2!.worktreePath, stdio: 'pipe', env: gitEnv })
+
+    // Merge sequentially — first should succeed, second should conflict
+    const r1 = await coord.mergeWorktree('agent-0', 'e1', wt1!.branch, wt1!.worktreePath, { maxRetries: 0 })
+    expect(r1.merged).toBe(true)
+
+    const r2 = await coord.mergeWorktree('agent-1', 'e2', wt2!.branch, wt2!.worktreePath, { maxRetries: 0 })
+    expect(r2.merged).toBe(false)
+    expect(r2.error).toBeTruthy()
   })
 })
 
