@@ -39,6 +39,7 @@ interface SlashbotAPI {
     update: (p: string, id: string, opts: any) => Promise<{ ok: boolean }>
     close: (p: string, id: string, reason?: string) => Promise<{ ok: boolean }>
     reopen: (p: string, id: string, reason?: string) => Promise<{ ok: boolean }>
+    rollback: (p: string, id: string, agentId?: string) => Promise<{ ok: boolean; revertedShas?: string[]; error?: string }>
     ready: (p: string) => Promise<{ ok: boolean; tasks: any[] }>
     stats: (p: string) => Promise<{ ok: boolean; stats?: any }>
   }

@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('slashbot', {
       ipcRenderer.invoke('beads:close', projectPath, id, reason ?? 'Done'),
     reopen: (projectPath: string, id: string, reason?: string) =>
       ipcRenderer.invoke('beads:reopen', projectPath, id, reason),
+    rollback: (projectPath: string, id: string, agentId?: string) =>
+      ipcRenderer.invoke('beads:rollback', projectPath, id, agentId),
     ready: (projectPath: string) => ipcRenderer.invoke('beads:ready', projectPath),
     stats: (projectPath: string) => ipcRenderer.invoke('beads:stats', projectPath),
   },
