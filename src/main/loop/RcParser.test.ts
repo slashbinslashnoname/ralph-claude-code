@@ -4,7 +4,7 @@ import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { parseRcFile, loadConfig, validateConfig, DEFAULT_CONFIG } from './RcParser'
+import { parseRcFile, loadConfig, validateConfig, DEFAULT_CONFIG, DEFAULT_TELEGRAM_CONFIG } from './RcParser'
 
 let tmpDir: string
 
@@ -229,6 +229,101 @@ describe('validateConfig', () => {
   it('returns full config shape with defaults for omitted keys', () => {
     const { config } = validateConfig({})
     expect(config).toEqual(DEFAULT_CONFIG)
+  })
+})
+
+// ── telegram config ──────────────────────────────────────────────────────────
+
+describe('telegram config parsing', () => {
+  it('parses all 4 Telegram keys from .slashbotrc', () => {
+    writeRc(
+      'TELEGRAM_BOT_TOKEN=123456:ABC-def_GHI\nTELEGRAM_CHAT_ID=-100123\nTELEGRAM_ENABLED=true\nTELEGRAM_NOTIFY_LEVEL=all'
+    )
+    const result = parseRcFile(tmpDir)
+    expect(result.telegram).toEqual({
+      botToken: '123456:ABC-def_GHI',
+      chatId: '-100123',
+      enabled: true,
+      notifyOn: 'all'
+    })
+  })
+
+  it('defaults telegram fields when no Telegram keys in rc file', () => {
+    writeRc('MAX_CALLS_PER_HOUR=50')
+    const result = parseRcFile(tmpDir)
+    expect(result.telegram).toBeUndefined()
+    // loadConfig should still have telegram defaults
+    const config = loadConfig(tmpDir)
+    expect(config.telegram).toEqual(DEFAULT_TELEGRAM_CONFIG)
+  })
+
+  it('merges partial Telegram config with defaults', () => {
+    writeRc('TELEGRAM_BOT_TOKEN=123456:ABCdef')
+    const result = parseRcFile(tmpDir)
+    expect(result.telegram).toEqual({
+      ...DEFAULT_TELEGRAM_CONFIG,
+      botToken: '123456:ABCdef'
+    })
+  })
+
+  it('TELEGRAM_ENABLED=false parses as boolean false', () => {
+    writeRc('TELEGRAM_ENABLED=false')
+    const result = parseRcFile(tmpDir)
+    expect(result.telegram!.enabled).toBe(false)
+  })
+})
+
+describe('telegram config validation', () => {
+  it('valid bot token passes validation', () => {
+    const { config, warnings } = validateConfig({
+      telegram: { botToken: '123456789:ABCdefGHI_jkl-mno', chatId: '-100', enabled: true, notifyOn: 'all' }
+    })
+    expect(warnings).toEqual([])
+    expect(config.telegram!.botToken).toBe('123456789:ABCdefGHI_jkl-mno')
+  })
+
+  it('invalid bot token (no colon) produces warning and falls back to default', () => {
+    const { config, warnings } = validateConfig({
+      telegram: { botToken: 'invalidtoken', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_BOT_TOKEN format')
+    expect(config.telegram!.botToken).toBe(DEFAULT_TELEGRAM_CONFIG.botToken)
+  })
+
+  it('invalid bot token (special chars) produces warning', () => {
+    const { config, warnings } = validateConfig({
+      telegram: { botToken: '123:abc!@#', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_BOT_TOKEN format')
+    expect(config.telegram!.botToken).toBe(DEFAULT_TELEGRAM_CONFIG.botToken)
+  })
+
+  it('empty bot token passes validation (not required)', () => {
+    const { warnings } = validateConfig({
+      telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings).toEqual([])
+  })
+
+  it('valid notifyOn values pass validation', () => {
+    for (const level of ['all', 'errors', 'completions', 'none'] as const) {
+      const { warnings } = validateConfig({
+        telegram: { botToken: '', chatId: '', enabled: false, notifyOn: level }
+      })
+      expect(warnings).toEqual([])
+    }
+  })
+
+  it('invalid notifyOn falls back to default with warning', () => {
+    const { config, warnings } = validateConfig({
+      telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'important' as never }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_NOTIFY_LEVEL')
+    expect(warnings[0]).toContain('important')
+    expect(config.telegram!.notifyOn).toBe(DEFAULT_TELEGRAM_CONFIG.notifyOn)
   })
 })
 

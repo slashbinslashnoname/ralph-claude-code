@@ -1,6 +1,13 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { RalphConfig } from '../types'
+import { RalphConfig, TelegramConfig, TelegramNotifyLevel } from '../types'
+
+export const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
+  botToken: '',
+  chatId: '',
+  enabled: false,
+  notifyOn: 'errors'
+}
 
 export const DEFAULT_CONFIG: RalphConfig = {
   maxCallsPerHour: 100,
@@ -15,7 +22,8 @@ export const DEFAULT_CONFIG: RalphConfig = {
   cbPermissionDenialThreshold: 2,
   cbCooldownMinutes: 30,
   autoPush: true,
-  maxRetries: 2
+  maxRetries: 2,
+  telegram: { ...DEFAULT_TELEGRAM_CONFIG }
 }
 
 const KEY_MAP: Record<string, keyof RalphConfig> = {
@@ -33,11 +41,23 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   MAX_RETRIES: 'maxRetries'
 }
 
+const TELEGRAM_KEY_MAP: Record<string, keyof TelegramConfig> = {
+  TELEGRAM_BOT_TOKEN: 'botToken',
+  TELEGRAM_CHAT_ID: 'chatId',
+  TELEGRAM_ENABLED: 'enabled',
+  TELEGRAM_NOTIFY_LEVEL: 'notifyOn'
+}
+
+const TELEGRAM_BOT_TOKEN_RE = /^\d+:[A-Za-z0-9_-]+$/
+const VALID_NOTIFY_LEVELS = new Set<TelegramNotifyLevel>(['all', 'errors', 'completions', 'none'])
+
 export function parseRcFile(projectPath: string): Partial<RalphConfig> {
   const rcPath = path.join(projectPath, '.slashbotrc')
   if (!fs.existsSync(rcPath)) return {}
   const lines = fs.readFileSync(rcPath, 'utf8').split('\n')
   const result: Record<string, unknown> = {}
+
+  const telegram: Partial<TelegramConfig> = {}
 
   for (const raw of lines) {
     const line = raw.trim()
@@ -45,9 +65,23 @@ export function parseRcFile(projectPath: string): Partial<RalphConfig> {
     const m = line.match(/^([A-Z_]+)=(.*)$/)
     if (!m) continue
     const [, key, rawVal] = m
+    const val = rawVal.replace(/^["']|["']$/g, '').replace(/\s+#.*$/, '').trim()
+
+    // Check Telegram keys first
+    const tgMapped = TELEGRAM_KEY_MAP[key]
+    if (tgMapped) {
+      if (tgMapped === 'enabled') {
+        telegram.enabled = val === 'true'
+      } else if (tgMapped === 'notifyOn') {
+        telegram.notifyOn = val as TelegramNotifyLevel
+      } else {
+        telegram[tgMapped] = val
+      }
+      continue
+    }
+
     const mapped = KEY_MAP[key]
     if (!mapped) continue
-    const val = rawVal.replace(/^["']|["']$/g, '').replace(/\s+#.*$/, '').trim()
     const def = DEFAULT_CONFIG[mapped]
     if (typeof def === 'number') {
       const n = Number(val)
@@ -58,6 +92,11 @@ export function parseRcFile(projectPath: string): Partial<RalphConfig> {
       result[mapped] = val
     }
   }
+
+  if (Object.keys(telegram).length > 0) {
+    result.telegram = { ...DEFAULT_TELEGRAM_CONFIG, ...telegram }
+  }
+
   return result as Partial<RalphConfig>
 }
 
@@ -91,6 +130,9 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
   for (const [key, value] of Object.entries(parsed)) {
     const k = key as keyof RalphConfig
 
+    // Telegram is validated separately below
+    if (k === 'telegram') continue
+
     // Validate claudeOutputFormat
     if (k === 'claudeOutputFormat') {
       if (!VALID_OUTPUT_FORMATS.has(value as string)) {
@@ -123,6 +165,33 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
     }
 
     validated[k] = value as never
+  }
+
+  // Validate telegram config if present
+  if (parsed.telegram) {
+    const tg = { ...DEFAULT_TELEGRAM_CONFIG, ...parsed.telegram }
+    const validatedTg: TelegramConfig = { ...DEFAULT_TELEGRAM_CONFIG }
+
+    if (tg.botToken && !TELEGRAM_BOT_TOKEN_RE.test(tg.botToken)) {
+      warnings.push(
+        `Invalid TELEGRAM_BOT_TOKEN format — expected "digits:alphanumeric". Using default.`
+      )
+    } else {
+      validatedTg.botToken = tg.botToken
+    }
+
+    if (!VALID_NOTIFY_LEVELS.has(tg.notifyOn)) {
+      warnings.push(
+        `Invalid TELEGRAM_NOTIFY_LEVEL "${tg.notifyOn}" — expected one of: all, errors, completions, none. Using default "${DEFAULT_TELEGRAM_CONFIG.notifyOn}".`
+      )
+    } else {
+      validatedTg.notifyOn = tg.notifyOn
+    }
+
+    validatedTg.chatId = tg.chatId
+    validatedTg.enabled = tg.enabled
+
+    validated.telegram = validatedTg
   }
 
   return {
