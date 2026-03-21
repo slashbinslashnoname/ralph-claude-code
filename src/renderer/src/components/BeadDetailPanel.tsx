@@ -10,6 +10,7 @@ interface ActivityEvent {
   summary?: string
   filesChanged?: string[]
   branch?: string
+  commitSha?: string
 }
 
 interface LogEntry {
@@ -37,6 +38,7 @@ const EVENT_ICONS: Record<string, string> = {
   paused: '\u23F8',
   resumed: '\u23F5',
   started: '\u25CB',
+  rollback: '\u21A9',
 }
 
 const EVENT_BADGE: Record<string, string> = {
@@ -50,6 +52,7 @@ const EVENT_BADGE: Record<string, string> = {
   paused: 'idle',
   resumed: 'info',
   started: 'idle',
+  rollback: 'danger',
 }
 
 function formatTime(ts: string): string {

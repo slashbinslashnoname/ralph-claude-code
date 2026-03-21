@@ -103,12 +103,13 @@ export interface AgentInfo {
 export interface ActivityEvent {
   ts: string
   agentId: string
-  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed'
+  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed' | 'rollback'
   beadId?: string
   beadTitle?: string
   summary?: string
   filesChanged?: string[]
   branch?: string
+  commitSha?: string
 }
 
 export interface LoopStatus {
