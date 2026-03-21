@@ -686,6 +686,89 @@ export class AgentCoordinator {
     try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
   }
 
+  /**
+   * Rollback a bead by reverting its commits in reverse chronological order.
+   * Reads commit SHAs from the activity cache, filters to only the last successful
+   * merged+completed pair (ignoring events before a failed/reopened event),
+   * deduplicates, reverts via git revert --no-edit, aborts on conflict,
+   * reopens the bead, and posts a rollback activity event.
+   */
+  rollbackBead(agentId: string, beadId: string): { reverted: boolean; revertedShas: string[]; error?: string } {
+    // Collect activity events for this bead
+    const beadEvents = this._activityCache.filter(e => e.beadId === beadId)
+
+    // Find the index of the last failed/reopened event — we only care about events after it
+    let cutoffIdx = -1
+    for (let i = beadEvents.length - 1; i >= 0; i--) {
+      if (beadEvents[i].type === 'failed' || beadEvents[i].type === 'rollback') {
+        cutoffIdx = i
+        break
+      }
+    }
+    const relevantEvents = cutoffIdx >= 0 ? beadEvents.slice(cutoffIdx + 1) : beadEvents
+
+    // Extract commit SHAs from the last merged+completed pair
+    const shas: string[] = []
+    for (const ev of relevantEvents) {
+      if ((ev.type === 'merged' || ev.type === 'completed') && ev.commitSha) {
+        shas.push(ev.commitSha)
+      }
+    }
+
+    // Deduplicate while preserving order
+    const uniqueShas = [...new Set(shas)]
+
+    if (uniqueShas.length === 0) {
+      return { reverted: false, revertedShas: [], error: 'No commit SHAs found in activity cache for this bead' }
+    }
+
+    // Revert in reverse chronological order (latest first)
+    const reversedShas = [...uniqueShas].reverse()
+    const revertedShas: string[] = []
+
+    for (const sha of reversedShas) {
+      try {
+        execSync(`git revert --no-edit ${sha}`, {
+          cwd: this.projectPath, timeout: 15000, stdio: 'pipe'
+        })
+        revertedShas.push(sha)
+      } catch (err) {
+        // Conflict during revert — abort and return error
+        try {
+          execSync('git revert --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+        } catch { /* ignore — abort may fail if no revert in progress */ }
+        const msg = err instanceof Error ? err.message : String(err)
+        this.releaseFiles(agentId, beadId)
+        this.postActivity({
+          agentId, type: 'rollback', beadId,
+          summary: `Rollback failed for [${beadId}]: conflict reverting ${sha} — ${msg.slice(0, 100)}`
+        })
+        return { reverted: false, revertedShas, error: `Conflict reverting ${sha}: ${msg.slice(0, 200)}` }
+      }
+    }
+
+    // Reopen the bead via bd CLI
+    try {
+      this.bd.reopen(beadId, `Rolled back by ${agentId}`)
+    } catch (err) {
+      // Non-fatal — bead may already be open
+      const msg = err instanceof Error ? err.message : String(err)
+      this.postActivity({ agentId, type: 'rollback', beadId, summary: `Reopen after rollback failed (non-fatal): ${msg.slice(0, 100)}` })
+    }
+
+    // Release file locks
+    this.releaseFiles(agentId, beadId)
+
+    // Post rollback activity event
+    this.postActivity({
+      agentId, type: 'rollback', beadId,
+      summary: `Rolled back [${beadId}] — reverted ${revertedShas.length} commit(s)`,
+      commitSha: revertedShas[0]
+    })
+
+    return { reverted: true, revertedShas }
+  }
+
   failBead(agentId: string, beadId: string, reason: string): void {
     this.bd.addLabel(beadId, 'failed')
     this.bd.close(beadId, `Failed: ${reason}`)

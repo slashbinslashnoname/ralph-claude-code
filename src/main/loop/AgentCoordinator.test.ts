@@ -1110,3 +1110,218 @@ describe('AgentCoordinator — knowledge log', () => {
     expect(parsed.detail).toBe('detail here')
   })
 })
+
+describe('AgentCoordinator — rollbackBead', () => {
+  const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
+
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('reverts commits and reopens bead', () => {
+    // Create a commit that simulates agent work
+    fs.writeFileSync(path.join(tmpDir, 'feature.ts'), 'export const x = 1')
+    execSync('git add . && git commit -m "agent work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    // Post activity events simulating a merge+complete cycle
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+    coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: sha, summary: 'Completed' })
+
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(true)
+    expect(result.revertedShas.length).toBe(1)
+    expect(result.revertedShas[0]).toBe(sha)
+
+    // Verify the file was reverted (no longer present or contents changed)
+    const log = execSync('git log --oneline', { cwd: tmpDir, stdio: 'pipe' }).toString()
+    expect(log).toContain('Revert')
+
+    expect(reopenSpy).toHaveBeenCalledWith('b1', expect.stringContaining('Rolled back'))
+
+    // Verify rollback activity event was posted
+    const events = coord.readActivity()
+    const rollbackEvent = events.find(e => e.type === 'rollback' && e.summary?.includes('reverted'))
+    expect(rollbackEvent).toBeDefined()
+  })
+
+  it('deduplicates SHAs from merged and completed events', () => {
+    fs.writeFileSync(path.join(tmpDir, 'dup.ts'), 'dup')
+    execSync('git add . && git commit -m "dup work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    // Same SHA on both merged and completed
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+    coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: sha, summary: 'Completed' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(true)
+    // Should only revert once despite two events with same SHA
+    expect(result.revertedShas.length).toBe(1)
+  })
+
+  it('returns error when no SHAs found', () => {
+    // No activity events for this bead
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(false)
+    expect(result.error).toContain('No commit SHAs found')
+  })
+
+  it('filters events — only considers events after last failed event', () => {
+    // First attempt: commit and fail
+    fs.writeFileSync(path.join(tmpDir, 'old.ts'), 'old work')
+    execSync('git add old.ts && git commit -m "old work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const oldSha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: oldSha, summary: 'Merged attempt 1' })
+    coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: oldSha, summary: 'Completed attempt 1' })
+    coord.postActivity({ agentId: 'agent-0', type: 'failed', beadId: 'b1', summary: 'Failed attempt 1' })
+
+    // Second attempt: new commit
+    fs.writeFileSync(path.join(tmpDir, 'new.ts'), 'new work')
+    execSync('git add new.ts && git commit -m "new work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const newSha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: newSha, summary: 'Merged attempt 2' })
+    coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: newSha, summary: 'Completed attempt 2' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(true)
+    // Should only revert the new SHA, not the old one
+    expect(result.revertedShas).toEqual([newSha])
+    expect(result.revertedShas).not.toContain(oldSha)
+  })
+
+  it('aborts on conflict and returns partial result', () => {
+    // Create a commit
+    fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'original')
+    execSync('git add . && git commit -m "original"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    // Modify the same file again so reverting the first commit will conflict
+    fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'modified heavily\nwith extra lines\nand more content')
+    execSync('git add . && git commit -m "modify"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(false)
+    expect(result.error).toContain('Conflict reverting')
+  })
+
+  it('releases file locks after rollback', () => {
+    fs.writeFileSync(path.join(tmpDir, 'locked.ts'), 'locked content')
+    execSync('git add . && git commit -m "locked"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.reserveFiles('agent-0', 'b1', ['locked.ts'])
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    coord.rollbackBead('agent-0', 'b1')
+    expect(coord.readLocks().length).toBe(0)
+  })
+
+  it('reverts multiple SHAs in reverse chronological order', () => {
+    // Create two commits
+    fs.writeFileSync(path.join(tmpDir, 'file1.ts'), 'content1')
+    execSync('git add . && git commit -m "first"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha1 = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    fs.writeFileSync(path.join(tmpDir, 'file2.ts'), 'content2')
+    execSync('git add . && git commit -m "second"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha2 = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha1, summary: 'Merged 1' })
+    coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: sha2, summary: 'Completed' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(true)
+    expect(result.revertedShas.length).toBe(2)
+    // Reversed: sha2 (latest) should be reverted first, then sha1
+    expect(result.revertedShas[0]).toBe(sha2)
+    expect(result.revertedShas[1]).toBe(sha1)
+
+    // Both files should be removed after revert
+    expect(fs.existsSync(path.join(tmpDir, 'file1.ts'))).toBe(false)
+    expect(fs.existsSync(path.join(tmpDir, 'file2.ts'))).toBe(false)
+  })
+
+  it('handles bd.reopen failure gracefully', () => {
+    fs.writeFileSync(path.join(tmpDir, 'graceful.ts'), 'content')
+    execSync('git add . && git commit -m "graceful"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => { throw new Error('bd reopen failed') })
+
+    // Should not throw even if bd.reopen fails
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(true)
+    expect(result.revertedShas.length).toBe(1)
+  })
+
+  it('filters events after last rollback event too', () => {
+    fs.writeFileSync(path.join(tmpDir, 'v1.ts'), 'v1')
+    execSync('git add v1.ts && git commit -m "v1"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha1 = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha1, summary: 'Merged v1' })
+    coord.postActivity({ agentId: 'agent-0', type: 'rollback', beadId: 'b1', summary: 'Rolled back v1' })
+
+    // New attempt after rollback
+    fs.writeFileSync(path.join(tmpDir, 'v2.ts'), 'v2')
+    execSync('git add v2.ts && git commit -m "v2"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha2 = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha2, summary: 'Merged v2' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(true)
+    expect(result.revertedShas).toEqual([sha2])
+    expect(result.revertedShas).not.toContain(sha1)
+  })
+
+  it('releases file locks even when rollback fails due to conflict', () => {
+    fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'original')
+    execSync('git add . && git commit -m "original"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    // Modify same file so revert will conflict
+    fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'modified heavily\nwith extra lines\nand more content')
+    execSync('git add . && git commit -m "modify"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+
+    coord.reserveFiles('agent-0', 'b1', ['conflict.ts'])
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(false)
+    expect(result.error).toContain('Conflict')
+    // Locks should still be released on failure
+    expect(coord.readLocks().length).toBe(0)
+  })
+})
