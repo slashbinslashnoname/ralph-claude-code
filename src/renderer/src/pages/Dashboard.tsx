@@ -4,12 +4,11 @@ const sb = window.slashbot
 
 interface Props {
   projectPath: string
-  status: any
   circuit: any
   onNavigate: (page: string) => void
 }
 
-export default function Dashboard({ projectPath, status, circuit, onNavigate }: Props) {
+export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
   const [swarmStatus, setSwarmStatus] = useState<any>(null)
   const [beadStats, setBeadStats] = useState<any>(null)
   const [agents, setAgents] = useState<any[]>([])
@@ -185,24 +184,6 @@ export default function Dashboard({ projectPath, status, circuit, onNavigate }: 
           </div>
         </div>
 
-        {/* API / rate status */}
-        <div className="card">
-          <h3>Rate Limit</h3>
-          <div className="card-body">
-            <div className="kv-row">
-              <span>API Calls</span>
-              <span>{status?.calls_made_this_hour ?? 0} / {status?.max_calls_per_hour ?? 100}</span>
-            </div>
-            <div className="kv-row">
-              <span>Reset In</span>
-              <span>{status?.next_reset ?? '--'}</span>
-            </div>
-            <div className="kv-row">
-              <span>Loop Count</span>
-              <span>{status?.loop_count ?? 0}</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   )

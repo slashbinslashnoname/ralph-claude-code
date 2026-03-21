@@ -21,10 +21,7 @@ contextBridge.exposeInMainWorld('slashbot', {
 
   // ── Status ──────────────────────────────────────────────────────────────
   readStatus: (projectPath: string) => ipcRenderer.invoke('status:read', projectPath),
-  subscribeStatus: (projectPath: string) => ipcRenderer.invoke('status:subscribe', projectPath),
-  unsubscribeStatus: (projectPath: string) => ipcRenderer.invoke('status:unsubscribe', projectPath),
 
-  onStatusUpdate: (cb: (...a: unknown[]) => void) => listen('status:update', cb),
   onCircuitUpdate: (cb: (...a: unknown[]) => void) => listen('circuit:update', cb),
   onLogLines: (cb: (...a: unknown[]) => void) => listen('logs:lines', cb),
 

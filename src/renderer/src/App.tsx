@@ -26,7 +26,6 @@ interface TabState {
   path: string
   page: Page
   isEnabled: boolean
-  status: any
   circuit: any
 }
 
@@ -53,7 +52,6 @@ export default function App() {
           path: p,
           page: 'dashboard' as Page,
           isEnabled: false,
-          status: null,
           circuit: null,
         })))
         setActiveIdx(Math.min(saved.active, saved.paths.length - 1))
@@ -72,7 +70,7 @@ export default function App() {
     })
   }, [tabs, activeIdx, loaded])
 
-  // Check enabled state & subscribe to status for each tab
+  // Check enabled state & read circuit for each tab
   useEffect(() => {
     if (!loaded) return
     tabs.forEach((tab, i) => {
@@ -86,22 +84,16 @@ export default function App() {
           return next
         })
       })
-      sb.subscribeStatus(tab.path)
       sb.readStatus(tab.path).then(s => {
         setTabs(prev => {
           const next = [...prev]
           if (next[i]) {
-            next[i] = {
-              ...next[i],
-              status: s.status ?? null,
-              circuit: s.circuit ?? null,
-            }
+            next[i] = { ...next[i], circuit: s.circuit ?? null }
           }
           return next
         })
       })
     })
-    return () => { tabs.forEach(t => sb.unsubscribeStatus(t.path)) }
   }, [loaded, tabs.map(t => t.path).join('\0')])
 
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
@@ -127,9 +119,6 @@ export default function App() {
     }
 
     const unsubs = [
-      sb.onStatusUpdate((proj: string, s: any) => {
-        setTabs(prev => prev.map(t => t.path === proj ? { ...t, status: s } : t))
-      }),
       sb.onCircuitUpdate((proj: string, c: any) => {
         setTabs(prev => prev.map(t => t.path === proj ? { ...t, circuit: c } : t))
       }),
@@ -172,7 +161,6 @@ export default function App() {
       path: p,
       page: 'dashboard',
       isEnabled: false,
-      status: null,
       circuit: null,
     }
     setTabs(prev => [...prev, newTab])
@@ -181,8 +169,6 @@ export default function App() {
 
   const closeTab = useCallback((idx: number, e?: React.MouseEvent) => {
     e?.stopPropagation()
-    const closing = tabs[idx]
-    if (closing) sb.unsubscribeStatus(closing.path)
     setTabs(prev => prev.filter((_, i) => i !== idx))
     setActiveIdx(prev => {
       if (prev >= idx && prev > 0) return prev - 1
@@ -243,7 +229,7 @@ export default function App() {
               onClick={() => setActiveIdx(i)}
               title={tab.path}
             >
-              <span className="project-tab-dot" data-state={tab.status?.status ?? 'idle'} />
+              <span className="project-tab-dot" />
               <span className="project-tab-name">{tab.path.split('/').pop()}</span>
               <span className="project-tab-close" onClick={(e) => closeTab(i, e)}>{'\u00D7'}</span>
             </button>
@@ -285,7 +271,7 @@ export default function App() {
             <SetupWizard projectPath={current.path} onComplete={() => { setTabEnabled(true); setTabPage('dashboard') }} />
           )}
           {current.page === 'dashboard' && current.isEnabled && (
-            <Dashboard projectPath={current.path} status={current.status} circuit={current.circuit} onNavigate={(p) => setTabPage(p as Page)} />
+            <Dashboard projectPath={current.path} circuit={current.circuit} onNavigate={(p) => setTabPage(p as Page)} />
           )}
           {current.page === 'beads' && current.isEnabled && <BeadsPage projectPath={current.path} />}
           {current.page === 'swarm' && current.isEnabled && (
@@ -305,19 +291,10 @@ export default function App() {
       {/* Status bar */}
       {current && (
         <footer className="status-bar">
-          <span className="status-dot" data-state={current.status?.status ?? 'idle'} />
-          <span>{current.status?.status ?? 'idle'}</span>
-          <span className="separator">|</span>
-          <span>Loop {current.status?.loop_count ?? 0}</span>
-          <span className="separator">|</span>
-          <span>{current.status?.calls_made_this_hour ?? 0}/{current.status?.max_calls_per_hour ?? 100} calls</span>
           {current.circuit && (
-            <>
-              <span className="separator">|</span>
-              <span className={`circuit-badge ${current.circuit.state?.toLowerCase()}`}>
-                CB: {current.circuit.state}
-              </span>
-            </>
+            <span className={`circuit-badge ${current.circuit.state?.toLowerCase()}`}>
+              CB: {current.circuit.state}
+            </span>
           )}
           <span className="status-spacer" />
           <span className="status-path">{current.path}</span>
