@@ -58,6 +58,7 @@ interface SlashbotAPI {
     beads: (p: string, status?: string) => Promise<any[]>
     beadStats: (p: string) => Promise<any>
     activity: (p: string, limit?: number) => Promise<any[]>
+    knowledge: (p: string, limit?: number) => Promise<any[]>
     agentOutput: (p: string, agentId: string) => Promise<string>
     agentLogs: (p: string) => Promise<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>
     agentLogContent: (p: string, filename: string) => Promise<string>

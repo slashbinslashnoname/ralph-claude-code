@@ -2,9 +2,10 @@ import { describe, test, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-const { mockSwarmStatus, mockTelegramStatus } = vi.hoisted(() => {
+const { mockSwarmStatus, mockTelegramStatus, mockKnowledge } = vi.hoisted(() => {
   const mockSwarmStatus = vi.fn().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
   const mockTelegramStatus = vi.fn().mockResolvedValue({ connected: true, botUsername: 'testbot', lastError: null, messagesSent: 10, messagesReceived: 5 })
+  const mockKnowledge = vi.fn().mockResolvedValue([])
   const noop = vi.fn().mockReturnValue(() => {})
   const noopResolve = vi.fn().mockResolvedValue(undefined)
 
@@ -15,6 +16,7 @@ const { mockSwarmStatus, mockTelegramStatus } = vi.hoisted(() => {
         status: mockSwarmStatus,
         queue: vi.fn().mockResolvedValue([]),
         activity: vi.fn().mockResolvedValue([]),
+        knowledge: mockKnowledge,
         agentOutput: vi.fn().mockResolvedValue(''),
         agentLogs: vi.fn().mockResolvedValue([]),
         agentLogContent: vi.fn().mockResolvedValue(''),
@@ -39,7 +41,7 @@ const { mockSwarmStatus, mockTelegramStatus } = vi.hoisted(() => {
       },
     },
   }
-  return { mockSwarmStatus, mockTelegramStatus }
+  return { mockSwarmStatus, mockTelegramStatus, mockKnowledge }
 })
 
 // Mock App module to avoid transitive Dashboard import
@@ -52,11 +54,12 @@ vi.mock('../components/AgentOutputRenderer', () => ({
   default: ({ output }: { output: string }) => React.createElement('div', null, output),
 }))
 
-import SwarmPage, { TelegramStatusIndicator } from './SwarmPage'
+import SwarmPage, { TelegramStatusIndicator, knowledgeCategoryColor } from './SwarmPage'
 
 beforeEach(() => {
   mockSwarmStatus.mockReset().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
   mockTelegramStatus.mockReset().mockResolvedValue({ connected: true, botUsername: 'testbot', lastError: null, messagesSent: 10, messagesReceived: 5 })
+  mockKnowledge.mockReset().mockResolvedValue([])
 })
 
 describe('SwarmPage', () => {
@@ -120,5 +123,63 @@ describe('TelegramStatusIndicator', () => {
     )
     expect(html).toContain('Telegram: disconnected')
     expect(html).not.toContain('\n')
+  })
+})
+
+describe('knowledgeCategoryColor', () => {
+  test('maps danger categories', () => {
+    expect(knowledgeCategoryColor('gotcha')).toBe('danger')
+    expect(knowledgeCategoryColor('risk')).toBe('danger')
+  })
+
+  test('maps accent categories', () => {
+    expect(knowledgeCategoryColor('pattern')).toBe('accent')
+    expect(knowledgeCategoryColor('convention')).toBe('accent')
+  })
+
+  test('maps dependency to warning', () => {
+    expect(knowledgeCategoryColor('dependency')).toBe('warning')
+  })
+
+  test('maps environment to info', () => {
+    expect(knowledgeCategoryColor('environment')).toBe('info')
+  })
+
+  test('defaults unknown categories to info', () => {
+    expect(knowledgeCategoryColor('unknown')).toBe('info')
+    expect(knowledgeCategoryColor('')).toBe('info')
+  })
+})
+
+describe('Activity tab with activity events', () => {
+  test('tab label includes activity count from props', () => {
+    const events = [
+      { ts: '2026-03-21T10:00:00Z', agentId: 'agent-0', type: 'executing', beadId: 'sb-1', summary: 'Working' },
+      { ts: '2026-03-21T10:01:00Z', agentId: 'agent-0', type: 'completed', beadId: 'sb-1', summary: 'Done' },
+    ]
+    const html = renderToStaticMarkup(
+      <SwarmPage
+        projectPath="/tmp/test"
+        agentOutputs={{}}
+        setAgentOutputs={vi.fn()}
+        activity={events}
+        setActivity={vi.fn()}
+      />
+    )
+    // Knowledge is fetched async (empty during SSR), so merged feed = activity count
+    expect(html).toContain('Activity (2)')
+  })
+
+  test('tab label shows 0 when no activity or knowledge', () => {
+    const html = renderToStaticMarkup(
+      <SwarmPage
+        projectPath="/tmp/test"
+        agentOutputs={{}}
+        setAgentOutputs={vi.fn()}
+        activity={[]}
+        setActivity={vi.fn()}
+      />
+    )
+    expect(html).toContain('Activity (0)')
   })
 })
