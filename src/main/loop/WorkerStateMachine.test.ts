@@ -758,4 +758,247 @@ describe('WorkerStateMachine', () => {
       expect(opts.stoppedFn()).toBe(true)
     })
   })
+
+  describe('cleanup → idle → stopping (stopRequested)', () => {
+    it('cleanup returns idle, then idle returns stopping when stopped flag is set', async () => {
+      const ctx = makeCtx({ flags: makeFlags({ stopped: true }) })
+
+      const afterCleanup = await cleanup(ctx)
+      expect(afterCleanup).toBe('idle')
+
+      const afterIdle = await idle(ctx)
+      expect(afterIdle).toBe('stopping')
+    })
+  })
+
+  describe('thinking → merging (stopped / apiLimited) → closing → cleanup → idle', () => {
+    it('thinking goes to merging when stopped, then flows through closing/cleanup back to idle', async () => {
+      const coordinator = makeCoordinator()
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        flags: makeFlags({ stopped: true }),
+        coordinator
+      })
+
+      const afterThinking = await thinking(ctx)
+      expect(afterThinking).toBe('merging')
+
+      // No worktree → merging skips to closing
+      const afterMerging = await merging(ctx)
+      expect(afterMerging).toBe('closing')
+
+      // Stopped → closing reopens bead and goes to stopping
+      const afterClosing = await closing(ctx)
+      expect(afterClosing).toBe('stopping')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+    })
+
+    it('thinking goes to merging on apiLimited, then closing waits for quota and returns cleanup', async () => {
+      const coordinator = makeCoordinator()
+      const caps = makeCapabilities({
+        detectApiLimit: vi.fn().mockReturnValue(true)
+      })
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        coordinator,
+        capabilities: caps
+      })
+
+      const afterThinking = await thinking(ctx)
+      expect(afterThinking).toBe('merging')
+      expect(ctx.flags.apiLimited).toBe(true)
+
+      // No worktree → skip merge
+      const afterMerging = await merging(ctx)
+      expect(afterMerging).toBe('closing')
+
+      // apiLimited → reopen and wait for quota
+      const afterClosing = await closing(ctx)
+      expect(afterClosing).toBe('cleanup')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(caps.waitForQuotaReset).toHaveBeenCalled()
+    })
+  })
+
+  describe('merging → closing with conflict → cleanup → idle (retry/reopen)', () => {
+    it('merge conflict triggers retry via closing, then cleanup returns to idle', async () => {
+      const coordinator = makeCoordinator()
+      coordinator.mergeWorktree.mockResolvedValue({ merged: false, filesChanged: [], error: 'conflict' })
+      const caps = makeCapabilities({ getBeadAttempt: vi.fn().mockReturnValue(0) })
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        worktreePath: '/tmp/wt',
+        worktreeBranch: 'branch',
+        coordinator,
+        capabilities: caps
+      })
+
+      const afterMerging = await merging(ctx)
+      expect(afterMerging).toBe('closing')
+      expect(ctx.flags.mergeFailed).toBe(true)
+
+      const afterClosing = await closing(ctx)
+      expect(afterClosing).toBe('cleanup')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(caps.incrementBeadAttempt).toHaveBeenCalledWith('sb-1')
+
+      const afterCleanup = await cleanup(ctx)
+      expect(afterCleanup).toBe('idle')
+    })
+  })
+
+  describe('routing → idle (no work available)', () => {
+    it('routing with no bead and no open work increments emptyRetries, eventually transitions idle → routing → stopping', async () => {
+      const coordinator = makeCoordinator()
+      coordinator.claimBestBead.mockResolvedValue(null)
+      coordinator.hasOpenWork.mockReturnValue(false)
+      const ctx = makeCtx({ coordinator, flags: makeFlags({ emptyRetries: 0 }) })
+
+      // First routing: emptyRetries goes to 1, stays in routing
+      let next = await routing(ctx)
+      expect(next).toBe('routing')
+      expect(ctx.flags.emptyRetries).toBe(1)
+
+      // Second routing: emptyRetries goes to 2
+      next = await routing(ctx)
+      expect(next).toBe('routing')
+      expect(ctx.flags.emptyRetries).toBe(2)
+
+      // Third routing: emptyRetries reaches 3 → stopping
+      next = await routing(ctx)
+      expect(next).toBe('stopping')
+      expect(ctx.flags.emptyRetries).toBe(3)
+    })
+  })
+
+  describe('emitter events', () => {
+    it('idle emits no phase event but updates coordinator', async () => {
+      const ctx = makeCtx()
+      await idle(ctx)
+      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({ phase: 'idle' }))
+    })
+
+    it('routing emits phase and heartbeat events', async () => {
+      const coordinator = makeCoordinator()
+      coordinator.claimBestBead.mockResolvedValue(null)
+      coordinator.hasOpenWork.mockReturnValue(true)
+      const emitter = new EventEmitter()
+      const phases: string[] = []
+      let heartbeats = 0
+      emitter.on('phase', (p: string) => phases.push(p))
+      emitter.on('heartbeat', () => heartbeats++)
+      const caps = makeCapabilities({ emitter })
+      const ctx = makeCtx({ coordinator, capabilities: caps })
+
+      await routing(ctx)
+
+      expect(phases).toContain('routing')
+      expect(phases).toContain('waiting')
+      expect(heartbeats).toBeGreaterThanOrEqual(2)
+    })
+
+    it('merging emits output event on success', async () => {
+      const emitter = new EventEmitter()
+      const outputs: string[] = []
+      emitter.on('output', (s: string) => outputs.push(s))
+      const coordinator = makeCoordinator()
+      const caps = makeCapabilities({ emitter })
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        worktreePath: '/tmp/wt',
+        worktreeBranch: 'agent/b',
+        coordinator,
+        capabilities: caps
+      })
+
+      await merging(ctx)
+
+      expect(outputs.some(o => o.includes('Merged agent/b'))).toBe(true)
+    })
+
+    it('merging emits output event on failure', async () => {
+      const emitter = new EventEmitter()
+      const outputs: string[] = []
+      emitter.on('output', (s: string) => outputs.push(s))
+      const coordinator = makeCoordinator()
+      coordinator.mergeWorktree.mockResolvedValue({ merged: false, filesChanged: [], error: 'conflict' })
+      const caps = makeCapabilities({ emitter })
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        worktreePath: '/tmp/wt',
+        worktreeBranch: 'agent/b',
+        coordinator,
+        capabilities: caps
+      })
+
+      await merging(ctx)
+
+      expect(outputs.some(o => o.includes('Merge FAILED'))).toBe(true)
+    })
+  })
+
+  describe('thinking extractKnowledge error handling', () => {
+    it('continues even when extractKnowledge throws', async () => {
+      const caps = makeCapabilities({
+        extractKnowledge: vi.fn().mockImplementation(() => { throw new Error('knowledge fail') })
+      })
+      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
+
+      const next = await thinking(ctx)
+
+      expect(next).toBe('executing')
+      expect(ctx.thinkingOutput).toBe('output')
+    })
+  })
+
+  describe('closing priority order', () => {
+    it('mergeFailed takes priority over executeFailed', async () => {
+      const coordinator = makeCoordinator()
+      const caps = makeCapabilities({ getBeadAttempt: vi.fn().mockReturnValue(3) })
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        coordinator,
+        capabilities: caps,
+        flags: makeFlags({ mergeFailed: true, executeFailed: true }),
+        config: makeConfig({ maxRetries: 3 })
+      })
+
+      await closing(ctx)
+
+      // mergeFailed branch runs, not executeFailed
+      expect(coordinator.failBead).toHaveBeenCalledWith('agent-0', 'sb-1', expect.stringContaining('merge_failed'))
+    })
+
+    it('executeFailed takes priority over apiLimited', async () => {
+      const coordinator = makeCoordinator()
+      const caps = makeCapabilities({ getBeadAttempt: vi.fn().mockReturnValue(3) })
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        coordinator,
+        capabilities: caps,
+        flags: makeFlags({ executeFailed: true, apiLimited: true }),
+        config: makeConfig({ maxRetries: 3 })
+      })
+
+      await closing(ctx)
+
+      expect(coordinator.failBead).toHaveBeenCalledWith('agent-0', 'sb-1', expect.stringContaining('execute_failed'))
+    })
+
+    it('apiLimited takes priority over stopped', async () => {
+      const coordinator = makeCoordinator()
+      const caps = makeCapabilities()
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        coordinator,
+        capabilities: caps,
+        flags: makeFlags({ apiLimited: true, stopped: true })
+      })
+
+      const next = await closing(ctx)
+
+      expect(next).toBe('cleanup')
+      expect(caps.waitForQuotaReset).toHaveBeenCalled()
+    })
+  })
 })
