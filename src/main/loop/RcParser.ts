@@ -26,6 +26,9 @@ export const DEFAULT_CONFIG: RalphConfig = {
   autoSplitThreshold: 3,
   buildMonitorCmd: '',
   buildMonitorInterval: 120,
+  claudeModelThink: '',
+  claudeModelExecute: '',
+  claudeModelReview: '',
   telegram: { ...DEFAULT_TELEGRAM_CONFIG }
 }
 
@@ -44,7 +47,10 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   MAX_RETRIES: 'maxRetries',
   AUTO_SPLIT_THRESHOLD: 'autoSplitThreshold',
   BUILD_MONITOR_CMD: 'buildMonitorCmd',
-  BUILD_MONITOR_INTERVAL: 'buildMonitorInterval'
+  BUILD_MONITOR_INTERVAL: 'buildMonitorInterval',
+  CLAUDE_MODEL_THINK: 'claudeModelThink',
+  CLAUDE_MODEL_EXECUTE: 'claudeModelExecute',
+  CLAUDE_MODEL_REVIEW: 'claudeModelReview'
 }
 
 const TELEGRAM_KEY_MAP: Record<string, keyof TelegramConfig> = {

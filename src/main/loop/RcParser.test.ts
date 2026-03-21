@@ -398,6 +398,24 @@ describe('loadConfig', () => {
     }
   })
 
+  it('parses per-phase model overrides from rc file', () => {
+    writeRc(
+      'CLAUDE_MODEL_THINK=opus\nCLAUDE_MODEL_EXECUTE=sonnet\nCLAUDE_MODEL_REVIEW=haiku'
+    )
+    const config = loadConfig(tmpDir)
+    expect(config.claudeModelThink).toBe('opus')
+    expect(config.claudeModelExecute).toBe('sonnet')
+    expect(config.claudeModelReview).toBe('haiku')
+  })
+
+  it('defaults per-phase model fields to empty string', () => {
+    writeRc('')
+    const config = loadConfig(tmpDir)
+    expect(config.claudeModelThink).toBe('')
+    expect(config.claudeModelExecute).toBe('')
+    expect(config.claudeModelReview).toBe('')
+  })
+
   it('falls back to defaults for invalid values in .slashbotrc', () => {
     writeRc(
       'MAX_CALLS_PER_HOUR=0\nCLAUDE_OUTPUT_FORMAT=yaml\nCLAUDE_TIMEOUT_MINUTES=5\nSLEEP_DURATION=-1'
