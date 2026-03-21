@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react'
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import dagre from 'dagre'
 
 type BeadStatus = 'pending' | 'ready' | 'claimed' | 'done' | 'failed'
@@ -256,27 +256,25 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
     [beads],
   )
 
-  const defaultViewBox: ViewBox = useMemo(
-    () => ({ x: 0, y: 0, w: width, h: height }),
-    [width, height],
-  )
-
-  const [viewBox, setViewBox] = useState<ViewBox>(defaultViewBox)
+  const [viewBox, setViewBox] = useState<ViewBox>({ x: 0, y: 0, w: width, h: height })
   const [isPanning, setIsPanning] = useState(false)
   const panStart = useRef<{ x: number; y: number; vbX: number; vbY: number } | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const zoomTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingZoom = useRef<ViewBox | null>(null)
 
-  // Reset viewBox when layout changes
-  const prevSize = useRef({ w: width, h: height })
-  if (prevSize.current.w !== width || prevSize.current.h !== height) {
-    prevSize.current = { w: width, h: height }
-    // Will be picked up on next render
-    if (viewBox.x === 0 && viewBox.y === 0) {
-      // Only auto-reset if user hasn't panned
+  // Reset viewBox when layout dimensions change (beads changed)
+  useEffect(() => {
+    setViewBox({ x: 0, y: 0, w: width, h: height })
+    pendingZoom.current = null
+  }, [width, height])
+
+  // Cleanup zoom timer on unmount
+  useEffect(() => {
+    return () => {
+      if (zoomTimer.current) clearTimeout(zoomTimer.current)
     }
-  }
+  }, [])
 
   const handleWheel = useCallback(
     (e: React.WheelEvent<SVGSVGElement>) => {
