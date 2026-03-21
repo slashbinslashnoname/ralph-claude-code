@@ -440,3 +440,95 @@ describe('SwarmOrchestrator — logging', () => {
     expect(logs[0]).toEqual(['WARN', 'warning msg', 'agent-0'])
   })
 })
+
+describe('SwarmOrchestrator — build monitor integration', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('getBuildMonitorStatus returns disabled when no monitor configured', () => {
+    const status = orch.getBuildMonitorStatus()
+    expect(status).toEqual({ enabled: false, running: false })
+  })
+
+  it('toggleBuildMonitor(true) does nothing without buildMonitorCmd', () => {
+    const logs: string[] = []
+    orch.on('log', (_level: string, msg: string) => logs.push(msg))
+    orch.toggleBuildMonitor(true)
+    expect(orch.getBuildMonitorStatus()).toEqual({ enabled: false, running: false })
+    expect(logs.some(m => m.includes('no buildMonitorCmd'))).toBe(true)
+  })
+
+  it('toggleBuildMonitor(true) creates and starts monitor when cmd configured', () => {
+    // Write config with buildMonitorCmd in KEY=VALUE format
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+    orch.toggleBuildMonitor(true)
+    const status = orch.getBuildMonitorStatus()
+    expect(status.enabled).toBe(true)
+    expect(status.running).toBe(true)
+  })
+
+  it('toggleBuildMonitor(false) stops the monitor', () => {
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+    orch.toggleBuildMonitor(true)
+    expect(orch.getBuildMonitorStatus().enabled).toBe(true)
+    orch.toggleBuildMonitor(false)
+    expect(orch.getBuildMonitorStatus()).toEqual({ enabled: false, running: false })
+  })
+
+  it('toggleBuildMonitor(true) is idempotent when already running', () => {
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+    orch.toggleBuildMonitor(true)
+    const monitor1 = (orch as any).buildMonitor
+    orch.toggleBuildMonitor(true) // should be no-op
+    const monitor2 = (orch as any).buildMonitor
+    expect(monitor1).toBe(monitor2)
+  })
+
+  it('stopWorkers stops the build monitor', () => {
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+    orch.toggleBuildMonitor(true)
+    expect(orch.getBuildMonitorStatus().enabled).toBe(true)
+    orch.stopWorkers()
+    expect(orch.getBuildMonitorStatus()).toEqual({ enabled: false, running: false })
+  })
+
+  it('shutdown stops the build monitor', async () => {
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+    orch.toggleBuildMonitor(true)
+    expect(orch.getBuildMonitorStatus().enabled).toBe(true)
+    await orch.shutdown()
+    expect(orch.getBuildMonitorStatus()).toEqual({ enabled: false, running: false })
+  })
+
+  it('forwards build monitor status events as build-status', () => {
+    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+      'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
+    orch.toggleBuildMonitor(true)
+    const events: Array<[string, unknown]> = []
+    orch.on('build-status', (status: string, data: unknown) => events.push([status, data]))
+
+    // Simulate BuildMonitor emitting a 'status' event
+    const monitor = (orch as any).buildMonitor
+    monitor.emit('status', 'passed')
+    expect(events).toEqual([['passed', undefined]])
+
+    // Simulate 'bead-created' event
+    monitor.emit('bead-created', { id: 'b-123', title: 'test bead' })
+    expect(events).toEqual([
+      ['passed', undefined],
+      ['bead-created', { id: 'b-123', title: 'test bead' }],
+    ])
+  })
+})

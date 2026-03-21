@@ -7,6 +7,7 @@ import { AgentCoordinator } from './AgentCoordinator'
 import { PlanLoop } from './PlanLoop'
 import { WorkerLoop } from './WorkerLoop'
 import { runHealthCheck, formatHealthErrors } from './HealthCheck'
+import { BuildMonitor } from './BuildMonitor'
 
 export class SwarmOrchestrator extends EventEmitter {
   private workers = new Map<string, WorkerLoop>()
@@ -23,6 +24,7 @@ export class SwarmOrchestrator extends EventEmitter {
   sessionStartedAt: string | null = null
   private shuttingDown = false
   stoppingGracefully = false
+  private buildMonitor: BuildMonitor | null = null
 
   constructor(private projectPath: string) {
     super()
@@ -155,12 +157,19 @@ export class SwarmOrchestrator extends EventEmitter {
     this._startActivityPoll()
     this._broadcastAgents()
     this._broadcastGraph()
+
+    // Start build monitor if configured and not already running
+    if (config.buildMonitorCmd && !this.buildMonitor) {
+      this._startBuildMonitor(config)
+    }
+
     this._log('INFO', `Workers adjusted to ${n} (${this.workers.size} running)`)
   }
 
   stopWorkers(): void {
     for (const worker of this.workers.values()) worker.stop()
     this.workers.clear()
+    this._stopBuildMonitor()
     this._stopActivityPoll()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'All workers stopped')
@@ -255,6 +264,7 @@ export class SwarmOrchestrator extends EventEmitter {
 
     this.workers.clear()
     this.workerLoopPromises.clear()
+    this._stopBuildMonitor()
     this._stopActivityPoll()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'Shutdown complete')
@@ -268,6 +278,27 @@ export class SwarmOrchestrator extends EventEmitter {
   getAgents(): AgentInfo[] { return this.coordinator.getAgents() }
   getActivity(limit = 50): ActivityEvent[] { return this.coordinator.readActivity(limit) }
   getKnowledge(limit = 50): KnowledgeEntry[] { return this.coordinator.readKnowledge(limit) }
+
+  toggleBuildMonitor(enabled: boolean): void {
+    if (enabled) {
+      if (this.buildMonitor) return // already running
+      const config = loadConfig(this.projectPath)
+      if (!config.buildMonitorCmd) {
+        this._log('WARN', 'Cannot enable build monitor — no buildMonitorCmd configured')
+        return
+      }
+      this._startBuildMonitor(config)
+    } else {
+      this._stopBuildMonitor()
+    }
+  }
+
+  getBuildMonitorStatus(): { enabled: boolean; running: boolean } {
+    return {
+      enabled: this.buildMonitor !== null,
+      running: this.buildMonitor?.isRunning() ?? false,
+    }
+  }
 
   getBeads(status?: string): Bead[] {
     if (status && status !== 'all') return this.coordinator.bd.listByStatus(status)
@@ -292,6 +323,27 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   // ── Internal ────────────────────────────────────────────────────────────
+
+  private _startBuildMonitor(config: RalphConfig): void {
+    this.buildMonitor = new BuildMonitor(config, this.coordinator, this.coordinator.bd)
+    this.buildMonitor.on('log', (level: string, msg: string) => this._log(level.toUpperCase(), msg))
+    this.buildMonitor.on('status', (status: string, fingerprint?: string) => {
+      this.emit('build-status', status, fingerprint)
+    })
+    this.buildMonitor.on('bead-created', (beadInfo: unknown) => {
+      this.emit('build-status', 'bead-created', beadInfo)
+    })
+    this.buildMonitor.start()
+    this._log('INFO', 'Build monitor started')
+  }
+
+  private _stopBuildMonitor(): void {
+    if (!this.buildMonitor) return
+    this.buildMonitor.stop()
+    this.buildMonitor.removeAllListeners()
+    this.buildMonitor = null
+    this._log('INFO', 'Build monitor stopped')
+  }
 
   private _broadcastGraph(): void {
     this.emit('graph', this.coordinator.getStats(), null)

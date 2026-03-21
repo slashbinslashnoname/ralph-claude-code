@@ -275,6 +275,25 @@ describe('BuildMonitor', () => {
     monitor.stop()
   })
 
+  it('emits bead-created event after filing a bead', () => {
+    const bd = makeBd()
+    const beadResult = { id: 'bead-42', title: '[auto-fix] Build failure: abc' }
+    ;(bd.create as ReturnType<typeof vi.fn>).mockReturnValue(beadResult)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const beadEvents: unknown[] = []
+    monitor.on('bead-created', (bead: unknown) => beadEvents.push(bead))
+
+    monitor.start()
+    for (let i = 0; i < 3; i++) {
+      simulateExec(new Error('fail'), '', 'build error')
+      if (i < 2) vi.advanceTimersByTime(1_000)
+    }
+
+    expect(beadEvents).toHaveLength(1)
+    expect(beadEvents[0]).toEqual(beadResult)
+    monitor.stop()
+  })
+
   it('uses stderr for error output, falls back to stdout', () => {
     const bd = makeBd()
     const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
