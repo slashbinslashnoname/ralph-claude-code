@@ -59,7 +59,8 @@ target/
 # Agent worktrees
 .worktrees/
 
-# Merge temporary directories (created during worktree merge)
+# Merge temporary files and directories (created during worktree merge)
+*.__merge_tmp
 *.__merge_tmp/
 
 # Ralph coordination files
