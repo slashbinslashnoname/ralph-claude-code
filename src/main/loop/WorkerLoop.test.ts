@@ -4,7 +4,7 @@ vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<t
 import * as fs from 'fs'
 import * as cp from 'child_process'
 import { WorkerLoop } from './WorkerLoop'
-import { RalphConfig, Bead } from '../types'
+import { RalphConfig, Bead, SplitDecision } from '../types'
 
 vi.mock('fs', async (importOriginal) => {
   const orig = await importOriginal<typeof fs>()
@@ -79,7 +79,12 @@ function makeCoordinator() {
     bd: {
       getState: vi.fn(() => ''),
       setState: vi.fn(),
-      show: vi.fn(() => null)
+      show: vi.fn(() => null),
+      createAsync: vi.fn(async (opts: any) => makeBead({ id: `sb-child-${Math.random().toString(36).slice(2, 5)}`, title: opts.title, description: opts.description })),
+      addDep: vi.fn(),
+      addLabel: vi.fn(),
+      close: vi.fn(),
+      assignTo: vi.fn(() => true)
     },
     readKnowledge: vi.fn(() => [])
   } as any
@@ -849,6 +854,157 @@ describe('WorkerLoop', () => {
       expect(thinkingPrompt).not.toContain('Shared knowledge')
       expect(executePrompt).not.toContain('Parent epic')
       expect(executePrompt).not.toContain('Shared knowledge')
+    })
+  })
+
+  describe('_splitBead', () => {
+    function makeDecision(overrides: Partial<SplitDecision> = {}): SplitDecision {
+      return {
+        beadId: 'sb-abc',
+        reason: 'Multiple concerns',
+        children: [
+          { title: 'Child A', description: 'First child', files: ['src/a.ts'], deps: [] },
+          { title: 'Child B', description: 'Second child', files: ['src/b.ts'], deps: ['Child A'] }
+        ],
+        ...overrides
+      }
+    }
+
+    it('happy path: creates children, wires deps, labels, closes parent, claims first', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.bd.createAsync.mockImplementation(async (opts: any) => {
+        callCount++
+        return makeBead({ id: `sb-child-${callCount}`, title: opts.title, description: opts.description })
+      })
+      coord.bd.show.mockReturnValue(makeBead({ id: 'sb-child-1', title: 'Child A', status: 'claimed' }))
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const bead = makeBead({ id: 'sb-parent' })
+      const decision = makeDecision({ beadId: 'sb-parent' })
+      const result = await (worker as any)._splitBead(bead, decision)
+
+      // Verify children created with parentId
+      expect(coord.bd.createAsync).toHaveBeenCalledTimes(2)
+      expect(coord.bd.createAsync).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Child A', parentId: 'sb-parent', labels: ['auto-split']
+      }))
+      expect(coord.bd.createAsync).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Child B', parentId: 'sb-parent', labels: ['auto-split']
+      }))
+
+      // Verify dep wiring: Child B depends on Child A
+      expect(coord.bd.addDep).toHaveBeenCalledTimes(1)
+      expect(coord.bd.addDep).toHaveBeenCalledWith('sb-child-2', 'sb-child-1')
+
+      // Verify parent labelled and closed
+      expect(coord.bd.addLabel).toHaveBeenCalledWith('sb-parent', 'auto-split-parent')
+      expect(coord.bd.close).toHaveBeenCalledWith('sb-parent', 'Split into 2 children')
+
+      // Verify activity event
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0', type: 'split', beadId: 'sb-parent'
+      }))
+
+      // Verify first child claimed and returned
+      expect(coord.bd.assignTo).toHaveBeenCalledWith('sb-child-1', 'agent-0')
+      expect(coord.bd.show).toHaveBeenCalledWith('sb-child-1')
+      expect(result).not.toBeNull()
+      expect(result.id).toBe('sb-child-1')
+    })
+
+    it('returns null when createAsync throws on second child (abort)', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.bd.createAsync.mockImplementation(async () => {
+        callCount++
+        if (callCount === 2) throw new Error('bd create failed')
+        return makeBead({ id: `sb-child-${callCount}`, title: 'Child' })
+      })
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = await (worker as any)._splitBead(makeBead(), makeDecision())
+
+      expect(result).toBeNull()
+      // Should NOT label or close parent on failure
+      expect(coord.bd.addLabel).not.toHaveBeenCalled()
+      expect(coord.bd.close).not.toHaveBeenCalled()
+      expect(coord.bd.assignTo).not.toHaveBeenCalled()
+    })
+
+    it('wires dependencies for 3 children with cross-deps', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.bd.createAsync.mockImplementation(async (opts: any) => {
+        callCount++
+        return makeBead({ id: `sb-c${callCount}`, title: opts.title })
+      })
+      coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1', status: 'claimed' }))
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const decision = makeDecision({
+        children: [
+          { title: 'A', description: 'First', files: [], deps: [] },
+          { title: 'B', description: 'Second', files: [], deps: ['A'] },
+          { title: 'C', description: 'Third', files: [], deps: ['A', 'B'] }
+        ]
+      })
+
+      await (worker as any)._splitBead(makeBead(), decision)
+
+      // B depends on A, C depends on A and B
+      expect(coord.bd.addDep).toHaveBeenCalledTimes(3)
+      expect(coord.bd.addDep).toHaveBeenCalledWith('sb-c2', 'sb-c1')  // B→A
+      expect(coord.bd.addDep).toHaveBeenCalledWith('sb-c3', 'sb-c1')  // C→A
+      expect(coord.bd.addDep).toHaveBeenCalledWith('sb-c3', 'sb-c2')  // C→B
+    })
+
+    it('posts split activity event with child IDs', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.bd.createAsync.mockImplementation(async () => {
+        callCount++
+        return makeBead({ id: `sb-c${callCount}` })
+      })
+      coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1' }))
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      await (worker as any)._splitBead(makeBead({ id: 'sb-orig', title: 'Original' }), makeDecision({ beadId: 'sb-orig' }))
+
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'split',
+        beadId: 'sb-orig',
+        beadTitle: 'Original',
+        summary: expect.stringContaining('sb-c1')
+      }))
+    })
+
+    it('returns null when show returns null after claiming', async () => {
+      const coord = makeCoordinator()
+      let callCount = 0
+      coord.bd.createAsync.mockImplementation(async () => {
+        callCount++
+        return makeBead({ id: `sb-c${callCount}` })
+      })
+      coord.bd.show.mockReturnValue(null)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = await (worker as any)._splitBead(makeBead(), makeDecision())
+
+      expect(result).toBeNull()
+      // But parent should still be closed (split was successful)
+      expect(coord.bd.close).toHaveBeenCalled()
+    })
+
+    it('preserves parent bead priority on children', async () => {
+      const coord = makeCoordinator()
+      coord.bd.createAsync.mockImplementation(async (opts: any) => makeBead({ id: 'sb-c1', ...opts }))
+      coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1' }))
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      await (worker as any)._splitBead(makeBead({ priority: 1 }), makeDecision())
+
+      expect(coord.bd.createAsync).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }))
     })
   })
 })
