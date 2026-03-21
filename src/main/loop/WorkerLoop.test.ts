@@ -43,6 +43,9 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     autoPush: false,
     maxRetries: 2,
     autoSplitThreshold: 3,
+    claudeModelThink: 'sonnet',
+    claudeModelExecute: 'opus',
+    claudeModelReview: 'sonnet',
     ...overrides
   }
 }
@@ -1276,6 +1279,45 @@ describe('WorkerLoop', () => {
       )
       expect(workerSource).toContain('let bead = await this.coordinator.claimBestBead')
       expect(workerSource).not.toContain('const bead = await this.coordinator.claimBestBead')
+    })
+
+    it('source contains --model routing per phase', () => {
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      // _runClaude signature accepts model as 4th param
+      expect(workerSource).toContain('_runClaude(prompt: string, label: string, cwd?: string, model?: string)')
+      // Model is pushed to args when truthy
+      expect(workerSource).toContain("if (model) args.push('--model', model)")
+    })
+
+    it('think phase passes claudeModelThink', () => {
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      expect(workerSource).toContain("this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir, this.config.claudeModelThink)")
+    })
+
+    it('execute phase passes claudeModelExecute', () => {
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      expect(workerSource).toContain("this._runClaude(this._buildExecutePrompt(bead, thinkingOutput), 'execute', workDir, this.config.claudeModelExecute)")
+    })
+
+    it('review phase passes claudeModelReview', () => {
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      expect(workerSource).toContain("this._runClaude(this._buildReviewPrompt(bead), 'review', workDir, this.config.claudeModelReview)")
+    })
+
+    it('probe call does not pass model override', () => {
+      const workerSource = require('fs').readFileSync(
+        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
+      )
+      // The probe call should only have 3 args (no model)
+      expect(workerSource).toContain("this._runClaude('Reply with only the word OK', 'probe', this.projectPath)")
     })
 
     it('source contains split check between thinking and execute phases', () => {
