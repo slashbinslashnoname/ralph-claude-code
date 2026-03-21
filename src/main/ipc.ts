@@ -40,6 +40,7 @@ import {
   validateSwarmAgentOutput,
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
+  validateSwarmKnowledge,
 } from './loop/swarmValidation'
 import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
@@ -706,6 +707,16 @@ export function registerIpc(
       const v = validateSwarmActivity(projectPath, limit)
       const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
       return swarm.getActivity(v.limit)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:knowledge', (_e, projectPath: unknown, limit: unknown) => {
+    try {
+      const v = validateSwarmKnowledge(projectPath, limit)
+      const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
+      return swarm.getKnowledge(v.limit)
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }

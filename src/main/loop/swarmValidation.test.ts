@@ -19,6 +19,7 @@ import {
   validateSwarmAgentOutput,
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
+  validateSwarmKnowledge,
 } from './swarmValidation'
 
 // ── validateWorkerCount ────────────────────────────────────────────────────
@@ -400,5 +401,30 @@ describe('validateSwarmPauseResume', () => {
 
   it('rejects path traversal in agentId', () => {
     expect(() => validateSwarmPauseResume('/path', '../etc')).toThrow(/agent-N/)
+  })
+})
+
+// ── validateSwarmKnowledge ────────────────────────────────────────────────────
+
+describe('validateSwarmKnowledge', () => {
+  it('validates projectPath and limit', () => {
+    const result = validateSwarmKnowledge('/path', 100)
+    expect(result).toEqual({ projectPath: '/path', limit: 100 })
+  })
+
+  it('uses default limit when undefined', () => {
+    const result = validateSwarmKnowledge('/path', undefined)
+    expect(result.limit).toBe(50)
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmKnowledge('', 50)).toThrow(/projectPath/)
+    expect(() => validateSwarmKnowledge(null, 50)).toThrow(/projectPath/)
+  })
+
+  it('rejects invalid limit', () => {
+    expect(() => validateSwarmKnowledge('/path', 0)).toThrow(/between 1 and 1000/)
+    expect(() => validateSwarmKnowledge('/path', 1001)).toThrow(/between 1 and 1000/)
+    expect(() => validateSwarmKnowledge('/path', 1.5)).toThrow(/integer/)
   })
 })
