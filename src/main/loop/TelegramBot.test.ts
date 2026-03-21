@@ -46,7 +46,7 @@ describe('TelegramBot', () => {
   })
 
   afterEach(() => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('connect', () => {

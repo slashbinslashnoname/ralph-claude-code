@@ -348,8 +348,7 @@ describe('WorkerLoop', () => {
 
         // Advance through the 3 empty retries (each sleeps 5s with 250ms poll intervals)
         for (let i = 0; i < 60; i++) {
-          vi.advanceTimersByTime(500)
-          await new Promise(r => setImmediate(r))
+          await vi.advanceTimersByTimeAsync(500)
         }
 
         await startPromise
@@ -389,8 +388,7 @@ describe('WorkerLoop', () => {
         const startPromise = worker.start()
 
         for (let i = 0; i < 60; i++) {
-          vi.advanceTimersByTime(500)
-          await new Promise(r => setImmediate(r))
+          await vi.advanceTimersByTimeAsync(500)
         }
 
         await startPromise
@@ -420,8 +418,7 @@ describe('WorkerLoop', () => {
         const startPromise = worker.start()
 
         for (let i = 0; i < 80; i++) {
-          vi.advanceTimersByTime(500)
-          await new Promise(r => setImmediate(r))
+          await vi.advanceTimersByTimeAsync(500)
         }
 
         await startPromise
