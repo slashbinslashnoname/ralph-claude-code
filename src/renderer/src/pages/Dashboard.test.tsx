@@ -53,7 +53,7 @@ describe('Dashboard', () => {
     const html = renderToStaticMarkup(
       <Dashboard
         projectPath="/test"
-        circuit={{ state: 'CLOSED', consecutive_no_progress: 0, consecutive_same_error: 0 }}
+        circuit={{ state: 'CLOSED', last_change: '', consecutive_no_progress: 0, consecutive_same_error: 0, consecutive_permission_denials: 0, last_progress_loop: 0, total_opens: 0, reason: '', current_loop: 0 }}
         onNavigate={() => {}}
       />
     )

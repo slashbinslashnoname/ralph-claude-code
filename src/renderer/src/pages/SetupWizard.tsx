@@ -1,5 +1,7 @@
 import React, { useState, useCallback } from 'react'
 
+type EnableResult = Awaited<ReturnType<typeof window.slashbot.enable>>
+
 const sb = window.slashbot
 
 interface Props {
@@ -12,7 +14,7 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
   const [maxCalls, setMaxCalls] = useState(100)
   const [useBeads, setUseBeads] = useState(true)
   const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<EnableResult | null>(null)
 
   const run = useCallback(async () => {
     setRunning(true)

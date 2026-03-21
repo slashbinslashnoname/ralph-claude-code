@@ -4,7 +4,7 @@ import BeadDetailPanel from '../components/BeadDetailPanel'
 import TreeBrowser from '../components/TreeBrowser'
 import type { DAGBead } from '../components/TreeBrowser'
 import KanbanBoard from '../components/KanbanBoard'
-import type { Bead, PlanQueueItem } from '../types/ipc'
+import type { Bead, BeadType, PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
 
@@ -27,7 +27,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [showCreate, setShowCreate] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDesc, setNewDesc] = useState('')
-  const [newType, setNewType] = useState('task')
+  const [newType, setNewType] = useState<BeadType>('task')
   const [newPriority, setNewPriority] = useState(2)
   const [newDeps, setNewDeps] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<SortField>('deps')
@@ -65,7 +65,7 @@ export default function BeadsPage({ projectPath }: Props) {
     })
     sb.swarm.queue(projectPath).then(setPlanQueue)
     const unsubs = [
-      sb.swarm.onPlanPhase((_p: string, phase: string, request: string) => {
+      sb.swarm.onPlanPhase((_p: string, phase: string, request?: string) => {
         setPlanPhase(phase)
         setPlanRequest(request ?? '')
         setIsPlanning(phase !== '' && phase !== 'done')
@@ -361,7 +361,7 @@ export default function BeadsPage({ projectPath }: Props) {
               onChange={e => setNewTitle(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && createBead()} autoFocus />
             <div className="form-row">
-              <select className="select" value={newType} onChange={e => setNewType(e.target.value)}>
+              <select className="select" value={newType} onChange={e => setNewType(e.target.value as BeadType)}>
                 <option value="epic">Epic</option>
                 <option value="task">Task</option>
                 <option value="subtask">Subtask</option>

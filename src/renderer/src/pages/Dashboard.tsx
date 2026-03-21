@@ -17,7 +17,7 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
 
   // Sync local count from actual running count
   useEffect(() => {
-    if (swarmStatus?.workerCount > 0) setWorkerCount(swarmStatus.workerCount)
+    if (swarmStatus && swarmStatus.workerCount > 0) setWorkerCount(swarmStatus.workerCount)
   }, [swarmStatus?.workerCount])
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
       const s = await sb.swarm.status(projectPath)
       setSwarmStatus(s)
       setAgents(s.agents ?? [])
-      sb.beads.stats(projectPath).then(r => { if (r.ok) setBeadStats(r.stats) }).catch(() => {})
+      sb.beads.stats(projectPath).then(r => { if (r.ok) setBeadStats(r.stats ?? null) }).catch(() => {})
     }
     load()
     const interval = setInterval(load, 2000)
@@ -145,7 +145,7 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
               </div>
             )}
             {!isRunning && (beadStats?.ready ?? 0) > 0 && (
-              <p className="hint mt-2">{beadStats.ready} bead{beadStats.ready > 1 ? 's' : ''} ready — start the swarm to begin work</p>
+              <p className="hint mt-2">{beadStats?.ready} bead{(beadStats?.ready ?? 0) > 1 ? 's' : ''} ready — start the swarm to begin work</p>
             )}
             {!isRunning && (beadStats?.total ?? 0) === 0 && (
               <p className="hint mt-2">

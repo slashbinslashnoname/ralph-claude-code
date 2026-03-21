@@ -1,6 +1,42 @@
 /// <reference types="vite/client" />
 
+import type {
+  Bead, BeadType, ActivityEvent, KnowledgeEntry,
+  CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
+} from './types/ipc'
+
 export {}
+
+interface ProjectContext {
+  type: string
+  name: string
+  hasGit: boolean
+  hasBeads: boolean
+  installCmd: string
+  testCmd: string
+  buildCmd: string
+}
+
+interface EnableOptions {
+  force?: boolean
+  maxCallsPerHour?: number
+  useBeads?: boolean
+  initialTasks?: string[]
+}
+
+interface EnableResult {
+  ok: boolean
+  alreadyEnabled?: boolean
+  error?: string
+  filesCreated: string[]
+  context: ProjectContext
+}
+
+interface BuildStatusDetail {
+  beadCreated?: boolean
+  beadId?: string
+  beadTitle?: string
+}
 
 interface SlashbotAPI {
   selectProject: () => Promise<string | null>
@@ -8,13 +44,13 @@ interface SlashbotAPI {
   addProject: (p: string) => Promise<{ ok: boolean; error?: string }>
   activeProjectTabs: () => Promise<{ paths: string[]; active: number }>
   saveActiveProjectTabs: (tabs: { paths: string[]; active: number }) => Promise<{ ok: boolean; error?: string }>
-  isEnabled: (p: string) => Promise<{ enabled: boolean; missing: string[]; context: any }>
-  enable: (p: string, opts: any) => Promise<any>
-  readStatus: (p: string) => Promise<any>
+  isEnabled: (p: string) => Promise<{ enabled: boolean; missing: string[]; hasRalphrc: boolean; hasRalphDir: boolean; context: ProjectContext }>
+  enable: (p: string, opts: EnableOptions) => Promise<EnableResult>
+  readStatus: (p: string) => Promise<{ circuit: CircuitBreakerSnapshot | null; status: unknown; progress: unknown; analysis: unknown }>
   subscribeProject: (p: string) => Promise<void>
   unsubscribeProject: (p: string) => Promise<void>
-  onCircuitUpdate: (cb: (...a: any[]) => void) => () => void
-  onLogLines: (cb: (...a: any[]) => void) => () => void
+  onCircuitUpdate: (cb: (proj: string, c: CircuitBreakerSnapshot) => void) => () => void
+  onLogLines: (cb: (proj: string, lines: string[]) => void) => () => void
   readLogs: (p: string, lines?: number) => Promise<string[]>
   listLogs: (p: string) => Promise<string[]>
   readFile: (p: string, rel: string) => Promise<{ ok: boolean; content?: string; error?: string }>
@@ -23,20 +59,20 @@ interface SlashbotAPI {
   resetSession: (p: string) => Promise<{ ok: boolean }>
   beads: {
     check: (p: string) => Promise<{ available: boolean; reason?: string }>
-    list: (p: string, filter?: string) => Promise<{ ok: boolean; tasks: any[] }>
-    show: (p: string, id: string) => Promise<{ ok: boolean; task?: any }>
-    create: (p: string, opts: any) => Promise<{ ok: boolean; task?: any; error?: string }>
-    update: (p: string, id: string, opts: any) => Promise<{ ok: boolean }>
+    list: (p: string, filter?: string) => Promise<{ ok: boolean; tasks: Bead[] }>
+    show: (p: string, id: string) => Promise<{ ok: boolean; task?: Bead }>
+    create: (p: string, opts: { title: string; type?: BeadType; priority?: number; description?: string; labels?: string[]; deps?: string[] }) => Promise<{ ok: boolean; task?: Bead; error?: string }>
+    update: (p: string, id: string, opts: { priority?: number; claim?: boolean; unclaim?: boolean; title?: string; description?: string; labelsAdd?: string[]; labelsRemove?: string[] }) => Promise<{ ok: boolean }>
     close: (p: string, id: string, reason?: string) => Promise<{ ok: boolean }>
     reopen: (p: string, id: string, reason?: string) => Promise<{ ok: boolean }>
     rollback: (p: string, id: string, agentId?: string) => Promise<{ ok: boolean; revertedShas?: string[]; error?: string }>
-    ready: (p: string) => Promise<{ ok: boolean; tasks: any[] }>
-    stats: (p: string) => Promise<{ ok: boolean; stats?: any }>
+    ready: (p: string) => Promise<{ ok: boolean; tasks: Bead[] }>
+    stats: (p: string) => Promise<{ ok: boolean; stats?: ProgressStats; error?: string }>
   }
   swarm: {
     inject: (p: string, req: string) => Promise<{ ok: boolean; id?: string }>
     queueRemove: (p: string, id: string) => Promise<{ ok: boolean }>
-    queue: (p: string) => Promise<any[]>
+    queue: (p: string) => Promise<PlanQueueItem[]>
     start: (p: string, n?: number) => Promise<{ ok: boolean }>
     stop: (p: string) => Promise<{ ok: boolean }>
     gracefulStop: (p: string) => Promise<{ ok: boolean }>
@@ -44,29 +80,29 @@ interface SlashbotAPI {
     resumeAgent: (p: string, agentId: string) => Promise<{ ok: boolean }>
     pauseAll: (p: string) => Promise<{ ok: boolean }>
     resumeAll: (p: string) => Promise<{ ok: boolean }>
-    status: (p: string) => Promise<any>
-    beads: (p: string, status?: string) => Promise<any[]>
-    beadStats: (p: string) => Promise<any>
-    activity: (p: string, limit?: number) => Promise<any[]>
-    activityForBead: (p: string, beadId: string, limit?: number) => Promise<any[]>
-    activityForAgent: (p: string, agentId: string, limit?: number) => Promise<any[]>
-    knowledge: (p: string, limit?: number) => Promise<any[]>
+    status: (p: string) => Promise<SwarmStatus>
+    beads: (p: string, status?: string) => Promise<Bead[]>
+    beadStats: (p: string) => Promise<ProgressStats>
+    activity: (p: string, limit?: number) => Promise<ActivityEvent[]>
+    activityForBead: (p: string, beadId: string, limit?: number) => Promise<ActivityEvent[]>
+    activityForAgent: (p: string, agentId: string, limit?: number) => Promise<ActivityEvent[]>
+    knowledge: (p: string, limit?: number) => Promise<KnowledgeEntry[]>
     agentOutput: (p: string, agentId: string) => Promise<string>
     agentLogs: (p: string) => Promise<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>
     agentLogContent: (p: string, filename: string) => Promise<string>
-    onLog: (cb: (...a: any[]) => void) => () => void
-    onOutput: (cb: (...a: any[]) => void) => () => void
-    onGraph: (cb: (...a: any[]) => void) => () => void
-    onAgents: (cb: (...a: any[]) => void) => () => void
-    onActivity: (cb: (...a: any[]) => void) => () => void
-    onPlanPhase: (cb: (...a: any[]) => void) => () => void
-    onPlanQueue: (cb: (...a: any[]) => void) => () => void
-    onStopped: (cb: (...a: any[]) => void) => () => void
+    onLog: (cb: (proj: string, line: string) => void) => () => void
+    onOutput: (cb: (proj: string, agentId: string, chunk: string) => void) => () => void
+    onGraph: (cb: (proj: string, stats: ProgressStats) => void) => () => void
+    onAgents: (cb: (proj: string, agents: import('./types/ipc').AgentInfo[]) => void) => () => void
+    onActivity: (cb: (proj: string, event: ActivityEvent) => void) => () => void
+    onPlanPhase: (cb: (proj: string, phase: string, request?: string) => void) => () => void
+    onPlanQueue: (cb: (proj: string, queue: PlanQueueItem[]) => void) => () => void
+    onStopped: (cb: () => void) => () => void
     buildMonitor: {
       toggle: (p: string, enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; running: boolean; error?: string }>
       status: (p: string) => Promise<{ enabled: boolean; running: boolean; lastStatus?: string; error?: string }>
     }
-    onBuildStatus: (cb: (...a: any[]) => void) => () => void
+    onBuildStatus: (cb: (proj: string, status: string, detail?: BuildStatusDetail) => void) => () => void
   }
   telegram: {
     status: (p: string) => Promise<{
