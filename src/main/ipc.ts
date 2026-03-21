@@ -476,10 +476,8 @@ export function registerIpc(
     const swarm = new SwarmOrchestrator(projectPath)
     swarm.on('log', (level: string, msg: string, agentId?: string) =>
       broadcast('swarm:log', projectPath, level, msg, agentId ?? null))
-    swarm.on('output', (agentId: string, chunk: string) => {
-      broadcast('pty:data', projectPath, chunk)
-      broadcast('swarm:output', projectPath, agentId, chunk)
-    })
+    swarm.on('output', (agentId: string, chunk: string) =>
+      broadcast('swarm:output', projectPath, agentId, chunk))
     swarm.on('graph', (stats: unknown) => broadcast('swarm:graph', projectPath, stats, null))
     swarm.on('agents', (agents: unknown) => broadcast('swarm:agents', projectPath, agents))
     swarm.on('activity', (event: unknown) => broadcast('swarm:activity', projectPath, event))
