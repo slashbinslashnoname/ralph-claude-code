@@ -3,8 +3,25 @@ vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof impor
 vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('child_process')>()) }))
 import * as fs from 'fs'
 import * as cp from 'child_process'
+import { EventEmitter } from 'events'
 import { WorkerLoop } from './WorkerLoop'
 import { RalphConfig, Bead, SplitDecision } from '../types'
+
+const mockProcesses: any[] = []
+
+function createProc() {
+  const proc = new (EventEmitter as any)()
+  proc.pid = 1234
+  proc.stdout = new (EventEmitter as any)()
+  proc.stderr = new (EventEmitter as any)()
+  proc.stdin = { write: vi.fn(), end: vi.fn() }
+  proc.kill = vi.fn()
+  proc.exitCode = null
+  proc.simulateExit = (code: number) => { proc.exitCode = code; proc.emit('close', code); proc.emit('exit', code) }
+  proc.simulateStdout = (data: string) => { proc.stdout.emit('data', Buffer.from(data)) }
+  proc.simulateStderr = (data: string) => { proc.stderr.emit('data', Buffer.from(data)) }
+  return proc
+}
 
 vi.mock('fs', async (importOriginal) => {
   const orig = await importOriginal<typeof fs>()
@@ -43,6 +60,8 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     autoPush: false,
     maxRetries: 2,
     autoSplitThreshold: 3,
+    buildMonitorCmd: '',
+    buildMonitorInterval: 0,
     claudeModelThink: 'sonnet',
     claudeModelExecute: 'opus',
     claudeModelReview: 'sonnet',
@@ -1281,43 +1300,104 @@ describe('WorkerLoop', () => {
       expect(workerSource).not.toContain('const bead = await this.coordinator.claimBestBead')
     })
 
-    it('source contains --model routing per phase', () => {
-      const workerSource = require('fs').readFileSync(
-        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
-      )
-      // _runClaude signature accepts model as 4th param
-      expect(workerSource).toContain('_runClaude(prompt: string, label: string, cwd?: string, model?: string)')
-      // Model is pushed to args when truthy
-      expect(workerSource).toContain("if (model) args.push('--model', model)")
+    it('spawn receives --model with correct value for each phase via _runClaude', async () => {
+      mockProcesses.length = 0
+      vi.mocked(cp.spawn).mockImplementation(() => {
+        const p = createProc()
+        mockProcesses.push(p)
+        return p as any
+      })
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const runClaude = (worker as any)._runClaude.bind(worker)
+
+      // Think phase: model = sonnet
+      const thinkPromise = runClaude('think prompt', 'think', '/project', 'sonnet')
+      expect(mockProcesses).toHaveLength(1)
+      const thinkArgs = (cp.spawn as any).mock.calls[0][1] as string[]
+      expect(thinkArgs).toContain('--model')
+      expect(thinkArgs[thinkArgs.indexOf('--model') + 1]).toBe('sonnet')
+      mockProcesses[0].simulateStdout('ok')
+      mockProcesses[0].simulateExit(0)
+      await thinkPromise
+
+      // Execute phase: model = opus
+      const execPromise = runClaude('exec prompt', 'execute', '/project', 'opus')
+      expect(mockProcesses).toHaveLength(2)
+      const execArgs = (cp.spawn as any).mock.calls[1][1] as string[]
+      expect(execArgs).toContain('--model')
+      expect(execArgs[execArgs.indexOf('--model') + 1]).toBe('opus')
+      mockProcesses[1].simulateStdout('ok')
+      mockProcesses[1].simulateExit(0)
+      await execPromise
+
+      // Review phase: model = sonnet
+      const reviewPromise = runClaude('review prompt', 'review', '/project', 'sonnet')
+      expect(mockProcesses).toHaveLength(3)
+      const reviewArgs = (cp.spawn as any).mock.calls[2][1] as string[]
+      expect(reviewArgs).toContain('--model')
+      expect(reviewArgs[reviewArgs.indexOf('--model') + 1]).toBe('sonnet')
+      mockProcesses[2].simulateStdout('ok')
+      mockProcesses[2].simulateExit(0)
+      await reviewPromise
     })
 
-    it('think phase passes claudeModelThink', () => {
-      const workerSource = require('fs').readFileSync(
-        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
-      )
-      expect(workerSource).toContain("this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir, this.config.claudeModelThink)")
+    it('uses custom model values from config in spawn args', async () => {
+      mockProcesses.length = 0
+      vi.mocked(cp.spawn).mockImplementation(() => {
+        const p = createProc()
+        mockProcesses.push(p)
+        return p as any
+      })
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({
+        claudeModelThink: 'haiku',
+        claudeModelExecute: 'sonnet',
+        claudeModelReview: 'haiku'
+      }), makeCoordinator())
+      const runClaude = (worker as any)._runClaude.bind(worker)
+
+      // Think with haiku
+      const p1 = runClaude('p', 'think', '/project', 'haiku')
+      expect((cp.spawn as any).mock.calls[0][1]).toContain('--model')
+      expect(((cp.spawn as any).mock.calls[0][1] as string[])[((cp.spawn as any).mock.calls[0][1] as string[]).indexOf('--model') + 1]).toBe('haiku')
+      mockProcesses[0].simulateStdout('ok')
+      mockProcesses[0].simulateExit(0)
+      await p1
+
+      // Execute with sonnet
+      const p2 = runClaude('p', 'execute', '/project', 'sonnet')
+      expect(((cp.spawn as any).mock.calls[1][1] as string[])[((cp.spawn as any).mock.calls[1][1] as string[]).indexOf('--model') + 1]).toBe('sonnet')
+      mockProcesses[1].simulateStdout('ok')
+      mockProcesses[1].simulateExit(0)
+      await p2
+
+      // Review with haiku
+      const p3 = runClaude('p', 'review', '/project', 'haiku')
+      expect(((cp.spawn as any).mock.calls[2][1] as string[])[((cp.spawn as any).mock.calls[2][1] as string[]).indexOf('--model') + 1]).toBe('haiku')
+      mockProcesses[2].simulateStdout('ok')
+      mockProcesses[2].simulateExit(0)
+      await p3
     })
 
-    it('execute phase passes claudeModelExecute', () => {
-      const workerSource = require('fs').readFileSync(
-        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
-      )
-      expect(workerSource).toContain("this._runClaude(this._buildExecutePrompt(bead, thinkingOutput), 'execute', workDir, this.config.claudeModelExecute)")
-    })
+    it('does not include --model when model arg is omitted', async () => {
+      mockProcesses.length = 0
+      vi.mocked(cp.spawn).mockImplementation(() => {
+        const p = createProc()
+        mockProcesses.push(p)
+        return p as any
+      })
 
-    it('review phase passes claudeModelReview', () => {
-      const workerSource = require('fs').readFileSync(
-        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
-      )
-      expect(workerSource).toContain("this._runClaude(this._buildReviewPrompt(bead), 'review', workDir, this.config.claudeModelReview)")
-    })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const runClaude = (worker as any)._runClaude.bind(worker)
 
-    it('probe call does not pass model override', () => {
-      const workerSource = require('fs').readFileSync(
-        require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
-      )
-      // The probe call should only have 3 args (no model)
-      expect(workerSource).toContain("this._runClaude('Reply with only the word OK', 'probe', this.projectPath)")
+      // No model argument (like probe call)
+      const promise = runClaude('Reply with only the word OK', 'probe', '/project')
+      const args = (cp.spawn as any).mock.calls[0][1] as string[]
+      expect(args).not.toContain('--model')
+      mockProcesses[0].simulateStdout('OK')
+      mockProcesses[0].simulateExit(0)
+      await promise
     })
 
     it('source contains split check between thinking and execute phases', () => {
