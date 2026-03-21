@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import type { SwarmStatus, ProgressStats, AgentInfo, CircuitBreakerSnapshot } from '../types/ipc'
 
 const sb = window.slashbot
 
 interface Props {
   projectPath: string
-  circuit: any
+  circuit: CircuitBreakerSnapshot | null
   onNavigate: (page: string) => void
 }
 
 export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
-  const [swarmStatus, setSwarmStatus] = useState<any>(null)
-  const [beadStats, setBeadStats] = useState<any>(null)
-  const [agents, setAgents] = useState<any[]>([])
+  const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null)
+  const [beadStats, setBeadStats] = useState<ProgressStats | null>(null)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
   const [workerCount, setWorkerCount] = useState(2)
 
   // Sync local count from actual running count
@@ -33,7 +34,7 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
 
   // Live agent updates
   useEffect(() => {
-    const unsub = sb.swarm.onAgents((_p: string, a: any) => setAgents(a))
+    const unsub = sb.swarm.onAgents((_p: string, a: AgentInfo[]) => setAgents(a))
     return unsub
   }, [])
 

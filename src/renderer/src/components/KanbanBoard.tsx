@@ -81,7 +81,7 @@ export default function KanbanBoard({
   const columnData = useMemo(() => {
     return COLUMNS.map(col => ({
       ...col,
-      items: roots.filter(b => col.statusMatch.includes(b.status as any)),
+      items: roots.filter(b => (col.statusMatch as readonly string[]).includes(b.status)),
     }))
   }, [roots])
 

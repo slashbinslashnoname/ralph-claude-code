@@ -13,7 +13,7 @@ interface ClaudeResult {
   stop_reason: string
   session_id: string
   total_cost_usd: number
-  usage: any
+  usage?: Record<string, unknown>
   modelUsage: Record<string, {
     inputTokens: number
     outputTokens: number

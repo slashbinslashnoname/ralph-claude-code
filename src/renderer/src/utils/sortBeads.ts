@@ -1,3 +1,5 @@
+import type { Bead } from '../types/ipc'
+
 export type SortField = 'deps' | 'priority' | 'title' | 'status' | 'type' | 'date'
 export type SortDirection = 'asc' | 'desc'
 
@@ -19,17 +21,17 @@ export const SORT_OPTIONS: { id: SortField; label: string }[] = [
 ]
 
 /** Count unresolved blockers: explicit deps + open children */
-function unresolvedBlockers(bead: any, doneIds: Set<string>, openChildCount: Map<string, number>): number {
+function unresolvedBlockers(bead: Bead, doneIds: Set<string>, openChildCount: Map<string, number>): number {
   const deps = Array.isArray(bead.deps) ? bead.deps : []
   const unresolvedDeps = deps.filter((d: string) => !doneIds.has(d)).length
   return unresolvedDeps + (openChildCount.get(bead.id) ?? 0)
 }
 
 export function sortBeads(
-  beads: any[],
+  beads: Bead[],
   sortBy: SortField,
   sortDir: SortDirection
-): any[] {
+): Bead[] {
   // Pre-compute for deps sorting
   const doneIds = new Set(beads.filter(b => b.status === 'done').map(b => b.id))
   const openChildCount = new Map<string, number>()
