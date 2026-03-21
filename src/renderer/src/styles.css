@@ -767,6 +767,8 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .activity-item.activity-completed { border-left-color: var(--success); }
 .activity-item.activity-failed { border-left-color: var(--danger); }
 .activity-item.activity-claimed { border-left-color: var(--warning); }
+.activity-item.activity-knowledge { border-left-color: #f0c040; background: rgba(240, 192, 64, 0.04); }
+.activity-confidence { font-size: 10px; color: var(--text-2); padding: 1px 6px; background: var(--bg-3); border-radius: 3px; font-style: italic; }
 
 .activity-icon { font-size: 14px; min-width: 20px; text-align: center; }
 .activity-time { color: var(--text-2); font-family: var(--font); font-size: 11px; min-width: 70px; }

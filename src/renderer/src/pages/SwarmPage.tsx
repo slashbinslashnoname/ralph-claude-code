@@ -2,6 +2,19 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
+type KnowledgeCategory = 'pattern' | 'gotcha' | 'dependency' | 'convention' | 'environment' | 'risk'
+type KnowledgeConfidence = 'high' | 'medium' | 'low'
+
+interface KnowledgeEntry {
+  ts: string
+  agentId: string
+  beadId: string
+  category: KnowledgeCategory
+  summary: string
+  detail: string
+  confidence: KnowledgeConfidence
+}
+
 const sb = window.slashbot
 
 export interface TelegramStatus {
@@ -54,6 +67,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [historyContent, setHistoryContent] = useState<string | null>(null)
   const [historyFile, setHistoryFile] = useState<string | null>(null)
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null)
+  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([])
 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
@@ -82,6 +96,14 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     if (activity.length === 0) {
       sb.swarm.activity(projectPath, 200).then(setActivity)
     }
+  }, [projectPath])
+
+  // Poll knowledge entries
+  useEffect(() => {
+    const load = () => sb.swarm.knowledge(projectPath, 100).then(setKnowledge).catch(() => {})
+    load()
+    const interval = setInterval(load, 5000)
+    return () => clearInterval(interval)
   }, [projectPath])
 
   // Live events (agents, stats, plan — output & activity handled by App)
@@ -167,6 +189,29 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     if (phase === 'paused') return 'warning'
     if (phase === 'rate_limited') return 'danger'
     return 'idle'
+  }
+
+  type FeedItem =
+    | { kind: 'activity'; ts: string; data: (typeof activity)[number] }
+    | { kind: 'knowledge'; ts: string; data: KnowledgeEntry }
+
+  const mergedFeed = useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [
+      ...activity.map(e => ({ kind: 'activity' as const, ts: e.ts, data: e })),
+      ...knowledge.map(k => ({ kind: 'knowledge' as const, ts: k.ts, data: k })),
+    ]
+    items.sort((a, b) => b.ts.localeCompare(a.ts)) // newest first
+    return items.slice(0, 200)
+  }, [activity, knowledge])
+
+  const knowledgeCategoryColor = (cat: string) => {
+    switch (cat) {
+      case 'gotcha': case 'risk': return 'danger'
+      case 'pattern': case 'convention': return 'accent'
+      case 'dependency': return 'warning'
+      case 'environment': return 'info'
+      default: return 'info'
+    }
   }
 
   const activityIcon = (type: string) => {
@@ -270,7 +315,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
           </button>
           <button className={`tab ${activeTab === 'activity' ? 'active' : ''}`}
             onClick={() => setActiveTab('activity')}>
-            Activity ({activity.length})
+            Activity ({mergedFeed.length})
           </button>
           <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
             onClick={() => {
@@ -360,23 +405,44 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
           {activeTab === 'activity' && (
             <div className="activity-list" ref={activityRef}>
-              {activity.slice().reverse().map((e, i) => (
-                <div key={`${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type}`}>
-                  <span className="activity-icon">{activityIcon(e.type)}</span>
-                  <span className="activity-time">{new Date(e.ts).toLocaleTimeString()}</span>
-                  <span className="activity-agent">{e.agentId}</span>
-                  <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
-                    {e.type}
-                  </span>
-                  {e.beadId && <span className="activity-bead">{e.beadId}</span>}
-                  {e.summary && <span className="activity-summary">{e.summary}</span>}
-                  {e.filesChanged && e.filesChanged.length > 0 && (
-                    <span className="activity-files">{e.filesChanged.length} files</span>
-                  )}
-                  {e.branch && <span className="activity-branch">{e.branch}</span>}
-                </div>
-              ))}
-              {activity.length === 0 && (
+              {mergedFeed.map((item, i) => {
+                if (item.kind === 'knowledge') {
+                  const k = item.data as KnowledgeEntry
+                  return (
+                    <div key={`k-${k.ts}-${k.agentId}-${i}`} className="activity-item activity-knowledge">
+                      <span className="activity-icon" title="Knowledge">💡</span>
+                      <span className="activity-time">{new Date(k.ts).toLocaleTimeString()}</span>
+                      <span className="activity-agent">{k.agentId}</span>
+                      <span className={`badge badge-${knowledgeCategoryColor(k.category)}`}>
+                        {k.category}
+                      </span>
+                      {k.beadId && <span className="activity-bead">{k.beadId}</span>}
+                      <span className="activity-summary">{k.summary}</span>
+                      {k.confidence !== 'high' && (
+                        <span className="activity-confidence">{k.confidence}</span>
+                      )}
+                    </div>
+                  )
+                }
+                const e = item.data as (typeof activity)[number]
+                return (
+                  <div key={`a-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type}`}>
+                    <span className="activity-icon">{activityIcon(e.type)}</span>
+                    <span className="activity-time">{new Date(e.ts).toLocaleTimeString()}</span>
+                    <span className="activity-agent">{e.agentId}</span>
+                    <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
+                      {e.type}
+                    </span>
+                    {e.beadId && <span className="activity-bead">{e.beadId}</span>}
+                    {e.summary && <span className="activity-summary">{e.summary}</span>}
+                    {e.filesChanged && e.filesChanged.length > 0 && (
+                      <span className="activity-files">{e.filesChanged.length} files</span>
+                    )}
+                    {e.branch && <span className="activity-branch">{e.branch}</span>}
+                  </div>
+                )
+              })}
+              {mergedFeed.length === 0 && (
                 <div className="empty-state-sm">
                   <p>No activity yet. Start the swarm to see agent work here.</p>
                 </div>
