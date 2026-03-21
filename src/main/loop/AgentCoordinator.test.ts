@@ -661,6 +661,8 @@ describe('AgentCoordinator — bead claiming with contention', () => {
     tmpDir = makeTmpGitProject()
     slashbotDir = path.join(tmpDir, '.slashbot')
     coord = new AgentCoordinator(slashbotDir, tmpDir)
+    // listAll is called inside claimBestBead to count open children per epic
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
   })
 
   afterEach(() => {
