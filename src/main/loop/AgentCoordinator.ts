@@ -219,20 +219,18 @@ export class AgentCoordinator {
   }
 
   /** Merge a worktree branch back to the current branch and clean up.
-   *  Retries up to maxRetries times on conflict, pulling before each retry.
+   *  Uses atomic update-ref with CAS to allow multiple worktrees to merge simultaneously.
+   *  The heavy merge work happens in the agent's worktree (no global lock).
+   *  Only a brief lock is held to sync the main working tree after the atomic ref update.
+   *  Retries up to maxRetries times on conflict or CAS failure.
    *  If stoppedFn returns true, retries are skipped. */
   async mergeWorktree(
     agentId: string, beadId: string, branch: string, worktreePath: string,
     opts?: { maxRetries?: number; stoppedFn?: () => boolean; claudeCmd?: string; env?: NodeJS.ProcessEnv }
   ): Promise<{ merged: boolean; filesChanged: string[]; error?: string }> {
-    // Serialize all merge operations — concurrent merges into the same main
-    // working tree corrupt git state (stash/merge/stash-pop race).
-    await this.mergeSemaphore.acquire(120000)
-    try {
-      return await this._mergeWorktreeInner(agentId, beadId, branch, worktreePath, opts)
-    } finally {
-      this.mergeSemaphore.release()
-    }
+    // No outer semaphore — atomic update-ref handles concurrency.
+    // The mergeSemaphore is only held briefly for main working tree sync.
+    return this._mergeWorktreeInner(agentId, beadId, branch, worktreePath, opts)
   }
 
   private async _mergeWorktreeInner(
@@ -242,45 +240,191 @@ export class AgentCoordinator {
     const maxRetries = opts?.maxRetries ?? 2
     const stoppedFn = opts?.stoppedFn
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const result = this._tryMerge(branch, worktreePath)
-      if (result.merged) {
+    try {
+      const baseBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: this.projectPath, timeout: 5000
+      }).toString().trim()
+
+      // Verify agent branch is resolvable
+      try {
+        execSync(`git rev-parse --verify "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+      } catch {
+        // Branch doesn't resolve — nothing to merge (brand-new worktree, no commits)
         this._cleanupWorktree(worktreePath, branch)
-        return result
+        return { merged: true, filesChanged: [] }
       }
 
-      // No more retries or agent is stopping — give up without LLM
-      if (attempt >= maxRetries || (stoppedFn && stoppedFn())) {
+      // Check if there are any new commits on the agent branch
+      const diffOutput = execSync(`git log "${baseBranch}..${branch}" --oneline`, {
+        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+      }).toString().trim()
+
+      if (!diffOutput) {
         this._cleanupWorktree(worktreePath, branch)
-        return result
+        return { merged: true, filesChanged: [] }
       }
 
-      // Attempt LLM-assisted conflict resolution (merge is still in progress, conflicts in working tree)
-      const isConflict = result.error?.includes('CONFLICT') || result.error?.includes('CONFLIT') || result.error?.includes('Merge conflict')
-      if (isConflict && opts?.claudeCmd) {
-        const resolved = await this._resolveConflictsWithClaude(opts.claudeCmd, opts.env)
-        if (resolved) {
+      // Get list of files changed by the agent
+      const filesOutput = execSync(`git diff --name-only "${baseBranch}..${branch}"`, {
+        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+      }).toString().trim()
+      const filesChanged = filesOutput ? filesOutput.split('\n').filter(Boolean) : []
+
+      let lastError = ''
+
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (stoppedFn?.()) {
           this._cleanupWorktree(worktreePath, branch)
-          return { merged: true, filesChanged: result.filesChanged }
+          return { merged: false, filesChanged: [], error: 'stopped' }
         }
+
+        // Step 1: Record current base ref for CAS (compare-and-swap)
+        const oldBaseRef = execSync(`git rev-parse "${baseBranch}"`, {
+          cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+        }).toString().trim()
+
+        // Step 2: Check if base is already an ancestor of agent branch
+        let mergeNeeded = true
+        try {
+          execSync(`git merge-base --is-ancestor "${oldBaseRef}" HEAD`, {
+            cwd: worktreePath, timeout: 5000, stdio: 'pipe'
+          })
+          mergeNeeded = false
+        } catch { /* base has moved ahead — merge needed */ }
+
+        // Step 3: Merge base into agent branch (in agent's worktree — no global lock)
+        if (mergeNeeded) {
+          try {
+            execSync(`git merge "${baseBranch}" --no-edit`, {
+              cwd: worktreePath, timeout: 30000
+            })
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            lastError = msg
+            const isConflict = msg.includes('CONFLICT') || msg.includes('CONFLIT') || msg.includes('Merge conflict')
+
+            if (isConflict && opts?.claudeCmd) {
+              const resolved = await this._resolveConflictsWithClaude(opts.claudeCmd, opts.env, worktreePath)
+              if (!resolved) {
+                try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+                if (attempt >= maxRetries) break
+                continue
+              }
+              // Conflict resolved — fall through to CAS
+            } else if (isConflict) {
+              try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+              if (attempt >= maxRetries) break
+              continue
+            } else {
+              // Non-conflict merge error — don't retry
+              this._cleanupWorktree(worktreePath, branch)
+              return { merged: false, filesChanged: [], error: msg }
+            }
+          }
+        }
+
+        // Step 4: Get agent branch tip (now includes base changes)
+        const newRef = execSync('git rev-parse HEAD', {
+          cwd: worktreePath, timeout: 5000, stdio: 'pipe'
+        }).toString().trim()
+
+        // Step 5: Atomic CAS — update base branch ref to agent tip
+        // Fails if another agent moved the ref since we read oldBaseRef
+        try {
+          execSync(`git update-ref "refs/heads/${baseBranch}" ${newRef} ${oldBaseRef}`, {
+            cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+          })
+        } catch {
+          // CAS failed — another agent updated the base. Undo merge and retry.
+          lastError = 'update-ref CAS failed (concurrent merge)'
+          if (mergeNeeded) {
+            try { execSync('git reset --hard HEAD~1', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+          }
+          if (attempt >= maxRetries) break
+          continue
+        }
+
+        // Step 6: Sync main working tree (brief lock — only for checkout, not merge)
+        await this._syncMainWorkingTree()
+
+        this._cleanupWorktree(worktreePath, branch)
+        return { merged: true, filesChanged }
       }
 
-      // Abort the failed/unresolved merge and pull latest before retrying
-      try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
-      try { execSync('git pull --rebase=false', { cwd: this.projectPath, timeout: 15000, stdio: 'pipe' }) } catch { /* ignore */ }
+      // Exhausted retries
+      this._cleanupWorktree(worktreePath, branch)
+      return { merged: false, filesChanged: [], error: lastError || 'exhausted retries' }
+    } catch (err) {
+      this._cleanupWorktree(worktreePath, branch)
+      return { merged: false, filesChanged: [], error: err instanceof Error ? err.message : String(err) }
     }
-
-    // Should not reach here, but be safe
-    this._cleanupWorktree(worktreePath, branch)
-    return { merged: false, filesChanged: [], error: 'exhausted retries' }
   }
 
-  /** Use Claude to resolve merge conflicts in the working directory */
-  private async _resolveConflictsWithClaude(claudeCmd: string, env?: NodeJS.ProcessEnv): Promise<boolean> {
+  /** Briefly lock and sync the main working tree to match the updated HEAD ref. */
+  private async _syncMainWorkingTree(): Promise<void> {
+    await this.mergeSemaphore.acquire(30000)
+    try {
+      // Move untracked items that might conflict with the checkout
+      const movedItems = this._moveConflictingItems()
+      try {
+        execSync('git reset --hard', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
+      } finally {
+        this._restoreMovedItems(movedItems)
+      }
+    } finally {
+      this.mergeSemaphore.release()
+    }
+  }
+
+  /** Move untracked symlinks/dirs (.slashbot, .beads, etc.) out of the way before checkout. */
+  private _moveConflictingItems(): Array<{ path: string; symlinkTarget?: string }> {
+    const movedItems: Array<{ path: string; symlinkTarget?: string }> = []
+    for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
+      const fullPath = path.join(this.projectPath, name)
+      let stat: fs.Stats | null = null
+      try { stat = fs.lstatSync(fullPath) } catch { continue }
+      // Skip tracked files — reset --hard handles those
+      try {
+        execSync(`git ls-files --error-unmatch "${name}"`, { cwd: this.projectPath, timeout: 3000, stdio: 'pipe' })
+        continue
+      } catch { /* untracked */ }
+      if (stat.isSymbolicLink()) {
+        const target = fs.readlinkSync(fullPath)
+        fs.unlinkSync(fullPath)
+        movedItems.push({ path: fullPath, symlinkTarget: target })
+      } else {
+        const tmp = fullPath + '.__merge_tmp'
+        try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ok */ }
+        fs.renameSync(fullPath, tmp)
+        movedItems.push({ path: fullPath })
+      }
+    }
+    return movedItems
+  }
+
+  /** Restore previously moved untracked items. */
+  private _restoreMovedItems(movedItems: Array<{ path: string; symlinkTarget?: string }>): void {
+    for (const item of movedItems) {
+      try {
+        try { fs.rmSync(item.path, { recursive: true, force: true }) } catch { /* ok */ }
+        if (item.symlinkTarget) {
+          const isDir = (() => { try { return fs.statSync(item.symlinkTarget).isDirectory() } catch { return false } })()
+          fs.symlinkSync(item.symlinkTarget, item.path, isDir ? 'dir' : 'file')
+        } else {
+          const tmp = item.path + '.__merge_tmp'
+          if (fs.existsSync(tmp)) fs.renameSync(tmp, item.path)
+        }
+      } catch { /* ignore */ }
+    }
+  }
+
+  /** Use Claude to resolve merge conflicts in the given working directory */
+  private async _resolveConflictsWithClaude(claudeCmd: string, env?: NodeJS.ProcessEnv, cwd?: string): Promise<boolean> {
+    const workDir = cwd ?? this.projectPath
     try {
       // Get list of conflicted files
       const conflicted = execSync('git diff --name-only --diff-filter=U', {
-        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+        cwd: workDir, timeout: 5000, stdio: 'pipe'
       }).toString().trim()
 
       if (!conflicted) return false
@@ -292,7 +436,7 @@ export class AgentCoordinator {
 
       return new Promise<boolean>((resolve) => {
         const proc = spawn(claudeCmd, ['-p', prompt, '--dangerously-skip-permissions'], {
-          cwd: this.projectPath, env: env ?? process.env,
+          cwd: workDir, env: env ?? process.env,
           stdio: ['ignore', 'pipe', 'pipe']
         })
         let output = ''
@@ -308,11 +452,11 @@ export class AgentCoordinator {
           // Check if conflicts are resolved (no more conflict markers)
           try {
             const remaining = execSync('git diff --name-only --diff-filter=U', {
-              cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+              cwd: workDir, timeout: 5000, stdio: 'pipe'
             }).toString().trim()
             if (remaining) { resolve(false); return }
             // Commit the merge resolution
-            execSync('git commit --no-edit', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
+            execSync('git commit --no-edit', { cwd: workDir, timeout: 10000, stdio: 'pipe' })
             resolve(true)
           } catch {
             resolve(false)
@@ -322,110 +466,6 @@ export class AgentCoordinator {
       })
     } catch {
       return false
-    }
-  }
-
-  /** Single merge attempt — does not clean up worktree on failure. */
-  private _tryMerge(branch: string, worktreePath: string): { merged: boolean; filesChanged: string[]; error?: string } {
-    // Declared outside try so it's accessible in the catch block
-    let stashed = false
-    try {
-      const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.projectPath, timeout: 5000
-      }).toString().trim()
-
-      // Verify both refs are resolvable before using .. range syntax.
-      // A freshly created worktree branch may not be resolvable from the main
-      // working tree if git hasn't flushed refs yet.
-      try {
-        execSync(`git rev-parse --verify "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
-      } catch {
-        // Branch doesn't resolve — nothing to merge (brand-new worktree, no commits)
-        return { merged: true, filesChanged: [] }
-      }
-
-      const diffOutput = execSync(`git log "${currentBranch}..${branch}" --oneline`, {
-        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
-      }).toString().trim()
-
-      if (!diffOutput) {
-        return { merged: true, filesChanged: [] }
-      }
-
-      const filesOutput = execSync(`git diff --name-only "${currentBranch}..${branch}"`, {
-        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
-      }).toString().trim()
-      const filesChanged = filesOutput ? filesOutput.split('\n').filter(Boolean) : []
-
-      // Move untracked files/symlinks that would conflict with the merge
-      const movedItems: { path: string; symlinkTarget?: string }[] = []
-      for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
-        const fullPath = path.join(this.projectPath, name)
-        let stat: fs.Stats | null = null
-        try { stat = fs.lstatSync(fullPath) } catch { continue }
-        try {
-          execSync(`git ls-files --error-unmatch "${name}"`, { cwd: this.projectPath, timeout: 3000, stdio: 'pipe' })
-          continue
-        } catch { /* untracked */ }
-        if (stat.isSymbolicLink()) {
-          const target = fs.readlinkSync(fullPath)
-          fs.unlinkSync(fullPath)
-          movedItems.push({ path: fullPath, symlinkTarget: target })
-        } else {
-          const tmp = fullPath + '.__merge_tmp'
-          // Remove leftover tmp from a previous failed merge
-          try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ok */ }
-          fs.renameSync(fullPath, tmp)
-          movedItems.push({ path: fullPath })
-        }
-      }
-
-      // Stash any pending local modifications so merge doesn't fail
-      try {
-        const stashOut = execSync('git stash push -m "slashbot-merge-tmp" --include-untracked', {
-          cwd: this.projectPath, timeout: 10000, stdio: 'pipe'
-        }).toString()
-        stashed = !stashOut.includes('No local changes')
-      } catch { /* nothing to stash */ }
-
-      try {
-        execSync(`git merge "${branch}" --no-edit`, {
-          cwd: this.projectPath, timeout: 30000
-        })
-      } finally {
-        // Restore stash BEFORE restoring moved items — stash may contain the .__merge_tmp
-        // dirs (since --include-untracked stashes them), so they must be popped first.
-        if (stashed) {
-          try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
-          stashed = false
-        }
-        for (const item of movedItems) {
-          try {
-            try { fs.rmSync(item.path, { recursive: true, force: true }) } catch { /* ok */ }
-            if (item.symlinkTarget) {
-              const isDir = (() => { try { return fs.statSync(item.symlinkTarget).isDirectory() } catch { return false } })()
-              fs.symlinkSync(item.symlinkTarget, item.path, isDir ? 'dir' : 'file')
-            } else {
-              const tmp = item.path + '.__merge_tmp'
-              if (fs.existsSync(tmp)) fs.renameSync(tmp, item.path)
-            }
-          } catch { /* ignore */ }
-        }
-      }
-
-      return { merged: true, filesChanged }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      const isConflict = msg.includes('CONFLICT') || msg.includes('CONFLIT') || msg.includes('Merge conflict')
-      // Don't abort if it's a conflict — caller may try LLM resolution
-      if (!isConflict) {
-        try { execSync('git merge --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
-      }
-      // Restore stashed changes even on failure (stash may already be popped by finally block)
-      if (stashed) {
-        try { execSync('git stash pop', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
-      }
-      return { merged: false, filesChanged: [], error: msg }
     }
   }
 
