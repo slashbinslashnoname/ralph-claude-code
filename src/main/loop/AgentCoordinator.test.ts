@@ -835,9 +835,41 @@ describe('AgentCoordinator — completeBead and failBead', () => {
     expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
     expect(coord.readLocks().length).toBe(0)
     const events = coord.readActivity()
-    expect(events.length).toBeGreaterThanOrEqual(1)
-    expect(events[0].type).toBe('completed')
-    expect(events[0].summary).toContain('b1')
+    const completed = events.find(e => e.type === 'completed')
+    expect(completed).toBeDefined()
+    expect(completed!.summary).toContain('b1')
+  })
+
+  it('commitAndPush returns the commit SHA after a successful commit', () => {
+    // Create a file change so there's something to commit
+    fs.writeFileSync(path.join(tmpDir, 'new.txt'), 'hello')
+    const sha = coord.commitAndPush('agent-0', 'b1', false)
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('commitAndPush returns null when there is nothing to commit', () => {
+    const sha = coord.commitAndPush('agent-0', 'b1', false)
+    expect(sha).toBeNull()
+  })
+
+  it('completeBead includes commitSha in activity event when changes exist', () => {
+    vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    // Create a file change so commitAndPush produces a SHA
+    fs.writeFileSync(path.join(tmpDir, 'changed.txt'), 'data')
+
+    coord.completeBead('agent-0', 'b1', ['changed.txt'], false)
+
+    const events = coord.readActivity()
+    const completed = events.find(e => e.type === 'completed')
+    expect(completed).toBeDefined()
+    expect(completed!.commitSha).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('commitAndPush returns null when nothing is staged', () => {
+    // Commit everything first so the working tree is clean
+    execSync('git add -A && git commit -m "clean" --allow-empty', { cwd: tmpDir, stdio: 'pipe' })
+    const sha = coord.commitAndPush('agent-0', 'b1', false)
+    expect(sha).toBeNull()
   })
 
   it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', () => {

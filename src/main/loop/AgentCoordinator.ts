@@ -562,14 +562,15 @@ export class AgentCoordinator {
       this.postActivity({ agentId, type: 'info' as any, beadId, summary: `Close failed (non-fatal): ${msg.slice(0, 120)}` })
     }
     this.releaseFiles(agentId, beadId)
-    this.postActivity({ agentId, type: 'completed', beadId, filesChanged, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
 
-    // Commit and push all changes on the current branch
-    this.commitAndPush(agentId, beadId, autoPush)
+    // Commit and push first so we can capture the SHA
+    const commitSha = this.commitAndPush(agentId, beadId, autoPush)
+
+    this.postActivity({ agentId, type: 'completed', beadId, filesChanged, commitSha: commitSha ?? undefined, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
   }
 
-  /** Commit any pending changes and push to remote */
-  commitAndPush(agentId: string, beadId: string, autoPush = true): void {
+  /** Commit any pending changes and push to remote. Returns the commit SHA or null. */
+  commitAndPush(agentId: string, beadId: string, autoPush = true): string | null {
     try {
       // Stage everything (merged code + .beads db changes)
       execSync('git add -A', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
@@ -577,7 +578,7 @@ export class AgentCoordinator {
       // Check if there's anything to commit
       try {
         execSync('git diff --cached --quiet', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
-        return // nothing staged
+        return null // nothing staged
       } catch { /* has staged changes — continue */ }
 
       // Commit
@@ -586,6 +587,14 @@ export class AgentCoordinator {
         cwd: this.projectPath, timeout: 10000, stdio: 'pipe',
         env: { ...process.env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
       })
+
+      // Capture the commit SHA
+      let commitSha: string | null = null
+      try {
+        commitSha = execSync('git rev-parse HEAD', {
+          cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+        }).toString().trim()
+      } catch { /* non-fatal — SHA capture failed */ }
 
       // Push to remote (current branch)
       if (autoPush) {
@@ -600,7 +609,10 @@ export class AgentCoordinator {
           this.postActivity({ agentId, type: 'info' as any, summary: `Push failed (non-fatal): ${msg.slice(0, 100)}` })
         }
       }
+
+      return commitSha
     } catch { /* commit failed — non-fatal */ }
+    return null
   }
 
   reopenBead(agentId: string, beadId: string): void {
