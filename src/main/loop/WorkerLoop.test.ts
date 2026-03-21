@@ -1764,4 +1764,254 @@ None.
       })
     })
   })
+
+  describe('state machine wiring (SLASHBOT_STATE_MACHINE=1)', () => {
+    let originalEnv: string | undefined
+
+    beforeEach(() => {
+      originalEnv = process.env.SLASHBOT_STATE_MACHINE
+    })
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.SLASHBOT_STATE_MACHINE
+      } else {
+        process.env.SLASHBOT_STATE_MACHINE = originalEnv
+      }
+    })
+
+    it('uses _loop when SLASHBOT_STATE_MACHINE is not set', async () => {
+      delete process.env.SLASHBOT_STATE_MACHINE
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      // Spy on the private _loop method to verify it's called
+      const loopSpy = vi.spyOn(worker as any, '_loop')
+      const smSpy = vi.spyOn(worker as any, '_loopStateMachine')
+
+      await worker.start()
+
+      expect(loopSpy).toHaveBeenCalled()
+      expect(smSpy).not.toHaveBeenCalled()
+    })
+
+    it('uses _loopStateMachine when SLASHBOT_STATE_MACHINE=1', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const loopSpy = vi.spyOn(worker as any, '_loop')
+      const smSpy = vi.spyOn(worker as any, '_loopStateMachine')
+
+      await worker.start()
+
+      expect(smSpy).toHaveBeenCalled()
+      expect(loopSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not use _loopStateMachine when SLASHBOT_STATE_MACHINE=0', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '0'
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const loopSpy = vi.spyOn(worker as any, '_loop')
+      const smSpy = vi.spyOn(worker as any, '_loopStateMachine')
+
+      await worker.start()
+
+      expect(loopSpy).toHaveBeenCalled()
+      expect(smSpy).not.toHaveBeenCalled()
+    })
+
+    it('state machine exits cleanly when no beads are available', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const exitEvents: string[] = []
+      worker.on('exit', (reason: string) => exitEvents.push(reason))
+
+      await worker.start()
+
+      expect(exitEvents).toContain('all_beads_done')
+      expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
+    })
+
+    it('stop() propagates to state machine context flags', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      // Make claimBestBead hang so we can stop mid-loop
+      let claimResolve: (v: any) => void
+      coord.claimBestBead.mockImplementation(() => new Promise(r => { claimResolve = r }))
+      coord.hasOpenWork.mockReturnValue(true)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const startPromise = worker.start()
+
+      // Wait for routing to start
+      await new Promise(r => setTimeout(r, 50))
+
+      // The _stateMachineCtx should be set now
+      const ctx = (worker as any)._stateMachineCtx
+      expect(ctx).not.toBeNull()
+      expect(ctx.flags.stopped).toBe(false)
+
+      worker.stop()
+
+      expect(ctx.flags.stopped).toBe(true)
+
+      // Resolve the hanging claim so the loop can exit
+      claimResolve!(null)
+      await startPromise
+    })
+
+    it('gracefulStop() propagates to state machine context flags', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      let claimResolve: (v: any) => void
+      coord.claimBestBead.mockImplementation(() => new Promise(r => { claimResolve = r }))
+      coord.hasOpenWork.mockReturnValue(true)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const startPromise = worker.start()
+
+      await new Promise(r => setTimeout(r, 50))
+
+      const ctx = (worker as any)._stateMachineCtx
+      expect(ctx).not.toBeNull()
+      expect(ctx.flags.stopped).toBe(false)
+
+      worker.gracefulStop()
+
+      expect(ctx.flags.stopped).toBe(true)
+
+      claimResolve!(null)
+      await startPromise
+    })
+
+    it('_stateMachineCtx is cleared after loop finishes', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      await worker.start()
+
+      expect((worker as any)._stateMachineCtx).toBeNull()
+    })
+
+    it('_buildCapabilities returns capabilities that delegate to WorkerLoop methods', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const caps = (worker as any)._buildCapabilities()
+
+      // Verify key capability fields exist and have correct types
+      expect(typeof caps.runClaude).toBe('function')
+      expect(typeof caps.buildThinkingPrompt).toBe('function')
+      expect(typeof caps.buildExecutePrompt).toBe('function')
+      expect(typeof caps.buildReviewPrompt).toBe('function')
+      expect(typeof caps.extractThinkingSummary).toBe('function')
+      expect(typeof caps.extractKnowledge).toBe('function')
+      expect(typeof caps.parseSplitDecision).toBe('function')
+      expect(typeof caps.splitBead).toBe('function')
+      expect(typeof caps.detectApiLimit).toBe('function')
+      expect(typeof caps.stripAnsi).toBe('function')
+      expect(typeof caps.waitForQuotaReset).toBe('function')
+      expect(typeof caps.waitIfPaused).toBe('function')
+      expect(typeof caps.sleep).toBe('function')
+      expect(typeof caps.getBeadAttempt).toBe('function')
+      expect(typeof caps.incrementBeadAttempt).toBe('function')
+      expect(typeof caps.backoffMs).toBe('function')
+      expect(typeof caps.commitWorktreeChanges).toBe('function')
+      expect(caps.emitter).toBe(worker)
+      expect(caps.resolvedCmd).toBeDefined()
+      expect(caps.env).toBeDefined()
+      expect(caps.childProcRef).toBeDefined()
+    })
+
+    it('capabilities.commitWorktreeChanges swallows errors', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const caps = (worker as any)._buildCapabilities()
+
+      vi.mocked(cp.execSync).mockImplementation(() => { throw new Error('nothing to commit') })
+
+      // Should not throw
+      expect(() => caps.commitWorktreeChanges('/tmp/wt', 'agent-0', {})).not.toThrow()
+    })
+
+    it('capabilities.detectApiLimit delegates to ResponseAnalyzer', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const caps = (worker as any)._buildCapabilities()
+
+      // Normal output should not trigger rate limit
+      expect(caps.detectApiLimit('OK all done')).toBe(false)
+    })
+
+    it('capabilities.stripAnsi strips ANSI codes', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const caps = (worker as any)._buildCapabilities()
+
+      expect(caps.stripAnsi('\x1b[31mred\x1b[0m')).toBe('red')
+    })
+
+    it('capabilities.backoffMs delegates correctly', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const caps = (worker as any)._buildCapabilities()
+
+      expect(caps.backoffMs(0)).toBe(3000)
+      expect(caps.backoffMs(1)).toBe(6000)
+    })
+
+    it('registers and deregisters agent in state machine mode', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      coord.claimBestBead.mockResolvedValue(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      await worker.start()
+
+      expect(coord.registerAgent).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'agent-0',
+        index: 0,
+        phase: 'idle'
+      }))
+      expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
+    })
+
+    it('state machine receives correct exit reason on stop', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      // First call returns a bead, second returns null
+      let callCount = 0
+      coord.claimBestBead.mockImplementation(async () => {
+        callCount++
+        if (callCount === 1) return null
+        return null
+      })
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const exitEvents: string[] = []
+      worker.on('exit', (reason: string) => exitEvents.push(reason))
+
+      await worker.start()
+
+      // Should exit with 'all_beads_done' since no beads found and no open work
+      expect(exitEvents[0]).toBe('all_beads_done')
+    })
+  })
 })

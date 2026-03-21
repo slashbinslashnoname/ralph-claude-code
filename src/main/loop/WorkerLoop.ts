@@ -6,6 +6,7 @@ import { RalphConfig, Bead, SplitDecision } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { detectApiLimit } from './ResponseAnalyzer'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
+import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 
 /** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
@@ -30,6 +31,8 @@ export class WorkerLoop extends EventEmitter {
   private logDir: string
   private env: NodeJS.ProcessEnv
   private resolvedCmd: string
+  /** Shared context when running in state-machine mode (feature-flagged). */
+  private _stateMachineCtx: WorkerContext | null = null
 
   constructor(
     private agentId: string,
@@ -58,13 +61,19 @@ export class WorkerLoop extends EventEmitter {
       worktreeBranch: null, thinkingSummary: null
     })
     this.coordinator.postActivity({ agentId: this.agentId, type: 'started', summary: `Worker ${this.agentId} online` })
-    await this._loop()
+    if (process.env.SLASHBOT_STATE_MACHINE === '1') {
+      await this._loopStateMachine()
+    } else {
+      await this._loop()
+    }
   }
 
   stop(): void {
     this.stopped = true
     this.running = false
     this.paused = false
+    // Propagate to state machine context if active
+    if (this._stateMachineCtx) this._stateMachineCtx.flags.stopped = true
     // Release pause gate so the loop can exit — signal stopped
     if (this._pauseResolve) { this._pauseResolve(true); this._pauseResolve = null }
     if (this.childProc) {
@@ -85,6 +94,8 @@ export class WorkerLoop extends EventEmitter {
     if (this.paused) this.resume()
     this.stopped = true
     this.running = false
+    // Propagate to state machine context if active
+    if (this._stateMachineCtx) this._stateMachineCtx.flags.stopped = true
     this._log('INFO', `[${this.agentId}] Graceful stop requested — will finish current bead`)
     this.coordinator.postActivity({ agentId: this.agentId, type: 'stopped', summary: 'Graceful stop — finishing current bead' })
   }
@@ -115,6 +126,62 @@ export class WorkerLoop extends EventEmitter {
       this._pauseResolve(false)
       this._pauseResolve = null
     }
+  }
+
+  /** Build capabilities that delegate to WorkerLoop's private methods/fields. */
+  private _buildCapabilities(): WorkerCapabilities {
+    return {
+      runClaude: (prompt, label, cwd, model) => this._runClaude(prompt, label, cwd, model),
+      buildThinkingPrompt: (bead) => this._buildThinkingPrompt(bead),
+      buildExecutePrompt: (bead, thinkingOutput) => this._buildExecutePrompt(bead, thinkingOutput),
+      buildReviewPrompt: (bead) => this._buildReviewPrompt(bead),
+      extractThinkingSummary: (raw) => this._extractThinkingSummary(raw),
+      extractKnowledge: (raw, beadId) => this._extractKnowledge(raw, beadId),
+      parseSplitDecision: (thinkingOutput, bead) => this._parseSplitDecision(thinkingOutput, bead),
+      splitBead: (bead, decision) => this._splitBead(bead, decision),
+      detectApiLimit: (output) => detectApiLimit(output),
+      stripAnsi: (s) => stripAnsi(s),
+      waitForQuotaReset: () => this._waitForQuotaReset(),
+      waitIfPaused: () => this._waitIfPaused(),
+      sleep: (ms) => this._sleep(ms),
+      emitter: this,
+      getBeadAttempt: (beadId) => this._getBeadAttempt(beadId),
+      incrementBeadAttempt: (beadId) => this._incrementBeadAttempt(beadId),
+      backoffMs: (attempt) => this._backoffMs(attempt),
+      childProcRef: { childProc: this.childProc },
+      commitWorktreeChanges: (worktreePath, agentId, env) => {
+        try {
+          cp.execSync('git add -A && git diff --cached --quiet || git commit -m "agent work on bead"', {
+            cwd: worktreePath, timeout: 10000, stdio: 'pipe',
+            env: { ...env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
+          })
+        } catch { /* ignore — may have nothing to commit */ }
+      },
+      resolvedCmd: this.resolvedCmd,
+      env: this.env
+    }
+  }
+
+  /** State-machine driven loop (feature-flagged behind SLASHBOT_STATE_MACHINE=1). */
+  private async _loopStateMachine(): Promise<void> {
+    const capabilities = this._buildCapabilities()
+    const ctx = createWorkerContext(
+      this.agentId,
+      this.agentIndex,
+      this.projectPath,
+      this.config,
+      this.coordinator,
+      capabilities
+    )
+    this._stateMachineCtx = ctx
+
+    try {
+      await runStateMachine(ctx)
+    } finally {
+      this._stateMachineCtx = null
+    }
+
+    this._exit(ctx.flags.stopped ? 'stopped' : 'all_beads_done')
   }
 
   private async _loop(): Promise<void> {
