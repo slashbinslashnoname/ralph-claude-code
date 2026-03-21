@@ -14,20 +14,20 @@ interface TreeBrowserProps {
  */
 function buildChildrenMap(beads: DAGBead[]): Map<string, string[]> {
   const ids = new Set(beads.map(b => b.id))
-  const children = new Map<string, string[]>()
-  for (const id of ids) children.set(id, [])
+  const childSets = new Map<string, Set<string>>()
+  for (const id of ids) childSets.set(id, new Set())
 
   for (const bead of beads) {
     for (const dep of bead.deps) {
-      if (ids.has(dep)) {
-        children.get(dep)!.push(bead.id)
-      }
+      if (ids.has(dep)) childSets.get(dep)!.add(bead.id)
     }
     if (bead.epicId && ids.has(bead.epicId)) {
-      children.get(bead.epicId)!.push(bead.id)
+      childSets.get(bead.epicId)!.add(bead.id)
     }
   }
 
+  const children = new Map<string, string[]>()
+  for (const [id, set] of childSets) children.set(id, [...set])
   return children
 }
 

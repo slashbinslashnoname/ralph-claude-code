@@ -122,6 +122,18 @@ describe('TreeBrowser', () => {
     expect(html).not.toContain('>Task<')
   })
 
+  test('bead with both epicId and dep to same parent is not duplicated in children', () => {
+    const beads: DAGBead[] = [
+      { id: 'epic', title: 'Epic', status: 'ready', deps: [] },
+      { id: 'task', title: 'Task', status: 'pending', deps: ['epic'], epicId: 'epic' },
+    ]
+    const html = render(beads)
+    // Only epic at root, expand button shows 1 child (not 2)
+    expect(countOccurrences(html, 'data-testid="tree-node"')).toBe(1)
+    expect(html).toContain('>1 ')
+    expect(html).not.toContain('>2 ')
+  })
+
   test('missing dep does not hide node from root', () => {
     const beads: DAGBead[] = [
       { id: 'a', title: 'Orphan', status: 'ready', deps: ['nonexistent'] },
