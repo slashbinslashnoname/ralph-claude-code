@@ -1863,3 +1863,133 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
     expect(closeSpy).not.toHaveBeenCalledWith('epic-1', expect.any(String))
   })
 })
+
+describe('AgentCoordinator — _checkClaimTimeouts', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function makeBead(overrides: Partial<Bead>): Bead {
+    return {
+      id: 'b1', title: 'Test bead', description: '', type: 'task',
+      status: 'claimed', deps: [], files: [], priority: 2, tags: [],
+      ...overrides
+    }
+  }
+
+  it('reopens timed-out beads with no live heartbeat', async () => {
+    const claudeTimeoutMinutes = 5
+    const thresholdMs = 2 * claudeTimeoutMinutes * 60_000 // 10 min
+    const oldTs = new Date(Date.now() - thresholdMs - 60_000).toISOString() // 11 min ago
+
+    // Post an old activity event for agent-1
+    ;(coord as any)._activityCache.push({ ts: oldTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
+    ;(coord as any)._indexActivity({ ts: oldTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
+
+    // Mock bd.listByStatus('in_progress') to return a stuck bead
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+      if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: 'agent-1' })]
+      return []
+    })
+
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    // Mock ready/listAll/etc for the rest of claimBestBead
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+
+    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+
+    expect(reopenSpy).toHaveBeenCalledWith('b1', expect.any(String))
+    const events = coord.readActivity()
+    const timeoutEvent = events.find(e => e.type === 'claim_timeout' && e.beadId === 'b1')
+    expect(timeoutEvent).toBeDefined()
+    expect(timeoutEvent!.summary).toContain('timed out')
+  })
+
+  it('skips beads whose agent has a recent heartbeat', async () => {
+    const claudeTimeoutMinutes = 5
+    const thresholdMs = 2 * claudeTimeoutMinutes * 60_000
+    const oldTs = new Date(Date.now() - thresholdMs - 60_000).toISOString()
+
+    ;(coord as any)._activityCache.push({ ts: oldTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
+    ;(coord as any)._indexActivity({ ts: oldTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
+
+    // Agent-1 has a recent heartbeat
+    coord.heartbeat('agent-1')
+
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+      if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: 'agent-1' })]
+      return []
+    })
+
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+
+    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+
+    expect(reopenSpy).not.toHaveBeenCalled()
+  })
+
+  it('skips beads whose last activity is within threshold', async () => {
+    const claudeTimeoutMinutes = 5
+    const recentTs = new Date(Date.now() - 60_000).toISOString() // 1 min ago
+
+    ;(coord as any)._activityCache.push({ ts: recentTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
+    ;(coord as any)._indexActivity({ ts: recentTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
+
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+      if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: 'agent-1' })]
+      return []
+    })
+
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+
+    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+
+    expect(reopenSpy).not.toHaveBeenCalled()
+  })
+
+  it('skips beads with no claimedBy', async () => {
+    const claudeTimeoutMinutes = 5
+
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+      if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: undefined })]
+      return []
+    })
+
+    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+
+    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+
+    expect(reopenSpy).not.toHaveBeenCalled()
+  })
+
+  it('is non-fatal if _checkClaimTimeouts throws', async () => {
+    let callCount = 0
+    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+      callCount++
+      // First call is from _checkClaimTimeouts — throw
+      if (callCount === 1) throw new Error('bd crashed')
+      // Subsequent calls from claimBestBead itself
+      return []
+    })
+    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+
+    // Should not throw — error is caught
+    const result = await coord.claimBestBead('agent-0', 5)
+    expect(result).toBeNull()
+  })
+})

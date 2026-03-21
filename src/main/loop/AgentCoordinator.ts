@@ -630,10 +630,51 @@ export class AgentCoordinator {
   private commitSemaphore = new AsyncSemaphore()
   private mergeSemaphore = new AsyncSemaphore()
 
-  async claimBestBead(agentId: string): Promise<Bead | null> {
+  /**
+   * Reopen beads stuck in_progress past 2× claudeTimeoutMinutes when the
+   * owning agent has no live heartbeat. Called at the start of claimBestBead
+   * inside the claimSemaphore so it cannot race with other claim/reopen calls.
+   */
+  private _checkClaimTimeouts(claudeTimeoutMinutes: number): void {
+    const thresholdMs = 2 * claudeTimeoutMinutes * 60_000
+    const now = Date.now()
+    const inProgress = this.bd.listByStatus('in_progress')
+
+    for (const bead of inProgress) {
+      // Determine which agent owns this bead from activity events
+      const beadAgent = bead.claimedBy
+      if (!beadAgent) continue
+
+      // Find last activity event for this agent
+      const agentEvents = this._activityByAgent.get(beadAgent)
+      if (!agentEvents || agentEvents.length === 0) continue
+
+      const lastEvent = agentEvents[agentEvents.length - 1]
+      const lastEventAge = now - new Date(lastEvent.ts).getTime()
+
+      if (lastEventAge <= thresholdMs) continue
+
+      // Check if agent has a live heartbeat
+      const lastHeartbeat = this.getLastHeartbeat(beadAgent)
+      if (lastHeartbeat !== undefined && (now - lastHeartbeat) <= thresholdMs) continue
+
+      // Timed out and no live heartbeat — reopen
+      this.reopenBead(beadAgent, bead.id)
+      this.postActivity({
+        agentId: 'system',
+        type: 'claim_timeout',
+        beadId: bead.id,
+        beadTitle: bead.title,
+        summary: `Reopened bead [${bead.id}] — agent ${beadAgent} timed out (${Math.round(lastEventAge / 60_000)}m since last activity)`
+      })
+    }
+  }
+
+  async claimBestBead(agentId: string, claudeTimeoutMinutes = 15): Promise<Bead | null> {
     await this.claimSemaphore.acquire(5000)
 
     try {
+      try { this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
       let candidates = this.bd.ready()

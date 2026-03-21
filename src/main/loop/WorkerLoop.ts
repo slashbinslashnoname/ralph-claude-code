@@ -210,7 +210,7 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('routing')
       this._log('INFO', `[${this.agentId}] Routing: looking for best available bead…`)
 
-      let bead = await this.coordinator.claimBestBead(this.agentId)
+      let bead = await this.coordinator.claimBestBead(this.agentId, this.config.claudeTimeoutMinutes)
       if (!bead) {
         if (!this.coordinator.hasOpenWork()) {
           this.emptyRetries++

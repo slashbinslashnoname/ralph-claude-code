@@ -171,7 +171,7 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   setPhase(ctx, 'routing')
   log(ctx, 'INFO', `[${ctx.agentId}] Routing: looking for best available bead…`)
 
-  const bead = await ctx.coordinator.claimBestBead(ctx.agentId)
+  const bead = await ctx.coordinator.claimBestBead(ctx.agentId, ctx.config.claudeTimeoutMinutes)
 
   if (!bead) {
     if (!ctx.coordinator.hasOpenWork()) {
