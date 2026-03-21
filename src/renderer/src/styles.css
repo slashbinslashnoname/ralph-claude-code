@@ -672,6 +672,15 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .stat-chip.telegram-status.connected { color: var(--success); }
 .stat-chip.telegram-status.disconnected { color: var(--text-2); opacity: 0.6; }
 
+.stat-chip.build-monitor-status { margin-left: 8px; }
+.stat-chip.build-monitor-status::before { display: none; }
+.build-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.build-dot.green { background: var(--success); }
+.build-dot.red { background: var(--danger); }
+.build-dot.gray { background: var(--text-2); opacity: 0.5; }
+.stat-chip.build-monitor-status.enabled { color: var(--success); }
+.stat-chip.build-monitor-status.disabled { color: var(--text-2); opacity: 0.6; }
+
 .card-loop1 { border-left: 3px solid var(--accent); }
 .card-loop2 { border-left: 3px solid var(--success); }
 

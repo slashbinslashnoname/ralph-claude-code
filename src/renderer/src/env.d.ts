@@ -70,6 +70,11 @@ interface SlashbotAPI {
     onPlanPhase: (cb: (...a: any[]) => void) => () => void
     onPlanQueue: (cb: (...a: any[]) => void) => () => void
     onStopped: (cb: (...a: any[]) => void) => () => void
+    buildMonitor: {
+      toggle: (p: string, enabled: boolean) => Promise<{ ok: boolean; enabled: boolean; running: boolean; error?: string }>
+      status: (p: string) => Promise<{ enabled: boolean; running: boolean; lastStatus?: string; error?: string }>
+    }
+    onBuildStatus: (cb: (...a: any[]) => void) => () => void
   }
   telegram: {
     status: (p: string) => Promise<{
