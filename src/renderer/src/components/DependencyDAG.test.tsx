@@ -1,7 +1,12 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { createRoot } from 'react-dom/client'
+import { act } from 'react'
 import DependencyDAG, { DAGBead, findCriticalPath } from './DependencyDAG'
+
+// Enable React act() environment for jsdom
+;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
 function render(beads: DAGBead[]): string {
   return renderToStaticMarkup(<DependencyDAG beads={beads} />)
@@ -190,6 +195,40 @@ describe('DependencyDAG', () => {
       { id: 'b', title: 'B', status: 'pending', deps: ['a'] },
     ])
     expect(html).toContain('id="arrowhead-critical"')
+  })
+
+  test('onSelectBead callback fires with correct bead id on click', () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    try {
+      const callback = vi.fn()
+      const beads: DAGBead[] = [
+        { id: 'click-a', title: 'Click A', status: 'ready', deps: [] },
+        { id: 'click-b', title: 'Click B', status: 'pending', deps: ['click-a'] },
+      ]
+
+      const root = createRoot(container)
+      act(() => {
+        root.render(<DependencyDAG beads={beads} onSelectBead={callback} />)
+      })
+
+      const nodes = container.querySelectorAll('[data-testid="dag-node"]')
+      expect(nodes.length).toBe(2)
+
+      // Click the first node rect — event bubbles to <g> onClick handler
+      act(() => {
+        nodes[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+
+      expect(callback).toHaveBeenCalledTimes(1)
+      expect(callback).toHaveBeenCalledWith('click-a')
+
+      act(() => {
+        root.unmount()
+      })
+    } finally {
+      document.body.removeChild(container)
+    }
   })
 })
 
