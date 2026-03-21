@@ -3,6 +3,7 @@ import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../
 import BeadDetailPanel from '../components/BeadDetailPanel'
 import DependencyDAG from '../components/DependencyDAG'
 import type { DAGBead } from '../components/DependencyDAG'
+import TreeBrowser from '../components/TreeBrowser'
 
 const sb = window.slashbot
 
@@ -40,7 +41,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'graph'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'graph' | 'tree'>('list')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -272,6 +273,13 @@ export default function BeadsPage({ projectPath }: Props) {
               data-testid="view-mode-graph"
             >
               Graph
+            </button>
+            <button
+              className={`btn btn-xs ${viewMode === 'tree' ? 'btn-sort-active' : 'btn-ghost'}`}
+              onClick={() => setViewMode('tree')}
+              data-testid="view-mode-tree"
+            >
+              Tree
             </button>
           </div>
           <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
@@ -547,6 +555,23 @@ export default function BeadsPage({ projectPath }: Props) {
       {viewMode === 'graph' && (
         <>
           <DependencyDAG
+            beads={dagBeads}
+            selectedBeadId={expandedBead}
+            onSelectBead={toggleDetail}
+          />
+          {expandedBead && beads.find(b => b.id === expandedBead) && (
+            <BeadDetailPanel
+              beadId={expandedBead}
+              beadStatus={beads.find(b => b.id === expandedBead)!.status}
+              projectPath={projectPath}
+            />
+          )}
+        </>
+      )}
+
+      {viewMode === 'tree' && (
+        <>
+          <TreeBrowser
             beads={dagBeads}
             selectedBeadId={expandedBead}
             onSelectBead={toggleDetail}

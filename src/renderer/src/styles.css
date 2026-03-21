@@ -1275,6 +1275,114 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   color: var(--text-0);
 }
 
+/* ── Tree Browser ────────────────────────────────────────────────────────── */
+.tree-browser {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  min-height: 200px;
+}
+
+.tree-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.tree-crumb {
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition);
+}
+.tree-crumb:hover { background: var(--accent-glow); }
+.tree-crumb-current { color: var(--text-0); cursor: default; }
+.tree-crumb-current:hover { background: none; }
+
+.tree-crumb-sep {
+  color: var(--text-2);
+  font-size: 12px;
+  user-select: none;
+}
+
+.tree-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tree-node {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--transition), background var(--transition);
+}
+.tree-node:hover { border-color: rgba(255,255,255,0.12); background: var(--bg-card-hover); }
+.tree-node-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
+
+.tree-node-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tree-node-status { font-size: 14px; flex-shrink: 0; width: 20px; text-align: center; }
+.tree-status-done { color: var(--success); }
+.tree-status-failed { color: var(--danger); }
+.tree-status-claimed { color: var(--warning); }
+.tree-status-ready { color: var(--info); }
+.tree-status-pending { color: var(--text-2); }
+
+.tree-node-title {
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-node-title:hover { color: var(--accent); }
+
+.tree-node-id {
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.tree-node-expand {
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition);
+}
+.tree-node-expand:hover { background: rgba(99, 102, 241, 0.25); }
+
+.tree-empty {
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+  padding: 24px 0;
+}
+
 /* ── Utilities ────────────────────────────────────────────────────────────── */
 .mt-2 { margin-top: 8px; }
 
