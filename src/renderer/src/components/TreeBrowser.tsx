@@ -1,5 +1,14 @@
 import React, { useState, useMemo, useCallback } from 'react'
-import type { DAGBead } from './DependencyDAG'
+
+type BeadStatus = 'pending' | 'ready' | 'claimed' | 'done' | 'failed'
+
+export interface DAGBead {
+  id: string
+  title: string
+  status: BeadStatus
+  deps: string[]
+  epicId?: string
+}
 
 interface TreeBrowserProps {
   beads: DAGBead[]

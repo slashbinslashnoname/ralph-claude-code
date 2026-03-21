@@ -81,9 +81,10 @@ describe('BeadsPage', () => {
   test('renders view mode toggle buttons', () => {
     const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
     expect(html).toContain('data-testid="view-mode-list"')
-    expect(html).toContain('data-testid="view-mode-graph"')
+    expect(html).toContain('data-testid="view-mode-tree"')
     expect(html).toContain('>List<')
-    expect(html).toContain('>Graph<')
+    expect(html).toContain('>Tree<')
+    expect(html).not.toContain('data-testid="view-mode-graph"')
   })
 
   test('defaults to list view with sort bar visible', () => {
@@ -119,11 +120,11 @@ describe('BeadsPage', () => {
     const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
     // The list button should have btn-sort-active class
     const listBtnIdx = html.indexOf('data-testid="view-mode-list"')
-    const graphBtnIdx = html.indexOf('data-testid="view-mode-graph"')
+    const treeBtnIdx = html.indexOf('data-testid="view-mode-tree"')
     // Extract a section around the list button to check its class
     const listSection = html.slice(Math.max(0, listBtnIdx - 100), listBtnIdx)
-    const graphSection = html.slice(Math.max(0, graphBtnIdx - 100), graphBtnIdx)
+    const treeSection = html.slice(Math.max(0, treeBtnIdx - 100), treeBtnIdx)
     expect(listSection).toContain('btn-sort-active')
-    expect(graphSection).toContain('btn-ghost')
+    expect(treeSection).toContain('btn-ghost')
   })
 })

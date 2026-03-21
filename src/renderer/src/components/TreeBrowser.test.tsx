@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import TreeBrowser from './TreeBrowser'
-import type { DAGBead } from './DependencyDAG'
+import type { DAGBead } from './TreeBrowser'
 
 // Enable React act() environment for jsdom
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true

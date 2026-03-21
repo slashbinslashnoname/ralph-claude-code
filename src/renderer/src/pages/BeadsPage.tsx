@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import BeadDetailPanel from '../components/BeadDetailPanel'
-import DependencyDAG from '../components/DependencyDAG'
-import type { DAGBead } from '../components/DependencyDAG'
 import TreeBrowser from '../components/TreeBrowser'
+import type { DAGBead } from '../components/TreeBrowser'
 
 const sb = window.slashbot
 
@@ -41,7 +40,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'graph' | 'tree'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -266,13 +265,6 @@ export default function BeadsPage({ projectPath }: Props) {
               data-testid="view-mode-list"
             >
               List
-            </button>
-            <button
-              className={`btn btn-xs ${viewMode === 'graph' ? 'btn-sort-active' : 'btn-ghost'}`}
-              onClick={() => setViewMode('graph')}
-              data-testid="view-mode-graph"
-            >
-              Graph
             </button>
             <button
               className={`btn btn-xs ${viewMode === 'tree' ? 'btn-sort-active' : 'btn-ghost'}`}
@@ -549,23 +541,6 @@ export default function BeadsPage({ projectPath }: Props) {
               </div>
             ))}
           </div>
-        </>
-      )}
-
-      {viewMode === 'graph' && (
-        <>
-          <DependencyDAG
-            beads={dagBeads}
-            selectedBeadId={expandedBead}
-            onSelectBead={toggleDetail}
-          />
-          {expandedBead && beads.find(b => b.id === expandedBead) && (
-            <BeadDetailPanel
-              beadId={expandedBead}
-              beadStatus={beads.find(b => b.id === expandedBead)!.status}
-              projectPath={projectPath}
-            />
-          )}
         </>
       )}
 
