@@ -463,6 +463,20 @@ export function registerIpc(
     }
   })
 
+  ipcMain.handle('beads:rollback', async (_e, projectPath: unknown, id: unknown, agentId: unknown) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const beadId = validateBeadId(id)
+      const agent = typeof agentId === 'string' && agentId.length > 0 ? agentId : 'ui'
+      const swarm = swarms.get(p)
+      if (!swarm) return { ok: false, error: 'No active swarm for this project' }
+      const result = swarm.coordinator.rollbackBead(agent, beadId)
+      return { ok: result.reverted, revertedShas: result.revertedShas, error: result.error }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   ipcMain.handle('beads:ready', async (_e, projectPath: string) => {
     try {
       const bd = new BdClient(projectPath)
