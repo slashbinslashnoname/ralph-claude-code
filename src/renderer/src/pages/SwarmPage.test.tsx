@@ -2,10 +2,12 @@ import { describe, test, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-const { mockSwarmStatus, mockTelegramStatus, mockKnowledge } = vi.hoisted(() => {
+const { mockSwarmStatus, mockTelegramStatus, mockKnowledge, mockBuildMonitorStatus, mockBuildMonitorToggle } = vi.hoisted(() => {
   const mockSwarmStatus = vi.fn().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
   const mockTelegramStatus = vi.fn().mockResolvedValue({ connected: true, botUsername: 'testbot', lastError: null, messagesSent: 10, messagesReceived: 5 })
   const mockKnowledge = vi.fn().mockResolvedValue([])
+  const mockBuildMonitorStatus = vi.fn().mockResolvedValue({ enabled: false, running: false })
+  const mockBuildMonitorToggle = vi.fn().mockResolvedValue({ ok: true, enabled: true, running: true })
   const noop = vi.fn().mockReturnValue(() => {})
   const noopResolve = vi.fn().mockResolvedValue(undefined)
 
@@ -35,13 +37,18 @@ const { mockSwarmStatus, mockTelegramStatus, mockKnowledge } = vi.hoisted(() => 
         onPlanPhase: noop,
         onPlanQueue: noop,
         onStopped: noop,
+        buildMonitor: {
+          status: mockBuildMonitorStatus,
+          toggle: mockBuildMonitorToggle,
+        },
+        onBuildStatus: noop,
       },
       telegram: {
         status: mockTelegramStatus,
       },
     },
   }
-  return { mockSwarmStatus, mockTelegramStatus, mockKnowledge }
+  return { mockSwarmStatus, mockTelegramStatus, mockKnowledge, mockBuildMonitorStatus, mockBuildMonitorToggle }
 })
 
 // Mock App module to avoid transitive Dashboard import
@@ -54,12 +61,14 @@ vi.mock('../components/AgentOutputRenderer', () => ({
   default: ({ output }: { output: string }) => React.createElement('div', null, output),
 }))
 
-import SwarmPage, { TelegramStatusIndicator, knowledgeCategoryColor } from './SwarmPage'
+import SwarmPage, { TelegramStatusIndicator, BuildMonitorIndicator, knowledgeCategoryColor } from './SwarmPage'
 
 beforeEach(() => {
   mockSwarmStatus.mockReset().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
   mockTelegramStatus.mockReset().mockResolvedValue({ connected: true, botUsername: 'testbot', lastError: null, messagesSent: 10, messagesReceived: 5 })
   mockKnowledge.mockReset().mockResolvedValue([])
+  mockBuildMonitorStatus.mockReset().mockResolvedValue({ enabled: false, running: false })
+  mockBuildMonitorToggle.mockReset().mockResolvedValue({ ok: true, enabled: true, running: true })
 })
 
 describe('SwarmPage', () => {
@@ -181,5 +190,66 @@ describe('Activity tab with activity events', () => {
       />
     )
     expect(html).toContain('Activity (0)')
+  })
+})
+
+describe('BuildMonitorIndicator', () => {
+  test('disabled state shows gray dot', () => {
+    const html = renderToStaticMarkup(
+      <BuildMonitorIndicator status={{ enabled: false, running: false }} onToggle={vi.fn()} />
+    )
+    expect(html).toContain('build-monitor-status disabled')
+    expect(html).toContain('build-dot gray')
+    expect(html).toContain('Build monitor: off')
+  })
+
+  test('enabled with passed status shows green dot', () => {
+    const html = renderToStaticMarkup(
+      <BuildMonitorIndicator status={{ enabled: true, running: true, lastStatus: 'passed' }} onToggle={vi.fn()} />
+    )
+    expect(html).toContain('build-monitor-status enabled')
+    expect(html).toContain('build-dot green')
+    expect(html).toContain('Build monitor: passed')
+  })
+
+  test('enabled with failed status shows red dot', () => {
+    const html = renderToStaticMarkup(
+      <BuildMonitorIndicator status={{ enabled: true, running: true, lastStatus: 'failed' }} onToggle={vi.fn()} />
+    )
+    expect(html).toContain('build-monitor-status enabled')
+    expect(html).toContain('build-dot red')
+    expect(html).toContain('Build monitor: failed')
+  })
+
+  test('enabled but not running shows gray dot with appropriate tooltip', () => {
+    const html = renderToStaticMarkup(
+      <BuildMonitorIndicator status={{ enabled: true, running: false }} onToggle={vi.fn()} />
+    )
+    expect(html).toContain('build-monitor-status enabled')
+    expect(html).toContain('build-dot gray')
+    expect(html).toContain('Build monitor: enabled (not running)')
+  })
+
+  test('enabled with no lastStatus shows gray dot', () => {
+    const html = renderToStaticMarkup(
+      <BuildMonitorIndicator status={{ enabled: true, running: true }} onToggle={vi.fn()} />
+    )
+    expect(html).toContain('build-dot gray')
+    expect(html).toContain('Build monitor: waiting')
+  })
+})
+
+describe('SwarmPage build monitor integration', () => {
+  test('renders build monitor indicator in stats bar', () => {
+    const html = renderToStaticMarkup(
+      <SwarmPage
+        projectPath="/tmp/test"
+        agentOutputs={{}}
+        setAgentOutputs={vi.fn()}
+        activity={[]}
+        setActivity={vi.fn()}
+      />
+    )
+    expect(html).toContain('build-monitor-status')
   })
 })

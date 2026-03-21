@@ -27,6 +27,48 @@ export function knowledgeCategoryColor(cat: string): string {
 
 const sb = window.slashbot
 
+export interface BuildMonitorStatus {
+  enabled: boolean
+  running: boolean
+  lastStatus?: 'passed' | 'failed'
+}
+
+export function BuildMonitorIndicator({
+  status,
+  onToggle,
+}: {
+  status: BuildMonitorStatus
+  onToggle: (enabled: boolean) => void
+}) {
+  const dotClass = !status.enabled
+    ? 'gray'
+    : status.lastStatus === 'passed'
+      ? 'green'
+      : status.lastStatus === 'failed'
+        ? 'red'
+        : 'gray'
+
+  const tooltip = !status.enabled
+    ? 'Build monitor: off\nClick to enable'
+    : status.running
+      ? `Build monitor: ${status.lastStatus ?? 'waiting'}\nClick to disable`
+      : 'Build monitor: enabled (not running)\nClick to disable'
+
+  return (
+    <span
+      className={`stat-chip build-monitor-status ${status.enabled ? 'enabled' : 'disabled'}`}
+      title={tooltip}
+      onClick={() => onToggle(!status.enabled)}
+      style={{ cursor: 'pointer' }}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 4, verticalAlign: 'middle' }}>
+        <path d="M22 2H2v20h20V2zm-2 18H4V4h16v16zM6 6h4v4H6V6zm0 6h4v4H6v-4zm6-6h4v4h-4V6zm6 0h2v4h-2V6zm-6 6h4v4h-4v-4zm6 0h2v4h-2v-4z"/>
+      </svg>
+      <span className={`build-dot ${dotClass}`} />
+    </span>
+  )
+}
+
 export interface TelegramStatus {
   connected: boolean
   botUsername: string | null
@@ -78,6 +120,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [historyFile, setHistoryFile] = useState<string | null>(null)
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null)
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([])
+  const [buildMonitor, setBuildMonitor] = useState<BuildMonitorStatus>({ enabled: false, running: false })
 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
@@ -107,6 +150,37 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       sb.swarm.activity(projectPath, 200).then(setActivity)
     }
   }, [projectPath])
+
+  // Poll build monitor status
+  useEffect(() => {
+    const poll = () =>
+      sb.swarm.buildMonitor.status(projectPath)
+        .then((s: any) => {
+          if (s && !s.error) setBuildMonitor(prev => ({ ...prev, enabled: s.enabled, running: s.running }))
+        })
+        .catch(() => {})
+    poll()
+    const interval = setInterval(poll, 5000)
+    return () => clearInterval(interval)
+  }, [projectPath])
+
+  // Live build status events
+  useEffect(() => {
+    const unsub = sb.swarm.onBuildStatus((_p: string, status: string, detail?: any) => {
+      setBuildMonitor(prev => ({ ...prev, lastStatus: status as 'passed' | 'failed' }))
+      // When a fix bead is auto-created, inject into activity feed
+      if (detail?.beadCreated) {
+        setActivity(prev => [{
+          ts: new Date().toISOString(),
+          agentId: 'build-monitor',
+          type: 'started',
+          beadId: detail.beadId ?? '',
+          summary: `Auto-created fix bead: ${detail.beadTitle ?? detail.beadId ?? 'build fix'}`,
+        }, ...prev])
+      }
+    })
+    return () => unsub()
+  }, [setActivity])
 
   // Poll knowledge entries
   useEffect(() => {
@@ -184,6 +258,13 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     await sb.swarm.resumeAll(projectPath)
   }, [projectPath])
 
+  const toggleBuildMonitor = useCallback(async (enabled: boolean) => {
+    const result = await sb.swarm.buildMonitor.toggle(projectPath, enabled)
+    if (result && !result.error) {
+      setBuildMonitor(prev => ({ ...prev, enabled: result.enabled, running: result.running }))
+    }
+  }, [projectPath])
+
   const allPaused = agents.length > 0 && agents.every(a => a.phase === 'paused')
   const anyPaused = agents.some(a => a.phase === 'paused')
 
@@ -226,6 +307,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       case 'stopped': return '\u25A0'
       case 'paused': return '\u23F8'
       case 'resumed': return '\u25B6'
+      case 'bead-created': return '\u{1F527}'
       default: return '\u2022'
     }
   }
@@ -235,6 +317,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       <header className="page-header">
         <h2>Agent Flywheel</h2>
         <div className="header-actions">
+          <BuildMonitorIndicator status={buildMonitor} onToggle={toggleBuildMonitor} />
           <div className="worker-controls">
             {isRunning ? (
               <>
