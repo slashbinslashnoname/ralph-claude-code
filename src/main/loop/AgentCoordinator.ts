@@ -24,6 +24,9 @@ export class AgentCoordinator {
   private static readonly CACHE_CAP = 1000
   private static readonly KNOWLEDGE_CAP = 200
   private static readonly INDEX_CAP = 200
+  private static readonly ROTATION_SIZE = 1_048_576 // 1 MB
+  private static readonly ROTATION_CHECK_INTERVAL = 50
+  private _activityWriteCount = 0
   bd: BdClient
   planningActive = false
 
@@ -196,6 +199,17 @@ export class AgentCoordinator {
       if (fd !== undefined) {
         try { fs.closeSync(fd) } catch { /* avoid fd leak */ }
       }
+    }
+    // Rotate activity log when it exceeds 1 MB (checked every 50 writes)
+    this._activityWriteCount++
+    if (this._activityWriteCount >= AgentCoordinator.ROTATION_CHECK_INTERVAL) {
+      this._activityWriteCount = 0
+      try {
+        const stat = fs.statSync(this.activityFile)
+        if (stat.size > AgentCoordinator.ROTATION_SIZE) {
+          fs.renameSync(this.activityFile, this.activityFile + '.1')
+        }
+      } catch { /* best-effort rotation */ }
     }
   }
 

@@ -1633,3 +1633,82 @@ describe('AgentCoordinator — activity indexes', () => {
     }
   })
 })
+
+// ── Activity log rotation ─────────────────────────────────────────────────
+
+describe('AgentCoordinator — activity log rotation', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  const activityFile = () => path.join(slashbotDir, 'activity.jsonl')
+  const rotatedFile = () => activityFile() + '.1'
+  const event = (i: number) => ({ agentId: 'a0', type: 'started' as const, beadId: `b${i}` })
+
+  it('does not rotate before 50 writes', () => {
+    // Write a large file to make it exceed 1 MB
+    fs.writeFileSync(activityFile(), 'x'.repeat(2_000_000))
+    // Post 49 events — should not trigger rotation check
+    for (let i = 0; i < 49; i++) {
+      coord.postActivity(event(i))
+    }
+    // File should still exist (not rotated), no .1 backup
+    expect(fs.existsSync(activityFile())).toBe(true)
+    expect(fs.existsSync(rotatedFile())).toBe(false)
+  })
+
+  it('rotates at 50 writes when file > 1 MB', () => {
+    // Seed the file with > 1 MB of data
+    fs.writeFileSync(activityFile(), 'x'.repeat(2_000_000))
+    // 50 writes should trigger rotation
+    for (let i = 0; i < 50; i++) {
+      coord.postActivity(event(i))
+    }
+    expect(fs.existsSync(rotatedFile())).toBe(true)
+    // The original file is gone (renamed), but new writes will recreate it
+  })
+
+  it('does not rotate at 50 writes when file <= 1 MB', () => {
+    // Post 50 small events — file will be well under 1 MB
+    for (let i = 0; i < 50; i++) {
+      coord.postActivity(event(i))
+    }
+    expect(fs.existsSync(rotatedFile())).toBe(false)
+    expect(fs.existsSync(activityFile())).toBe(true)
+  })
+
+  it('resets write counter after check so rotation can trigger again', () => {
+    // First cycle: 50 writes, file under 1 MB — no rotation
+    for (let i = 0; i < 50; i++) {
+      coord.postActivity(event(i))
+    }
+    expect(fs.existsSync(rotatedFile())).toBe(false)
+
+    // Now inflate the file to > 1 MB
+    fs.writeFileSync(activityFile(), 'x'.repeat(2_000_000))
+
+    // Second cycle: 50 more writes — should trigger rotation
+    for (let i = 50; i < 100; i++) {
+      coord.postActivity(event(i))
+    }
+    expect(fs.existsSync(rotatedFile())).toBe(true)
+  })
+
+  it('in-memory cache is unaffected by rotation', () => {
+    fs.writeFileSync(activityFile(), 'x'.repeat(2_000_000))
+    for (let i = 0; i < 50; i++) {
+      coord.postActivity(event(i))
+    }
+    // Rotation happened
+    expect(fs.existsSync(rotatedFile())).toBe(true)
+    // But in-memory cache still has all events
+    const activity = coord.readActivity(100)
+    expect(activity.length).toBe(50)
+  })
+})
