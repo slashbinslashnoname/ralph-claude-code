@@ -41,6 +41,7 @@ import {
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
 } from './loop/swarmValidation'
+import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
@@ -566,9 +567,9 @@ export function registerIpc(
         const bot = telegramBots.get(v.projectPath)!
         const config = loadConfig(v.projectPath)
         const bridge = new TelegramBridge({
-          orchestrator: swarm as any,
+          orchestrator: swarm,
           bot,
-          notifyOn: (config.telegram?.notifyOn ?? 'errors') as any,
+          notifyOn: config.telegram?.notifyOn ?? 'errors',
         })
         bridge.start()
         telegramBridges.set(v.projectPath, bridge)
@@ -779,7 +780,7 @@ export function registerIpc(
     projectPath: string,
     botToken: string,
     chatId: string,
-    notifyLevel: string
+    notifyLevel: TelegramNotifyLevel
   ): Promise<TelegramBot> {
     // Disconnect existing bot if any
     const existingBridge = telegramBridges.get(projectPath)
@@ -794,16 +795,16 @@ export function registerIpc(
     }
 
     const bot = new TelegramBot()
-    await bot.connect({ botToken, chatId, enabled: true, notifyOn: notifyLevel as any })
+    await bot.connect({ botToken, chatId, enabled: true, notifyOn: notifyLevel })
     telegramBots.set(projectPath, bot)
 
     // If there's an active swarm, attach a bridge
     const swarm = swarms.get(projectPath)
     if (swarm) {
       const bridge = new TelegramBridge({
-        orchestrator: swarm as any,
+        orchestrator: swarm,
         bot,
-        notifyOn: notifyLevel as any,
+        notifyOn: notifyLevel,
       })
       bridge.start()
       telegramBridges.set(projectPath, bridge)
@@ -827,7 +828,13 @@ export function registerIpc(
       }
       return bot.getStatus()
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+      return {
+        connected: false,
+        botUsername: null,
+        lastError: e instanceof Error ? e.message : String(e),
+        messagesSent: 0,
+        messagesReceived: 0,
+      }
     }
   })
 
