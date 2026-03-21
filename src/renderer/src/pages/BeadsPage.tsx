@@ -27,6 +27,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [newDesc, setNewDesc] = useState('')
   const [newType, setNewType] = useState('task')
   const [newPriority, setNewPriority] = useState(2)
+  const [newDeps, setNewDeps] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<SortField>('deps')
   const [sortDir, setSortDir] = useState<SortDirection>('asc')
   const [editing, setEditing] = useState<any>(null)
@@ -80,13 +81,14 @@ export default function BeadsPage({ projectPath }: Props) {
     if (!newTitle.trim()) return
     const r = await sb.beads.create(projectPath, {
       title: newTitle, type: newType, priority: newPriority,
-      description: newDesc || undefined
+      description: newDesc || undefined,
+      deps: newDeps.length > 0 ? newDeps : undefined,
     })
     if (r.ok) {
-      setNewTitle(''); setNewDesc(''); setShowCreate(false)
+      setNewTitle(''); setNewDesc(''); setNewDeps([]); setShowCreate(false)
       refresh()
     }
-  }, [projectPath, newTitle, newDesc, newType, newPriority, refresh])
+  }, [projectPath, newTitle, newDesc, newType, newPriority, newDeps, refresh])
 
   const claimBead = useCallback(async (id: string) => {
     await sb.beads.update(projectPath, id, { claim: true })
@@ -346,10 +348,11 @@ export default function BeadsPage({ projectPath }: Props) {
               onKeyDown={e => e.key === 'Enter' && createBead()} autoFocus />
             <div className="form-row">
               <select className="select" value={newType} onChange={e => setNewType(e.target.value)}>
+                <option value="epic">Epic</option>
                 <option value="task">Task</option>
+                <option value="subtask">Subtask</option>
                 <option value="feature">Feature</option>
                 <option value="bug">Bug</option>
-                <option value="epic">Epic</option>
               </select>
               <select className="select" value={newPriority} onChange={e => setNewPriority(Number(e.target.value))}>
                 <option value={0}>P0 Critical</option>
@@ -361,6 +364,39 @@ export default function BeadsPage({ projectPath }: Props) {
             </div>
             <textarea className="textarea" placeholder="Description (optional)" rows={3}
               value={newDesc} onChange={e => setNewDesc(e.target.value)} />
+            {/* Dependency picker */}
+            {beads.length > 0 && (
+              <div className="form-field">
+                <label className="form-label">Dependencies (optional)</label>
+                <select
+                  className="select"
+                  value=""
+                  onChange={e => {
+                    const id = e.target.value
+                    if (id && !newDeps.includes(id)) setNewDeps([...newDeps, id])
+                  }}
+                >
+                  <option value="">Add dependency...</option>
+                  {beads
+                    .filter(b => !newDeps.includes(b.id))
+                    .map(b => (
+                      <option key={b.id} value={b.id}>{b.id} — {b.title.slice(0, 60)}</option>
+                    ))}
+                </select>
+                {newDeps.length > 0 && (
+                  <div className="dep-tags">
+                    {newDeps.map(id => (
+                      <span key={id} className="tag tag-dep">
+                        {id}
+                        <button className="tag-remove" onClick={() => setNewDeps(newDeps.filter(d => d !== id))}>
+                          {'\u2715'}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="form-actions">
               <button className="btn btn-primary" onClick={createBead} disabled={!newTitle.trim()}>Create</button>
               <button className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>

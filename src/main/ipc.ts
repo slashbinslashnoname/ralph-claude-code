@@ -408,12 +408,21 @@ export function registerIpc(
   })
 
   ipcMain.handle('beads:create', async (_e, projectPath: string, opts: {
-    title: string; type?: string; priority?: number; description?: string; labels?: string[]
+    title: string; type?: string; priority?: number; description?: string; labels?: string[]; deps?: string[]
   }) => {
     try {
       const v = validateBeadsCreate(projectPath, opts)
       const bd = new BdClient(v.projectPath)
       const task = bd.create(v.opts as any)
+      // Wire up dependencies after creation
+      if (v.opts.deps?.length) {
+        for (const depId of v.opts.deps) {
+          bd.addDep(task.id, depId)
+        }
+        // Re-fetch to include deps in response
+        const updated = bd.show(task.id)
+        return { ok: true, task: updated ?? task }
+      }
       return { ok: true, task }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

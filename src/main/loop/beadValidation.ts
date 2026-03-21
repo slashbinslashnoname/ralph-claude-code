@@ -102,6 +102,16 @@ export function validateBeadType(type: unknown): string | undefined {
   return type
 }
 
+// ── Dependencies validation ──────────────────────────────────────────────────
+
+export function validateDeps(deps: unknown): string[] | undefined {
+  if (deps === undefined || deps === null) return undefined
+  if (!Array.isArray(deps)) {
+    throw new Error('deps must be an array')
+  }
+  return deps.map((id, i) => validateBeadId(id, `deps[${i}]`))
+}
+
 // ── Description validation ────────────────────────────────────────────────────
 
 export function validateDescription(desc: unknown): string | undefined {
@@ -140,7 +150,7 @@ export function validateBeadsList(projectPath: unknown, filter: unknown): {
 
 export function validateBeadsCreate(projectPath: unknown, opts: unknown): {
   projectPath: string
-  opts: { title: string; type?: string; priority?: number; description?: string; labels?: string[] }
+  opts: { title: string; type?: string; priority?: number; description?: string; labels?: string[]; deps?: string[] }
 } {
   const p = validateProjectPath(projectPath)
   if (!opts || typeof opts !== 'object') {
@@ -155,6 +165,7 @@ export function validateBeadsCreate(projectPath: unknown, opts: unknown): {
       priority: validatePriority(o.priority),
       description: validateDescription(o.description),
       labels: validateLabels(o.labels),
+      deps: validateDeps(o.deps),
     },
   }
 }
