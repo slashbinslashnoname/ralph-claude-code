@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
-import AgentOutputRenderer from '../components/AgentOutputRenderer'
+import BeadDetailPanel from '../components/BeadDetailPanel'
 
 const sb = window.slashbot
 
@@ -35,9 +35,6 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planPhase, setPlanPhase] = useState('')
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
-  const [beadLogs, setBeadLogs] = useState<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>([])
-  const [beadLogContent, setBeadLogContent] = useState<string | null>(null)
-  const [beadLogFile, setBeadLogFile] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -127,55 +124,9 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const cancelEdit = useCallback(() => setEditing(null), [])
 
-  const toggleBeadLogs = useCallback(async (beadId: string) => {
-    if (expandedBead === beadId) {
-      setExpandedBead(null)
-      setBeadLogs([])
-      setBeadLogContent(null)
-      setBeadLogFile(null)
-      return
-    }
-    setExpandedBead(beadId)
-    setBeadLogContent(null)
-    setBeadLogFile(null)
-    // Get activity events for this bead to find timestamps
-    const activity = await sb.swarm.activity(projectPath, 500)
-    const beadEvents = activity.filter((e: any) =>
-      e.beadId === beadId && ['thinking', 'executing'].includes(e.type)
-    )
-    // Get all logs and match by agent+timestamp proximity
-    const allLogs = await sb.swarm.agentLogs(projectPath)
-    const matched: typeof allLogs = []
-    for (const evt of beadEvents) {
-      const evtTime = new Date(evt.ts).getTime()
-      const phase = evt.type === 'thinking' ? 'think' : 'execute'
-      // Find log file for this agent+phase closest to the event time
-      const candidates = allLogs.filter(l =>
-        l.agentId === evt.agentId && l.phase === phase
-      )
-      // Pick the one with the closest timestamp
-      let best: typeof allLogs[0] | null = null
-      let bestDiff = Infinity
-      for (const c of candidates) {
-        const logTime = new Date(c.timestamp.replace(/-/g, (_, i) => i < 10 ? '-' : i < 13 ? 'T' : ':')).getTime()
-        const diff = Math.abs(logTime - evtTime)
-        if (diff < bestDiff) { bestDiff = diff; best = c }
-      }
-      if (best && !matched.some(m => m.file === best!.file)) matched.push(best)
-    }
-    // Also find review logs near execute events
-    for (const evt of beadEvents.filter((e: any) => e.type === 'executing')) {
-      const evtTime = new Date(evt.ts).getTime()
-      const reviews = allLogs.filter(l => l.agentId === evt.agentId && l.phase === 'review')
-      for (const r of reviews) {
-        const logTime = new Date(r.timestamp.replace(/-/g, (_, i) => i < 10 ? '-' : i < 13 ? 'T' : ':')).getTime()
-        if (logTime > evtTime && logTime - evtTime < 30 * 60_000 && !matched.some(m => m.file === r.file)) {
-          matched.push(r)
-        }
-      }
-    }
-    setBeadLogs(matched)
-  }, [expandedBead, projectPath])
+  const toggleDetail = useCallback((beadId: string) => {
+    setExpandedBead(prev => prev === beadId ? null : beadId)
+  }, [])
 
   const toggleSort = useCallback((field: SortField) => {
     if (sortBy === field) {
@@ -483,49 +434,19 @@ export default function BeadsPage({ projectPath }: Props) {
 
               <span className="bead-action-spacer" />
               <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)}>Edit</button>
-              {(bead.status === 'done' || bead.status === 'failed') && (
-                <button className="btn btn-xs btn-ghost" onClick={() => toggleBeadLogs(bead.id)}>
-                  {expandedBead === bead.id ? 'Hide Logs' : 'Logs'}
-                </button>
-              )}
+              <button className="btn btn-xs btn-ghost" onClick={() => toggleDetail(bead.id)}>
+                {expandedBead === bead.id ? 'Hide Detail' : 'Detail'}
+              </button>
               {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
             </div>
 
-            {/* Bead log viewer */}
+            {/* Bead detail panel with audit trail */}
             {expandedBead === bead.id && (
-              <div className="bead-logs">
-                {beadLogContent && beadLogFile ? (
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <button className="btn btn-xs btn-ghost" onClick={() => { setBeadLogContent(null); setBeadLogFile(null) }}>
-                        {'\u2190'} Back
-                      </button>
-                      <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{beadLogFile}</span>
-                    </div>
-                    <div className="bead-log-content agent-output">
-                      <AgentOutputRenderer output={beadLogContent.slice(-10000)} />
-                    </div>
-                  </div>
-                ) : beadLogs.length > 0 ? (
-                  <div className="bead-log-list">
-                    {beadLogs.map(log => (
-                      <div key={log.file} className="bead-log-item" onClick={() => {
-                        setBeadLogFile(log.file)
-                        sb.swarm.agentLogContent(projectPath, log.file).then(setBeadLogContent)
-                      }}>
-                        <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
-                        <span>{log.agentId}</span>
-                        <span className={`badge badge-${log.phase === 'execute' ? 'success' : log.phase === 'think' ? 'accent' : 'warning'}`}>
-                          {log.phase}
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{(log.size / 1024).toFixed(0)}KB</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 0' }}>No logs found for this bead.</p>
-                )}
-              </div>
+              <BeadDetailPanel
+                beadId={bead.id}
+                beadStatus={bead.status}
+                projectPath={projectPath}
+              />
             )}
           </div>
         ))}
