@@ -405,10 +405,58 @@ export class WorkerLoop extends EventEmitter {
     })
   }
 
+  /** Build context about the parent epic and dependency beads */
+  _buildParentContext(bead: Bead): string {
+    const sections: string[] = []
+
+    // Parent epic context
+    if (bead.epicId) {
+      try {
+        const parent = this.coordinator.bd.show(bead.epicId)
+        if (parent) {
+          sections.push(`## Parent epic: [${parent.id}] ${parent.title}`)
+          if (parent.description) sections.push(parent.description)
+        }
+      } catch { /* bd.show failed — skip parent context */ }
+    }
+
+    // Dependency bead context
+    if (bead.deps.length > 0) {
+      const depLines: string[] = ['## Dependencies']
+      for (const depId of bead.deps) {
+        try {
+          const dep = this.coordinator.bd.show(depId)
+          if (dep) {
+            const statusIcon = dep.status === 'done' ? '(done)' : `(${dep.status})`
+            depLines.push(`- [${dep.id}] ${dep.title} ${statusIcon}`)
+          }
+        } catch { /* skip unresolvable dep */ }
+      }
+      if (depLines.length > 1) sections.push(depLines.join('\n'))
+    }
+
+    return sections.join('\n\n')
+  }
+
+  /** Build context from the shared knowledge log */
+  _buildKnowledgeContext(): string {
+    const entries = this.coordinator.readKnowledge(30)
+    if (entries.length === 0) return ''
+
+    const lines: string[] = ['## Shared knowledge from other agents']
+    for (const entry of entries) {
+      const conf = entry.confidence === 'high' ? '' : ` [${entry.confidence}]`
+      lines.push(`- **${entry.category}**${conf}: ${entry.summary}`)
+    }
+    return lines.join('\n')
+  }
+
   /** Phase 1: Think deeply before acting. Analyze the bead, understand context, plan approach. */
   private _buildThinkingPrompt(bead: Bead): string {
     const agentMd = path.join(this.slashbotDir, 'AGENT.md')
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
+    const parentContext = this._buildParentContext(bead)
+    const knowledgeContext = this._buildKnowledgeContext()
 
     let currentBranch = ''
     try {
@@ -431,14 +479,14 @@ Base all work on files currently on disk. Do not use git history.
 ${bead.description ? `- **Description**: ${bead.description}` : ''}
 ${bead.files.length > 0 ? `- **Files**: ${bead.files.join(', ')}` : ''}
 
-## Mandatory analysis (do this FIRST)
+${parentContext ? `${parentContext}\n` : ''}## Mandatory analysis (do this FIRST)
 1. **Read the relevant code** — understand the existing architecture, patterns, naming conventions
 2. **Identify dependencies** — what other files/modules will be affected?
 3. **Spot risks** — what could go wrong? Race conditions? Breaking changes? Edge cases?
 4. **Plan your approach** — what's the minimal, correct change? What order should you make changes?
 
 ${agentContext ? `## Project context\n${agentContext}\n` : ''}
-
+${knowledgeContext ? `${knowledgeContext}\n` : ''}
 ## Output format
 Write a structured analysis:
 
@@ -462,6 +510,8 @@ DO NOT write any implementation code. Analysis only.`
     const agentMd = path.join(this.slashbotDir, 'AGENT.md')
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(thinkingContext)) : ''
+    const parentContext = this._buildParentContext(bead)
+    const knowledgeContext = this._buildKnowledgeContext()
 
     let currentBranch = ''
     try {
@@ -476,6 +526,8 @@ DO NOT write any implementation code. Analysis only.`
       `\nBranch: \`${currentBranch}\`. Base all work on files currently on disk. Do not use git history.`,
       bead.description ? `\n### Description\n${bead.description}` : '',
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
+      parentContext ? `\n${parentContext}` : '',
+      knowledgeContext ? `\n${knowledgeContext}` : '',
       thinkingSummary ? `\n### Your prior analysis\n${thinkingSummary}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
