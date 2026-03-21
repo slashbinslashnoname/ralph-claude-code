@@ -140,7 +140,7 @@ export class TelegramBridge {
 
   // ── Output forwarding ──────────────────────────────────────────────────
 
-  private _handleOutput(_agentId: string, chunk: string): void {
+  private _handleOutput(agentId: string, chunk: string): void {
     if (this.notifyOn === 'none') return
 
     const now = Date.now()
@@ -149,7 +149,7 @@ export class TelegramBridge {
 
     const truncated =
       chunk.length > OUTPUT_CAP_CHARS ? chunk.slice(0, OUTPUT_CAP_CHARS) + '…' : chunk
-    this.bot.sendMessage(`📝 ${truncated}`).catch((err) => {
+    this.bot.sendMessage(`📝 ${agentId}: ${truncated}`).catch((err) => {
       this.logger(`[telegram-bridge] output send failed: ${err}`)
     })
   }

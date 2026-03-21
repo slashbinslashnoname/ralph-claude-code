@@ -199,7 +199,7 @@ describe('TelegramBridge', () => {
       orchestrator.emit('output', 'agent-0', longChunk)
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
       const msg = bot.sendMessage.mock.calls[0][0] as string
-      expect(msg.length).toBeLessThanOrEqual(500 + 10) // emoji prefix + ellipsis
+      expect(msg.length).toBeLessThanOrEqual(500 + 20) // emoji prefix + agentId + ellipsis
       expect(msg).toContain('…')
     })
 
@@ -209,6 +209,7 @@ describe('TelegramBridge', () => {
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
       const msg = bot.sendMessage.mock.calls[0][0] as string
       expect(msg).toContain('hello world')
+      expect(msg).toContain('agent-0')
       expect(msg).not.toContain('…')
     })
   })
