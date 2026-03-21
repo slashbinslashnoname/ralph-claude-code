@@ -68,9 +68,9 @@ describe('Telegram types', () => {
       autoSplitThreshold: 3,
       buildMonitorCmd: '',
       buildMonitorInterval: 120,
-      claudeModelThink: '',
-      claudeModelExecute: '',
-      claudeModelReview: ''
+      claudeModelThink: 'sonnet',
+      claudeModelExecute: 'opus',
+      claudeModelReview: 'sonnet'
     }
     expect(withoutTelegram.telegram).toBeUndefined()
 

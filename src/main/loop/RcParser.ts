@@ -26,9 +26,9 @@ export const DEFAULT_CONFIG: RalphConfig = {
   autoSplitThreshold: 3,
   buildMonitorCmd: '',
   buildMonitorInterval: 120,
-  claudeModelThink: '',
-  claudeModelExecute: '',
-  claudeModelReview: '',
+  claudeModelThink: 'sonnet',
+  claudeModelExecute: 'opus',
+  claudeModelReview: 'sonnet',
   telegram: { ...DEFAULT_TELEGRAM_CONFIG }
 }
 
@@ -152,6 +152,16 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
       if (!VALID_OUTPUT_FORMATS.has(value as string)) {
         warnings.push(
           `Invalid claudeOutputFormat "${value}" — expected "json" or "text". Using default "${DEFAULT_CONFIG.claudeOutputFormat}".`
+        )
+        continue
+      }
+    }
+
+    // Validate model fields are non-empty
+    if (k === 'claudeModelThink' || k === 'claudeModelExecute' || k === 'claudeModelReview') {
+      if (typeof value === 'string' && value.trim() === '') {
+        warnings.push(
+          `Empty value for ${k}. Using default "${DEFAULT_CONFIG[k]}".`
         )
         continue
       }
