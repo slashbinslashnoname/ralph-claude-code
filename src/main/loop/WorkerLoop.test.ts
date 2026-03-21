@@ -669,6 +669,127 @@ describe('WorkerLoop', () => {
     })
   })
 
+  describe('_parseSplitDecision', () => {
+    function makeWorker(overrides: Partial<RalphConfig> = {}) {
+      return new WorkerLoop('agent-0', 0, '/project', makeConfig(overrides), makeCoordinator())
+    }
+
+    const validJson = JSON.stringify({
+      shouldSplit: true,
+      reason: 'Too complex',
+      concerns: ['concern1', 'concern2', 'concern3'],
+      children: [
+        { title: 'Part A', description: 'First half', files: ['a.ts'], deps: [] },
+        { title: 'Part B', description: 'Second half', files: ['b.ts'], deps: ['Part A'] }
+      ]
+    })
+
+    it('parses valid split decision from fenced JSON block', () => {
+      const worker = makeWorker()
+      const output = `Some analysis\n### Split Analysis\n\`\`\`json\n${validJson}\n\`\`\`\nMore text`
+      const result = (worker as any)._parseSplitDecision(output, makeBead())
+      expect(result).not.toBeNull()
+      expect(result.beadId).toBe('sb-abc')
+      expect(result.reason).toBe('Too complex')
+      expect(result.children).toHaveLength(2)
+      expect(result.children[0].title).toBe('Part A')
+      expect(result.children[1].title).toBe('Part B')
+      expect(result.children[0].files).toEqual(['a.ts'])
+    })
+
+    it('parses valid split decision from raw JSON block', () => {
+      const worker = makeWorker()
+      const output = `### Split Analysis\n${validJson}\nEnd`
+      const result = (worker as any)._parseSplitDecision(output, makeBead())
+      expect(result).not.toBeNull()
+      expect(result.children).toHaveLength(2)
+    })
+
+    it('returns null when no ### Split Analysis heading', () => {
+      const worker = makeWorker()
+      const output = `Some output\n\`\`\`json\n${validJson}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null when shouldSplit is false', () => {
+      const worker = makeWorker()
+      const json = JSON.stringify({ shouldSplit: false, concerns: ['a', 'b', 'c'], children: [{ title: 'A', description: 'A' }, { title: 'B', description: 'B' }] })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null when fewer than 2 children', () => {
+      const worker = makeWorker()
+      const json = JSON.stringify({ shouldSplit: true, concerns: ['a', 'b', 'c'], children: [{ title: 'A', description: 'Only one' }] })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null when a child is missing title', () => {
+      const worker = makeWorker()
+      const json = JSON.stringify({ shouldSplit: true, concerns: ['a', 'b', 'c'], children: [{ description: 'No title' }, { title: 'B', description: 'Has title' }] })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null when a child is missing description', () => {
+      const worker = makeWorker()
+      const json = JSON.stringify({ shouldSplit: true, concerns: ['a', 'b', 'c'], children: [{ title: 'A' }, { title: 'B', description: 'Has desc' }] })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null when concerns below autoSplitThreshold', () => {
+      const worker = makeWorker({ autoSplitThreshold: 3 })
+      const json = JSON.stringify({ shouldSplit: true, concerns: ['only-two', 'items'], children: [{ title: 'A', description: 'A' }, { title: 'B', description: 'B' }] })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null for bead with auto-split tag (prevents recursive splitting)', () => {
+      const worker = makeWorker()
+      const output = `### Split Analysis\n\`\`\`json\n${validJson}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead({ tags: ['auto-split'] }))).toBeNull()
+    })
+
+    it('returns null for malformed JSON', () => {
+      const worker = makeWorker()
+      const output = `### Split Analysis\n\`\`\`json\n{not valid json}\n\`\`\``
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('returns null when no JSON block found after heading', () => {
+      const worker = makeWorker()
+      const output = `### Split Analysis\nJust some text, no JSON here.`
+      expect((worker as any)._parseSplitDecision(output, makeBead())).toBeNull()
+    })
+
+    it('defaults files and deps to empty arrays when missing from children', () => {
+      const worker = makeWorker()
+      const json = JSON.stringify({
+        shouldSplit: true, reason: 'Split it', concerns: ['a', 'b', 'c'],
+        children: [{ title: 'A', description: 'First' }, { title: 'B', description: 'Second' }]
+      })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      const result = (worker as any)._parseSplitDecision(output, makeBead())
+      expect(result).not.toBeNull()
+      expect(result.children[0].files).toEqual([])
+      expect(result.children[0].deps).toEqual([])
+    })
+
+    it('uses default reason when reason field is missing', () => {
+      const worker = makeWorker()
+      const json = JSON.stringify({
+        shouldSplit: true, concerns: ['a', 'b', 'c'],
+        children: [{ title: 'A', description: 'First' }, { title: 'B', description: 'Second' }]
+      })
+      const output = `### Split Analysis\n\`\`\`json\n${json}\n\`\`\``
+      const result = (worker as any)._parseSplitDecision(output, makeBead())
+      expect(result).not.toBeNull()
+      expect(result.reason).toBe('Split recommended by analysis')
+    })
+  })
+
   describe('parent & knowledge in prompts', () => {
     it('_buildThinkingPrompt includes parent context when epicId is set', () => {
       const coord = makeCoordinator()

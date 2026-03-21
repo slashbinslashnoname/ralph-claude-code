@@ -704,6 +704,71 @@ DO NOT write any implementation code. Analysis only.`
     })
   }
 
+  /** Parse a split decision from thinking output. Returns null on any failure (fail-safe: don't split). */
+  _parseSplitDecision(thinkingOutput: string, bead: Bead): SplitDecision | null {
+    try {
+      // Guard: skip beads already tagged 'auto-split' to prevent recursive re-splitting
+      if (bead.tags.includes('auto-split')) return null
+
+      // Find the '### Split Analysis' heading
+      const headingIdx = thinkingOutput.indexOf('### Split Analysis')
+      if (headingIdx === -1) return null
+
+      const afterHeading = thinkingOutput.slice(headingIdx)
+
+      // Extract first JSON block: fenced ```json...``` or raw {...}
+      let jsonStr: string | null = null
+      const fencedMatch = afterHeading.match(/```(?:json)?\s*\n?([\s\S]*?)```/)
+      if (fencedMatch) {
+        jsonStr = fencedMatch[1].trim()
+      } else {
+        // Find first '{' and match braces to extract the JSON object
+        const braceStart = afterHeading.indexOf('{')
+        if (braceStart !== -1) {
+          let depth = 0
+          for (let i = braceStart; i < afterHeading.length; i++) {
+            if (afterHeading[i] === '{') depth++
+            else if (afterHeading[i] === '}') depth--
+            if (depth === 0) {
+              jsonStr = afterHeading.slice(braceStart, i + 1)
+              break
+            }
+          }
+        }
+      }
+
+      if (!jsonStr) return null
+
+      const parsed = JSON.parse(jsonStr)
+
+      // Validate shouldSplit
+      if (parsed.shouldSplit !== true) return null
+
+      // Validate children
+      if (!Array.isArray(parsed.children) || parsed.children.length < 2) return null
+      for (const child of parsed.children) {
+        if (!child.title || typeof child.title !== 'string') return null
+        if (!child.description || typeof child.description !== 'string') return null
+      }
+
+      // Validate concerns meet threshold
+      if (!Array.isArray(parsed.concerns) || parsed.concerns.length < this.config.autoSplitThreshold) return null
+
+      return {
+        beadId: bead.id,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : 'Split recommended by analysis',
+        children: parsed.children.map((c: any) => ({
+          title: c.title,
+          description: c.description,
+          files: Array.isArray(c.files) ? c.files : [],
+          deps: Array.isArray(c.deps) ? c.deps : []
+        }))
+      }
+    } catch {
+      return null
+    }
+  }
+
   private _sleep(ms: number): Promise<void> {
     return new Promise(resolve => {
       const poll = setInterval(() => {
