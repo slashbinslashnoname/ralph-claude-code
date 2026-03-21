@@ -473,6 +473,10 @@ export class AgentCoordinator {
       })
 
       for (const bead of candidates) {
+        // Never pick up epics — they are containers, not work items.
+        // Epics close automatically when all children are done.
+        if (bead.type === 'epic') continue
+
         if (bead.files.some(f => lockedFiles.has(f))) continue
 
         // Skip if already claimed by another agent
@@ -492,7 +496,13 @@ export class AgentCoordinator {
   }
 
   completeBead(agentId: string, beadId: string, filesChanged?: string[], autoPush = true): void {
-    this.bd.close(beadId, `Completed by ${agentId}`)
+    try {
+      this.bd.close(beadId, `Completed by ${agentId}`)
+    } catch (err) {
+      // bd close can fail for epics with open children — don't crash the worker
+      const msg = err instanceof Error ? err.message : String(err)
+      this.postActivity({ agentId, type: 'info' as any, beadId, summary: `Close failed (non-fatal): ${msg.slice(0, 120)}` })
+    }
     this.releaseFiles(agentId, beadId)
     this.postActivity({ agentId, type: 'completed', beadId, filesChanged, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
 
