@@ -24,6 +24,8 @@ export const DEFAULT_CONFIG: RalphConfig = {
   autoPush: true,
   maxRetries: 2,
   autoSplitThreshold: 3,
+  buildMonitorCmd: '',
+  buildMonitorInterval: 120,
   telegram: { ...DEFAULT_TELEGRAM_CONFIG }
 }
 
@@ -40,7 +42,9 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   CB_COOLDOWN_MINUTES: 'cbCooldownMinutes',
   AUTO_PUSH: 'autoPush',
   MAX_RETRIES: 'maxRetries',
-  AUTO_SPLIT_THRESHOLD: 'autoSplitThreshold'
+  AUTO_SPLIT_THRESHOLD: 'autoSplitThreshold',
+  BUILD_MONITOR_CMD: 'buildMonitorCmd',
+  BUILD_MONITOR_INTERVAL: 'buildMonitorInterval'
 }
 
 const TELEGRAM_KEY_MAP: Record<string, keyof TelegramConfig> = {
@@ -123,7 +127,8 @@ const NUMERIC_RANGES: Partial<Record<keyof RalphConfig, NumericRule>> = {
   cbPermissionDenialThreshold: { min: 1, max: 1000 },
   cbCooldownMinutes: { min: 1, max: 1440 },
   maxRetries: { min: 0, max: 10 },
-  autoSplitThreshold: { min: 1, max: 100 }
+  autoSplitThreshold: { min: 1, max: 100 },
+  buildMonitorInterval: { min: 30, max: 86400 }
 }
 
 export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
@@ -154,6 +159,14 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
         )
         continue
       }
+    }
+
+    // Validate buildMonitorInterval must be an integer
+    if (k === 'buildMonitorInterval' && typeof value === 'number' && !Number.isInteger(value)) {
+      warnings.push(
+        `buildMonitorInterval must be an integer, got ${value}. Using default ${DEFAULT_CONFIG.buildMonitorInterval}.`
+      )
+      continue
     }
 
     // Validate numeric ranges

@@ -136,6 +136,18 @@ describe('parseRcFile', () => {
     const result = parseRcFile(tmpDir)
     expect(result.autoSplitThreshold).toBe(5)
   })
+
+  it('parses BUILD_MONITOR_CMD', () => {
+    writeRc('BUILD_MONITOR_CMD=npm run build:check')
+    const result = parseRcFile(tmpDir)
+    expect(result.buildMonitorCmd).toBe('npm run build:check')
+  })
+
+  it('parses BUILD_MONITOR_INTERVAL', () => {
+    writeRc('BUILD_MONITOR_INTERVAL=60')
+    const result = parseRcFile(tmpDir)
+    expect(result.buildMonitorInterval).toBe(60)
+  })
 })
 
 // ── validateConfig ──────────────────────────────────────────────────────────
@@ -235,6 +247,31 @@ describe('validateConfig', () => {
   it('returns full config shape with defaults for omitted keys', () => {
     const { config } = validateConfig({})
     expect(config).toEqual(DEFAULT_CONFIG)
+  })
+
+  it('rejects buildMonitorInterval below minimum (30)', () => {
+    const { config, warnings } = validateConfig({ buildMonitorInterval: 29 })
+    expect(config.buildMonitorInterval).toBe(DEFAULT_CONFIG.buildMonitorInterval)
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('out of range')
+  })
+
+  it('rejects non-integer buildMonitorInterval', () => {
+    const { config, warnings } = validateConfig({ buildMonitorInterval: 45.5 })
+    expect(config.buildMonitorInterval).toBe(DEFAULT_CONFIG.buildMonitorInterval)
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('must be an integer')
+  })
+
+  it('accepts valid buildMonitorInterval', () => {
+    const { config, warnings } = validateConfig({ buildMonitorInterval: 60 })
+    expect(config.buildMonitorInterval).toBe(60)
+    expect(warnings).toEqual([])
+  })
+
+  it('DEFAULT_CONFIG includes buildMonitor fields with correct defaults', () => {
+    expect(DEFAULT_CONFIG.buildMonitorCmd).toBe('')
+    expect(DEFAULT_CONFIG.buildMonitorInterval).toBe(120)
   })
 })
 
