@@ -160,6 +160,55 @@ describe('DependencyDAG', () => {
   })
 })
 
+describe('DAG CSS styles', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fs = require('fs')
+  const path = require('path')
+  const css: string = fs.readFileSync(
+    path.resolve(__dirname, '../styles.css'),
+    'utf-8',
+  )
+
+  test('.dag-container has width, min-height, and card background', () => {
+    expect(css).toContain('.dag-container')
+    expect(css).toMatch(/\.dag-container\s*\{[^}]*width:\s*100%/)
+    expect(css).toMatch(/\.dag-container\s*\{[^}]*min-height:\s*400px/)
+    expect(css).toMatch(/\.dag-container\s*\{[^}]*background:\s*var\(--bg-card\)/)
+  })
+
+  test('.dag-node status selectors use CSS custom properties', () => {
+    expect(css).toMatch(/\.dag-node\[data-status="done"\]\s*\{[^}]*fill:\s*var\(--success\)/)
+    expect(css).toMatch(/\.dag-node\[data-status="failed"\]\s*\{[^}]*fill:\s*var\(--danger\)/)
+    expect(css).toMatch(/\.dag-node\[data-status="claimed"\]\s*\{[^}]*fill:\s*var\(--warning\)/)
+    expect(css).toMatch(/\.dag-node\[data-status="ready"\]\s*\{[^}]*fill:\s*var\(--info\)/)
+    expect(css).toMatch(/\.dag-node\[data-status="pending"\]\s*\{[^}]*fill:\s*var\(--text-2\)/)
+  })
+
+  test('.dag-edge has stroke styles', () => {
+    expect(css).toContain('.dag-edge')
+    expect(css).toMatch(/\.dag-edge\s*\{[^}]*stroke:\s*var\(--text-2\)/)
+    expect(css).toMatch(/\.dag-edge\s*\{[^}]*stroke-width:\s*1\.5/)
+  })
+
+  test('.dag-critical has thicker stroke and brightness filter', () => {
+    expect(css).toContain('.dag-critical')
+    expect(css).toMatch(/\.dag-critical\s*\{[^}]*stroke-width:\s*3/)
+    expect(css).toMatch(/\.dag-critical\s*\{[^}]*filter:\s*brightness/)
+  })
+
+  test('.dag-label matches bead-title font', () => {
+    expect(css).toContain('.dag-label')
+    expect(css).toMatch(/\.dag-label\s*\{[^}]*font-size:\s*14px/)
+    expect(css).toMatch(/\.dag-label\s*\{[^}]*font-weight:\s*500/)
+  })
+
+  test('.view-toggle button group styling', () => {
+    expect(css).toContain('.view-toggle')
+    expect(css).toMatch(/\.view-toggle\s*\{[^}]*display:\s*inline-flex/)
+    expect(css).toContain('.view-toggle button')
+  })
+})
+
 describe('findCriticalPath', () => {
   test('returns empty set for no edges', () => {
     const result = findCriticalPath([], new Set(['a']))

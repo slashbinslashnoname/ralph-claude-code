@@ -1200,6 +1200,67 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 
 .cr-waiting { color: var(--text-2); font-style: italic; }
 
+/* ── Dependency DAG ───────────────────────────────────────────────────────── */
+.dag-container {
+  width: 100%;
+  min-height: 400px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+}
+
+.dag-node[data-status="done"]   { fill: var(--success); }
+.dag-node[data-status="failed"] { fill: var(--danger); }
+.dag-node[data-status="claimed"]{ fill: var(--warning); }
+.dag-node[data-status="ready"]  { fill: var(--info); }
+.dag-node[data-status="pending"]{ fill: var(--text-2); }
+
+.dag-edge {
+  stroke: var(--text-2);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.dag-critical {
+  stroke: var(--accent);
+  stroke-width: 3;
+  filter: brightness(1.3);
+}
+
+.dag-label {
+  font-size: 14px;
+  font-weight: 500;
+  font-family: var(--font);
+  fill: var(--text-0);
+}
+
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.view-toggle button {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: var(--font);
+  background: var(--bg-2);
+  color: var(--text-1);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.view-toggle button:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.view-toggle button.active,
+.view-toggle button:hover {
+  background: var(--accent);
+  color: var(--text-0);
+}
+
 /* ── Utilities ────────────────────────────────────────────────────────────── */
 .mt-2 { margin-top: 8px; }
 
