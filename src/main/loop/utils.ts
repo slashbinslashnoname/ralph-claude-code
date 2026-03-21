@@ -26,7 +26,7 @@ export function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
     cmd = cmd.split('/').pop() ?? cmd
   }
   try {
-    const result = child_process.execSync(`which ${cmd}`, { env, timeout: 3000 }).toString().trim()
+    const result = child_process.execFileSync('which', [cmd], { env, timeout: 3000 }).toString().trim()
     if (result.startsWith('/')) return result
   } catch { /* ignore */ }
   return cmd
