@@ -775,7 +775,7 @@ DO NOT write any implementation code. Analysis only.`
    * closes the original as a container, claims the first child, and returns it.
    * Returns null if any child creation fails (abort entire split).
    */
-  async _splitBead(bead: Bead, decision: SplitDecision, workDir: string): Promise<Bead | null> {
+  async _splitBead(bead: Bead, decision: SplitDecision): Promise<Bead | null> {
     const bd = this.coordinator.bd
 
     // Phase 1: Create all children — abort entirely if any fails

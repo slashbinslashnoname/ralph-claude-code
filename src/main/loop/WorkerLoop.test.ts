@@ -882,7 +882,7 @@ describe('WorkerLoop', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
       const bead = makeBead({ id: 'sb-parent' })
       const decision = makeDecision({ beadId: 'sb-parent' })
-      const result = await (worker as any)._splitBead(bead, decision, '/work')
+      const result = await (worker as any)._splitBead(bead, decision)
 
       // Verify children created with parentId
       expect(coord.bd.createAsync).toHaveBeenCalledTimes(2)
@@ -923,7 +923,7 @@ describe('WorkerLoop', () => {
       })
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      const result = await (worker as any)._splitBead(makeBead(), makeDecision(), '/work')
+      const result = await (worker as any)._splitBead(makeBead(), makeDecision())
 
       expect(result).toBeNull()
       // Should NOT label or close parent on failure
@@ -950,7 +950,7 @@ describe('WorkerLoop', () => {
         ]
       })
 
-      await (worker as any)._splitBead(makeBead(), decision, '/work')
+      await (worker as any)._splitBead(makeBead(), decision)
 
       // B depends on A, C depends on A and B
       expect(coord.bd.addDep).toHaveBeenCalledTimes(3)
@@ -969,7 +969,7 @@ describe('WorkerLoop', () => {
       coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1' }))
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      await (worker as any)._splitBead(makeBead({ id: 'sb-orig', title: 'Original' }), makeDecision({ beadId: 'sb-orig' }), '/work')
+      await (worker as any)._splitBead(makeBead({ id: 'sb-orig', title: 'Original' }), makeDecision({ beadId: 'sb-orig' }))
 
       expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
         type: 'split',
@@ -989,7 +989,7 @@ describe('WorkerLoop', () => {
       coord.bd.show.mockReturnValue(null)
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      const result = await (worker as any)._splitBead(makeBead(), makeDecision(), '/work')
+      const result = await (worker as any)._splitBead(makeBead(), makeDecision())
 
       expect(result).toBeNull()
       // But parent should still be closed (split was successful)
@@ -1002,7 +1002,7 @@ describe('WorkerLoop', () => {
       coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1' }))
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      await (worker as any)._splitBead(makeBead({ priority: 1 }), makeDecision(), '/work')
+      await (worker as any)._splitBead(makeBead({ priority: 1 }), makeDecision())
 
       expect(coord.bd.createAsync).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }))
     })
