@@ -84,6 +84,7 @@ export default function App() {
           return next
         })
       })
+      sb.subscribeProject(tab.path)
       sb.readStatus(tab.path).then(s => {
         setTabs(prev => {
           const next = [...prev]
@@ -94,6 +95,7 @@ export default function App() {
         })
       })
     })
+    return () => { tabs.forEach(t => sb.unsubscribeProject(t.path)) }
   }, [loaded, tabs.map(t => t.path).join('\0')])
 
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
@@ -169,6 +171,8 @@ export default function App() {
 
   const closeTab = useCallback((idx: number, e?: React.MouseEvent) => {
     e?.stopPropagation()
+    const closing = tabs[idx]
+    if (closing) sb.unsubscribeProject(closing.path)
     setTabs(prev => prev.filter((_, i) => i !== idx))
     setActiveIdx(prev => {
       if (prev >= idx && prev > 0) return prev - 1

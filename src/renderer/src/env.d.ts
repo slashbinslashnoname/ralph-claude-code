@@ -11,6 +11,8 @@ interface SlashbotAPI {
   isEnabled: (p: string) => Promise<{ enabled: boolean; missing: string[]; context: any }>
   enable: (p: string, opts: any) => Promise<any>
   readStatus: (p: string) => Promise<any>
+  subscribeProject: (p: string) => Promise<void>
+  unsubscribeProject: (p: string) => Promise<void>
   onCircuitUpdate: (cb: (...a: any[]) => void) => () => void
   onLogLines: (cb: (...a: any[]) => void) => () => void
   readLogs: (p: string, lines?: number) => Promise<string[]>
