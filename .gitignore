@@ -70,6 +70,7 @@ target/
 
 # Electron build output
 out/
+dist-electron/
 
 # Dolt database files (added by bd init)
 .dolt/

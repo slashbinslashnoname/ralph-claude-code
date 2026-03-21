@@ -1,6 +1,7 @@
 import { app, BrowserWindow, globalShortcut } from 'electron'
 import * as path from 'path'
 import { registerIpc, gracefulShutdown } from './ipc'
+import { getIconPath } from './getIconPath'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -9,7 +10,7 @@ app.setName('Slashbot')
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     title: 'Slashbot',
-    icon: path.join(__dirname, '../../resources/icon.svg'),
+    icon: getIconPath(),
     width: 1400,
     height: 860,
     minWidth: 960,
