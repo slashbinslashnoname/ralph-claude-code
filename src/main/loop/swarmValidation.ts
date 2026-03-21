@@ -221,3 +221,33 @@ export function validateSwarmKnowledge(projectPath: unknown, limit: unknown): {
     limit: validateActivityLimit(limit),
   }
 }
+
+// ── Build monitor enabled validation ────────────────────────────────────────
+
+export function validateBuildMonitorEnabled(enabled: unknown): boolean {
+  if (typeof enabled !== 'boolean') {
+    throw new Error('enabled must be a boolean (true or false)')
+  }
+  return enabled
+}
+
+// ── Composite: build monitor toggle ─────────────────────────────────────────
+
+export function validateSwarmBuildMonitorToggle(projectPath: unknown, enabled: unknown): {
+  projectPath: string; enabled: boolean
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+    enabled: validateBuildMonitorEnabled(enabled),
+  }
+}
+
+// ── Composite: build monitor status ─────────────────────────────────────────
+
+export function validateSwarmBuildMonitorStatus(projectPath: unknown): {
+  projectPath: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+  }
+}

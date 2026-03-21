@@ -41,6 +41,8 @@ import {
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
   validateSwarmKnowledge,
+  validateSwarmBuildMonitorToggle,
+  validateSwarmBuildMonitorStatus,
 } from './loop/swarmValidation'
 import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
@@ -520,6 +522,9 @@ export function registerIpc(
       swarms.delete(projectPath)
       broadcast('swarm:stopped', projectPath)
     })
+    swarm.on('build-status', (status: string, detail?: unknown) => {
+      broadcast('swarm:build-status', projectPath, status, detail ?? null)
+    })
     swarms.set(projectPath, swarm)
     return swarm
   }
@@ -767,6 +772,30 @@ export function registerIpc(
       return readText(logFile) ?? ''
     } catch {
       return ''
+    }
+  })
+
+  // ── Build monitor ──────────────────────────────────────────────────
+
+  ipcMain.handle('swarm:build-monitor-toggle', (_e, projectPath: unknown, enabled: unknown) => {
+    try {
+      const v = validateSwarmBuildMonitorToggle(projectPath, enabled)
+      const swarm = getOrCreateSwarm(v.projectPath)
+      swarm.toggleBuildMonitor(v.enabled)
+      return { ok: true, ...swarm.getBuildMonitorStatus() }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:build-monitor-status', (_e, projectPath: unknown) => {
+    try {
+      const v = validateSwarmBuildMonitorStatus(projectPath)
+      const swarm = swarms.get(v.projectPath)
+      if (!swarm) return { enabled: false, running: false }
+      return swarm.getBuildMonitorStatus()
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 

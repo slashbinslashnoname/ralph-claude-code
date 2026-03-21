@@ -112,6 +112,13 @@ contextBridge.exposeInMainWorld('slashbot', {
     onPlanPhase: (cb: (...a: unknown[]) => void) => listen('swarm:planPhase', cb),
     onPlanQueue: (cb: (...a: unknown[]) => void) => listen('swarm:planQueue', cb),
     onStopped: (cb: (...a: unknown[]) => void) => listen('swarm:stopped', cb),
+    buildMonitor: {
+      toggle: (projectPath: string, enabled: boolean) =>
+        ipcRenderer.invoke('swarm:build-monitor-toggle', projectPath, enabled),
+      status: (projectPath: string) =>
+        ipcRenderer.invoke('swarm:build-monitor-status', projectPath),
+    },
+    onBuildStatus: (cb: (...a: unknown[]) => void) => listen('swarm:build-status', cb),
   },
 
   // ── Telegram ─────────────────────────────────────────────────────────
