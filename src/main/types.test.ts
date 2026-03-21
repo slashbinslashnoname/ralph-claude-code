@@ -64,7 +64,8 @@ describe('Telegram types', () => {
       cbPermissionDenialThreshold: 2,
       cbCooldownMinutes: 30,
       autoPush: true,
-      maxRetries: 2
+      maxRetries: 2,
+      autoSplitThreshold: 3
     }
     expect(withoutTelegram.telegram).toBeUndefined()
 

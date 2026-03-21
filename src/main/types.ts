@@ -31,6 +31,7 @@ export interface RalphConfig {
   cbCooldownMinutes: number
   autoPush: boolean
   maxRetries: number
+  autoSplitThreshold: number
   telegram?: TelegramConfig
 }
 
@@ -103,7 +104,7 @@ export interface AgentInfo {
 export interface ActivityEvent {
   ts: string
   agentId: string
-  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed' | 'rollback'
+  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed' | 'rollback' | 'split'
   beadId?: string
   beadTitle?: string
   summary?: string
@@ -174,6 +175,19 @@ export interface EnableResult {
   error?: string
   filesCreated: string[]
   context: ProjectContext
+}
+
+export interface SplitChild {
+  title: string
+  description: string
+  files: string[]
+  deps: string[]
+}
+
+export interface SplitDecision {
+  beadId: string
+  reason: string
+  children: SplitChild[]
 }
 
 export interface PlanQueueItem {

@@ -130,6 +130,12 @@ describe('parseRcFile', () => {
     expect(result.cbPermissionDenialThreshold).toBe(4)
     expect(result.cbCooldownMinutes).toBe(60)
   })
+
+  it('parses AUTO_SPLIT_THRESHOLD', () => {
+    writeRc('AUTO_SPLIT_THRESHOLD=5')
+    const result = parseRcFile(tmpDir)
+    expect(result.autoSplitThreshold).toBe(5)
+  })
 })
 
 // ── validateConfig ──────────────────────────────────────────────────────────
