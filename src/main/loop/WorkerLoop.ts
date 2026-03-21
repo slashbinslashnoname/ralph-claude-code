@@ -172,7 +172,7 @@ export class WorkerLoop extends EventEmitter {
         this._log('INFO', `[${this.agentId}] Thinking: analyzing bead before implementing…`)
         let thinkingOutput = ''
         try {
-          thinkingOutput = await this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir)
+          thinkingOutput = await this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir, this.config.claudeModelThink)
           const strippedThinking = stripAnsi(thinkingOutput)
           const summary = this._extractThinkingSummary(strippedThinking)
           this.coordinator.updateAgent(this.agentId, { thinkingSummary: summary })
@@ -222,7 +222,7 @@ export class WorkerLoop extends EventEmitter {
         })
         let executeOutput = ''
         try {
-          executeOutput = await this._runClaude(this._buildExecutePrompt(bead, thinkingOutput), 'execute', workDir)
+          executeOutput = await this._runClaude(this._buildExecutePrompt(bead, thinkingOutput), 'execute', workDir, this.config.claudeModelExecute)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('ERROR', `[${this.agentId}] Execute failed: ${msg}`)
@@ -244,7 +244,7 @@ export class WorkerLoop extends EventEmitter {
               this._setPhase('reviewing', bead.id, bead.title)
               this._log('INFO', `[${this.agentId}] Review: fresh-eyes pass…`)
               try {
-                await this._runClaude(this._buildReviewPrompt(bead), 'review', workDir)
+                await this._runClaude(this._buildReviewPrompt(bead), 'review', workDir, this.config.claudeModelReview)
               } catch (err) {
                 this._log('WARN', `[${this.agentId}] Review failed (non-fatal): ${err instanceof Error ? err.message : err}`)
               }
@@ -378,10 +378,11 @@ export class WorkerLoop extends EventEmitter {
     this._exit('stopped')
   }
 
-  private _runClaude(prompt: string, label: string, cwd?: string): Promise<string> {
+  private _runClaude(prompt: string, label: string, cwd?: string, model?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = ['-p', prompt, '--output-format', this.config.claudeOutputFormat,
         '--dangerously-skip-permissions']
+      if (model) args.push('--model', model)
       if (this.config.continueSession && this.sessionId) args.push('--resume', this.sessionId)
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `${this.agentId}_${label}_${ts}.log`)
