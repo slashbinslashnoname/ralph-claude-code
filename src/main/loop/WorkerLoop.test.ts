@@ -1127,8 +1127,6 @@ describe('WorkerLoop', () => {
     })
 
     it('uses let bead declaration allowing reassignment in _loop source', () => {
-      // Verify the source code uses 'let bead' not 'const bead' at the claim site
-      const source = fs.readFileSync as any
       // Read the actual source to verify the const→let change
       const workerSource = require('fs').readFileSync(
         require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
