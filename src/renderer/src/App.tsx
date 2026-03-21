@@ -157,7 +157,7 @@ export default function App() {
   const addProject = useCallback(async (projectPath?: string) => {
     let p = projectPath
     if (!p) {
-      p = await sb.selectProject()
+      p = await sb.selectProject() ?? undefined
       if (!p) return
     }
     // If already open, just switch to it

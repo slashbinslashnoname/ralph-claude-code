@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+export {}
+
 interface SlashbotAPI {
   selectProject: () => Promise<string | null>
   recentProjects: () => Promise<string[]>
@@ -61,7 +63,9 @@ interface SlashbotAPI {
     onActivity: (cb: (...a: any[]) => void) => () => void
     onPlanPhase: (cb: (...a: any[]) => void) => () => void
     onPlanQueue: (cb: (...a: any[]) => void) => () => void
+    onActivity: (cb: (...a: any[]) => void) => () => void
     onStopped: (cb: (...a: any[]) => void) => () => void
+    gracefulStop: (p: string) => Promise<{ ok: boolean }>
   }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>

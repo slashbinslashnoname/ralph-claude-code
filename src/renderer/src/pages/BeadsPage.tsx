@@ -221,7 +221,7 @@ export default function BeadsPage({ projectPath }: Props) {
     reordered.splice(to, 0, moved)
 
     // Assign priorities 0..N based on new order
-    const updates: Promise<void>[] = []
+    const updates: Promise<{ ok: boolean }>[] = []
     for (let i = 0; i < reordered.length; i++) {
       const bead = reordered[i]
       const newPriority = Math.min(i, 4)
