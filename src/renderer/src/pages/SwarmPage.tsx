@@ -4,6 +4,31 @@ import AgentOutputRenderer from '../components/AgentOutputRenderer'
 
 const sb = window.slashbot
 
+export interface TelegramStatus {
+  connected: boolean
+  botUsername: string | null
+  lastError: string | null
+  messagesSent: number
+  messagesReceived: number
+}
+
+export function TelegramStatusIndicator({ status }: { status: TelegramStatus }) {
+  return (
+    <span
+      className={`stat-chip telegram-status ${status.connected ? 'connected' : 'disconnected'}`}
+      title={status.connected
+        ? `Telegram: @${status.botUsername ?? 'unknown'}\nSent: ${status.messagesSent} | Received: ${status.messagesReceived}`
+        : `Telegram: disconnected${status.lastError ? `\n${status.lastError}` : ''}`
+      }
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: 4, verticalAlign: 'middle' }}>
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-1.99 1.27-5.62 3.72-.53.36-1.01.54-1.44.53-.47-.01-1.38-.27-2.06-.49-.83-.27-1.49-.42-1.43-.88.03-.24.37-.49 1.02-.74 3.99-1.74 6.65-2.89 7.99-3.44 3.8-1.58 4.59-1.86 5.1-1.87.11 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .38z"/>
+      </svg>
+      <span className={`telegram-dot ${status.connected ? 'green' : 'red'}`} />
+    </span>
+  )
+}
+
 interface Props {
   projectPath: string
   agentOutputs: Record<string, string>
@@ -28,6 +53,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [historyLogs, setHistoryLogs] = useState<{ file: string; agentId: string; phase: string; timestamp: string; size: number }[]>([])
   const [historyContent, setHistoryContent] = useState<string | null>(null)
   const [historyFile, setHistoryFile] = useState<string | null>(null)
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null)
 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
@@ -40,6 +66,14 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     }
     load()
     const interval = setInterval(load, 2000)
+    return () => clearInterval(interval)
+  }, [projectPath])
+
+  // Poll Telegram status every 5s
+  useEffect(() => {
+    const poll = () => sb.telegram.status(projectPath).then(setTelegramStatus).catch(() => {})
+    poll()
+    const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
   }, [projectPath])
 
@@ -211,6 +245,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
             <span className="stat-chip ready">{stats.ready} ready</span>
             <span className="stat-chip pending">{stats.pending} pending</span>
             <span className="stat-chip failed">{stats.failed} failed</span>
+            {telegramStatus && <TelegramStatusIndicator status={telegramStatus} />}
           </div>
         </div>
       )}
