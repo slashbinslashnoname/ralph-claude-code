@@ -526,6 +526,104 @@ describe('PlanLoop', () => {
       await runPromise
     })
 
+    it('retries twice on validation failure then succeeds on third (final) attempt', async () => {
+      const coord = makeCoordinator()
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+
+      let doneCount: number | undefined
+      loop.on('done', (n: number) => { doneCount = n })
+
+      const runPromise = loop.run('test')
+
+      // Plan phase
+      mockProcesses[0].simulateStdout('plan')
+      mockProcesses[0].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Attempt 0 — invalid (short title + short desc)
+      mockProcesses[1].simulateStdout('[{"id":"b1","title":"Ab","type":"task","priority":1,"deps":[],"description":"x","tags":[]}]')
+      mockProcesses[1].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Attempt 1 — still invalid (short title)
+      mockProcesses[2].simulateStdout('[{"id":"b1","title":"No","type":"task","priority":1,"deps":[],"description":"short desc","tags":[]}]')
+      mockProcesses[2].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      // Attempt 2 (final) — valid
+      mockProcesses[3].simulateStdout('[{"id":"b1","title":"Build the feature","type":"task","priority":1,"deps":[],"description":"Implement the feature module fully","tags":[]}]')
+      mockProcesses[3].simulateExit(0)
+
+      await runPromise
+      expect(doneCount).toBe(1)
+      // plan + 3 encode attempts
+      expect(cp.spawn).toHaveBeenCalledTimes(4)
+    })
+
+    it('proceeds despite validation errors after exhausting all retries', async () => {
+      const coord = makeCoordinator()
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+
+      const logs: [string, string][] = []
+      loop.on('log', (level: string, msg: string) => logs.push([level, msg]))
+      let doneCount: number | undefined
+      loop.on('done', (n: number) => { doneCount = n })
+
+      const runPromise = loop.run('test')
+
+      // Plan phase
+      mockProcesses[0].simulateStdout('plan')
+      mockProcesses[0].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      // All 3 attempts produce validation-failing beads (short desc)
+      for (let i = 0; i < 3; i++) {
+        mockProcesses[1 + i].simulateStdout('[{"id":"b1","title":"Valid title","type":"task","priority":1,"deps":[],"description":"bad","tags":[]}]')
+        mockProcesses[1 + i].simulateExit(0)
+        await new Promise(r => setTimeout(r, 10))
+      }
+
+      await runPromise
+      // Should proceed and create the bead despite validation errors
+      expect(coord.bd.createMany).toHaveBeenCalled()
+      expect(doneCount).toBe(1)
+
+      // Should log the "Proceeding despite" warning
+      const proceedingLog = logs.find(([level, msg]) => level === 'WARN' && msg.includes('Proceeding despite'))
+      expect(proceedingLog).toBeDefined()
+    })
+
+    it('emits error when all retries fail validation and creation also fails', async () => {
+      const coord = makeCoordinator()
+      coord.bd.createMany.mockImplementation(async (beads: any[]) => ({
+        created: [],
+        failed: beads.map((b: any) => ({ opts: b, error: 'bd error' }))
+      }))
+
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const errors: string[] = []
+      loop.on('error', (e: string) => errors.push(e))
+
+      const runPromise = loop.run('test')
+
+      // Plan phase
+      mockProcesses[0].simulateStdout('plan')
+      mockProcesses[0].simulateExit(0)
+      await new Promise(r => setTimeout(r, 10))
+
+      // All 3 attempts produce validation-failing beads
+      for (let i = 0; i < 3; i++) {
+        mockProcesses[1 + i].simulateStdout('[{"id":"b1","title":"Valid title","type":"task","priority":1,"deps":[],"description":"bad","tags":[]}]')
+        mockProcesses[1 + i].simulateExit(0)
+        await new Promise(r => setTimeout(r, 10))
+      }
+
+      await runPromise
+      // Proceeded despite validation errors, but creation failed → high failure rate → error
+      expect(errors.length).toBe(1)
+      expect(errors[0]).toContain('failure rate')
+    })
+
     it('resolves with raw output even on non-zero exit if output exists', async () => {
       const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
       const phases: string[] = []
@@ -658,6 +756,64 @@ describe('PlanLoop', () => {
       const errors = loop._validateCandidates(candidates)
       const softWarning = errors.find(e => e.id === '_batch_' && e.errors[0].includes('Large batch'))
       expect(softWarning).toBeDefined()
+    })
+
+    it('handles missing/null title and description gracefully', () => {
+      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const candidates = [
+        { id: 'b1', deps: [], type: 'task' }, // no title, no description
+      ]
+      const errors = loop._validateCandidates(candidates as any)
+      expect(errors.length).toBe(1)
+      expect(errors[0].errors.some(e => e.includes('Title too short'))).toBe(true)
+      expect(errors[0].errors.some(e => e.includes('Description too short'))).toBe(true)
+    })
+
+    it('duplicate detection is case-insensitive', () => {
+      const coord = makeCoordinator()
+      coord.bd.listAll.mockReturnValue([
+        { id: 'old-1', status: 'done', title: 'Setup Database' }
+      ])
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const candidates = [
+        { id: 'b1', title: 'setup database', description: 'A valid description here', deps: [], type: 'task' },
+        { id: 'b2', title: 'SETUP DATABASE', description: 'Another valid description', deps: [], type: 'task' },
+      ]
+      const errors = loop._validateCandidates(candidates)
+      expect(errors.length).toBe(2)
+      expect(errors[0].errors[0]).toContain('Duplicate of closed bead')
+      expect(errors[1].errors[0]).toContain('Duplicate of closed bead')
+    })
+
+    it('resolves deps against both batch IDs and live open beads together', () => {
+      const coord = makeCoordinator()
+      coord.bd.listAll.mockReturnValue([
+        { id: 'live-1', status: 'claimed', title: 'Active bead' },
+        { id: 'live-2', status: 'done', title: 'Closed bead' }
+      ])
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const candidates = [
+        { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: ['live-1'], type: 'task' }, // dep on live open
+        { id: 'b2', title: 'Another task', description: 'Depends on batch sibling', deps: ['b1'], type: 'task' }, // dep on batch
+        { id: 'b3', title: 'Bad dep task', description: 'Depends on closed bead ID', deps: ['live-2'], type: 'task' }, // dep on closed (not open)
+      ]
+      const errors = loop._validateCandidates(candidates)
+      // Only b3 should have an error — live-2 is closed, so not in liveOpenIds
+      expect(errors.length).toBe(1)
+      expect(errors[0].id).toBe('b3')
+      expect(errors[0].errors[0]).toContain('Unresolvable dependency')
+    })
+
+    it('does not error when listAll throws', () => {
+      const coord = makeCoordinator()
+      coord.bd.listAll.mockImplementation(() => { throw new Error('bd not found') })
+      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const candidates = [
+        { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: [], type: 'task' },
+      ]
+      // Should not throw — the try/catch ignores listAll errors
+      const errors = loop._validateCandidates(candidates)
+      expect(errors).toEqual([])
     })
 
     it('accumulates multiple errors per bead', () => {
