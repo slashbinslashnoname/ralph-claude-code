@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as cp from 'child_process'
-import { RalphConfig, Bead } from '../types'
+import { RalphConfig, Bead, SplitDecision } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { detectApiLimit } from './ResponseAnalyzer'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
@@ -767,6 +767,70 @@ DO NOT write any implementation code. Analysis only.`
     } catch {
       return null
     }
+  }
+
+  /**
+   * Split a bead into children based on the split decision.
+   * Creates child beads, wires inter-child deps, labels everything,
+   * closes the original as a container, claims the first child, and returns it.
+   * Returns null if any child creation fails (abort entire split).
+   */
+  async _splitBead(bead: Bead, decision: SplitDecision, workDir: string): Promise<Bead | null> {
+    const bd = this.coordinator.bd
+
+    // Phase 1: Create all children — abort entirely if any fails
+    const createdChildren: Bead[] = []
+    try {
+      for (const child of decision.children) {
+        const created = await bd.createAsync({
+          title: child.title,
+          description: child.description,
+          parentId: bead.id,
+          labels: ['auto-split'],
+          priority: bead.priority
+        })
+        createdChildren.push(created)
+      }
+    } catch {
+      // Abort: a child creation failed — don't label or close anything
+      return null
+    }
+
+    // Phase 2: Wire inter-child dependencies
+    // Build a title→id map for resolving dep references by title
+    const titleToId = new Map<string, string>()
+    for (let i = 0; i < decision.children.length; i++) {
+      titleToId.set(decision.children[i].title, createdChildren[i].id)
+    }
+
+    for (let i = 0; i < decision.children.length; i++) {
+      const childSpec = decision.children[i]
+      for (const depTitle of childSpec.deps) {
+        const depId = titleToId.get(depTitle)
+        if (depId) {
+          bd.addDep(createdChildren[i].id, depId)
+        }
+      }
+    }
+
+    // Phase 3: Label original bead as split parent and close it
+    bd.addLabel(bead.id, 'auto-split-parent')
+    bd.close(bead.id, `Split into ${createdChildren.length} children`)
+
+    // Phase 4: Post activity event
+    this.coordinator.postActivity({
+      agentId: this.agentId,
+      type: 'split',
+      beadId: bead.id,
+      beadTitle: bead.title,
+      summary: `Split into ${createdChildren.length} children: ${createdChildren.map(c => c.id).join(', ')}`
+    })
+
+    // Phase 5: Claim and return the first child
+    const firstChild = createdChildren[0]
+    bd.assignTo(firstChild.id, this.agentId)
+    const refreshed = bd.show(firstChild.id)
+    return refreshed ?? null
   }
 
   private _sleep(ms: number): Promise<void> {
