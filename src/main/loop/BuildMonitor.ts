@@ -28,13 +28,15 @@ export class BuildMonitor extends EventEmitter {
   private intervalMs: number
   private coordinator: AgentCoordinator
   private bd: BdClient
+  private projectPath: string
 
-  constructor(config: Pick<RalphConfig, 'buildMonitorCmd' | 'buildMonitorInterval'>, coordinator: AgentCoordinator, bd: BdClient) {
+  constructor(config: Pick<RalphConfig, 'buildMonitorCmd' | 'buildMonitorInterval'>, coordinator: AgentCoordinator, bd: BdClient, projectPath: string) {
     super()
     this.cmd = config.buildMonitorCmd
     this.intervalMs = (config.buildMonitorInterval ?? 120) * 1000
     this.coordinator = coordinator
     this.bd = bd
+    this.projectPath = projectPath
   }
 
   start(): void {
@@ -86,7 +88,7 @@ export class BuildMonitor extends EventEmitter {
     }
 
     this.checking = true
-    exec(this.cmd, { timeout: EXEC_TIMEOUT_MS }, (err, stdout, stderr) => {
+    exec(this.cmd, { timeout: EXEC_TIMEOUT_MS, cwd: this.projectPath }, (err, stdout, stderr) => {
       this.checking = false
       if (!this.running) return
 

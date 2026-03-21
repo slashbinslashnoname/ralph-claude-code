@@ -26,6 +26,8 @@ function makeConfig(cmd = 'npm run build', interval = 60) {
   return { buildMonitorCmd: cmd, buildMonitorInterval: interval }
 }
 
+const TEST_PROJECT_PATH = '/tmp/test-project'
+
 describe('BuildMonitor', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -44,8 +46,17 @@ describe('BuildMonitor', () => {
     if (cb) cb(err, stdout, stderr)
   }
 
+  it('passes projectPath as cwd to exec', () => {
+    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
+    monitor.start()
+    expect(mockExec).toHaveBeenCalledTimes(1)
+    const opts = mockExec.mock.calls[0][1] as { cwd?: string }
+    expect(opts.cwd).toBe(TEST_PROJECT_PATH)
+    monitor.stop()
+  })
+
   it('starts and stops correctly', () => {
-    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     expect(monitor.isRunning()).toBe(false)
     monitor.start()
     expect(monitor.isRunning()).toBe(true)
@@ -54,7 +65,7 @@ describe('BuildMonitor', () => {
   })
 
   it('does not start with empty buildMonitorCmd', () => {
-    const monitor = new BuildMonitor(makeConfig(''), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig(''), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     const logs: string[] = []
     monitor.on('log', (_level, msg) => logs.push(msg))
     monitor.start()
@@ -63,7 +74,7 @@ describe('BuildMonitor', () => {
   })
 
   it('does not start twice', () => {
-    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     monitor.start()
     // First check is triggered immediately
     expect(mockExec).toHaveBeenCalledTimes(1)
@@ -73,7 +84,7 @@ describe('BuildMonitor', () => {
   })
 
   it('toggle on/off/on works correctly', () => {
-    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig(), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     const result1 = monitor.toggle() // start
     expect(result1).toBe(true)
     expect(monitor.isRunning()).toBe(true)
@@ -86,7 +97,7 @@ describe('BuildMonitor', () => {
   })
 
   it('calls _runCheck on interval', () => {
-    const monitor = new BuildMonitor(makeConfig('npm test', 10), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig('npm test', 10), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     monitor.start()
     // Immediate call
     expect(mockExec).toHaveBeenCalledTimes(1)
@@ -101,7 +112,7 @@ describe('BuildMonitor', () => {
   })
 
   it('skips overlapping checks (guard flag)', () => {
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     monitor.start()
     // First check is running (no callback yet)
     expect(mockExec).toHaveBeenCalledTimes(1)
@@ -118,7 +129,7 @@ describe('BuildMonitor', () => {
 
   it('skips check when agent is merging', () => {
     const coord = makeCoordinator([{ phase: 'merging' }])
-    const monitor = new BuildMonitor(makeConfig(), coord, makeBd())
+    const monitor = new BuildMonitor(makeConfig(), coord, makeBd(), TEST_PROJECT_PATH)
     monitor.start()
     // _runCheck was called but should skip due to merging agent
     expect(mockExec).not.toHaveBeenCalled()
@@ -127,7 +138,7 @@ describe('BuildMonitor', () => {
 
   it('creates bead after 3 identical failures', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 60), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 60), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const errorOutput = 'error: something broke'
 
     monitor.start()
@@ -154,7 +165,7 @@ describe('BuildMonitor', () => {
 
   it('does not create duplicate bead for same fingerprint after filing', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const errorOutput = 'error: same thing'
 
     monitor.start()
@@ -176,7 +187,7 @@ describe('BuildMonitor', () => {
 
   it('handles mixed fingerprints independently', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
 
     monitor.start()
     // Error A x2
@@ -194,7 +205,7 @@ describe('BuildMonitor', () => {
 
   it('resets failure counters on pass', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const errorOutput = 'error: flaky'
 
     monitor.start()
@@ -219,7 +230,7 @@ describe('BuildMonitor', () => {
 
   it('caps output at 2048 characters in bead description', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const bigOutput = 'X'.repeat(5000)
 
     monitor.start()
@@ -239,7 +250,7 @@ describe('BuildMonitor', () => {
   })
 
   it('emits status events', () => {
-    const monitor = new BuildMonitor(makeConfig('npm test', 60), makeCoordinator(), makeBd())
+    const monitor = new BuildMonitor(makeConfig('npm test', 60), makeCoordinator(), makeBd(), TEST_PROJECT_PATH)
     const statuses: Array<[string, string?]> = []
     monitor.on('status', (status: string, fp?: string) => statuses.push([status, fp]))
 
@@ -260,7 +271,7 @@ describe('BuildMonitor', () => {
     ;(bd.create as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error('bd CLI not found')
     })
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const logs: Array<[string, string]> = []
     monitor.on('log', (level: string, msg: string) => logs.push([level, msg]))
 
@@ -279,7 +290,7 @@ describe('BuildMonitor', () => {
     const bd = makeBd()
     const beadResult = { id: 'bead-42', title: '[auto-fix] Build failure: abc' }
     ;(bd.create as ReturnType<typeof vi.fn>).mockReturnValue(beadResult)
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const beadEvents: unknown[] = []
     monitor.on('bead-created', (bead: unknown) => beadEvents.push(bead))
 
@@ -296,7 +307,7 @@ describe('BuildMonitor', () => {
 
   it('uses stderr for error output when present', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
 
     monitor.start()
     simulateExec(new Error('fail'), 'stdout stuff', 'stderr error')
@@ -313,7 +324,7 @@ describe('BuildMonitor', () => {
 
   it('ignores exec result if stopped mid-check', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
     const statuses: string[] = []
     monitor.on('status', (s: string) => statuses.push(s))
 
@@ -329,7 +340,7 @@ describe('BuildMonitor', () => {
 
   it('falls back to stdout when stderr is empty', () => {
     const bd = makeBd()
-    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd, TEST_PROJECT_PATH)
 
     monitor.start()
     simulateExec(new Error('fail'), 'stdout error output', '')

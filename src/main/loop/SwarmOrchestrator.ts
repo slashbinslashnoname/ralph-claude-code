@@ -332,7 +332,7 @@ export class SwarmOrchestrator extends EventEmitter {
   // ── Internal ────────────────────────────────────────────────────────────
 
   private _startBuildMonitor(config: RalphConfig): void {
-    this.buildMonitor = new BuildMonitor(config, this.coordinator, this.coordinator.bd)
+    this.buildMonitor = new BuildMonitor(config, this.coordinator, this.coordinator.bd, this.projectPath)
     this.buildMonitor.on('log', (level: string, msg: string) => this._log(level.toUpperCase(), msg))
     this.buildMonitor.on('status', (status: string, fingerprint?: string) => {
       this.emit('build-status', status, fingerprint)
