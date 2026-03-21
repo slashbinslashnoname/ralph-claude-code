@@ -429,6 +429,38 @@ describe('WorkerLoop', () => {
     })
   })
 
+  describe('heartbeat emission', () => {
+    it('emits heartbeat on _setPhase', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const heartbeats: number[] = []
+      worker.on('heartbeat', () => heartbeats.push(Date.now()))
+      ;(worker as any)._setPhase('thinking', 'sb-abc', 'Test bead')
+      expect(heartbeats.length).toBe(1)
+    })
+
+    it('emits heartbeat on stdout data during _runClaude', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const heartbeats: number[] = []
+      worker.on('heartbeat', () => heartbeats.push(Date.now()))
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+
+      // Simulate stdout output
+      proc.simulateStdout('hello')
+      proc.simulateStdout('world')
+      proc.simulateExit(0)
+
+      await promise
+      // Each stdout chunk should trigger a heartbeat
+      expect(heartbeats.length).toBe(2)
+    })
+  })
+
   describe('_extractThinkingSummary (via integration)', () => {
     it('extracts structured sections from thinking output', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())

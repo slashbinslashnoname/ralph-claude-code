@@ -22,6 +22,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private slashbotDir: string
   private logDir: string
   private agentOutputBuffers = new Map<string, string>()
+  private _heartbeatMap = new Map<string, number>()
   sessionStartedAt: string | null = null
   private shuttingDown = false
   stoppingGracefully = false
@@ -140,8 +141,12 @@ export class SwarmOrchestrator extends EventEmitter {
         this._broadcastAgents()
         this._log('INFO', `[${agentId}] phase=${phase}${bid ? ` bead=${bid}` : ''}`, agentId)
       })
+      worker.on('heartbeat', () => {
+        this._heartbeatMap.set(agentId, Date.now())
+      })
       worker.on('exit', (reason: string) => {
         this.workers.delete(agentId)
+        this._heartbeatMap.delete(agentId)
         this._broadcastAgents()
         if (this.workers.size === 0) {
           this._stopActivityPoll()
@@ -173,6 +178,7 @@ export class SwarmOrchestrator extends EventEmitter {
   stopWorkers(): void {
     for (const worker of this.workers.values()) worker.stop()
     this.workers.clear()
+    this._heartbeatMap.clear()
     this._stopBuildMonitor()
     this._stopActivityPoll()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
@@ -285,6 +291,19 @@ export class SwarmOrchestrator extends EventEmitter {
   getAgents(): AgentInfo[] { return this.coordinator.getAgents() }
   getActivity(limit = 50): ActivityEvent[] { return this.coordinator.readActivity(limit) }
   getKnowledge(limit = 50): KnowledgeEntry[] { return this.coordinator.readKnowledge(limit) }
+
+  /** Return the last heartbeat timestamp (epoch ms) for an agent, or undefined if unknown. */
+  getHeartbeat(agentId: string): number | undefined { return this._heartbeatMap.get(agentId) }
+
+  /** Return agent IDs whose last heartbeat is older than `thresholdMs` (default: 10 minutes). */
+  getStaleAgents(thresholdMs = 10 * 60_000): string[] {
+    const now = Date.now()
+    const stale: string[] = []
+    for (const [id, ts] of this._heartbeatMap) {
+      if (now - ts > thresholdMs) stale.push(id)
+    }
+    return stale
+  }
 
   toggleBuildMonitor(enabled: boolean): void {
     if (enabled) {

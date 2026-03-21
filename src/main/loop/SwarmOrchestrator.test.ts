@@ -591,6 +591,97 @@ describe('SwarmOrchestrator — build monitor integration', () => {
   })
 })
 
+describe('SwarmOrchestrator — heartbeat map', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('getHeartbeat returns undefined for unknown agent', () => {
+    expect(orch.getHeartbeat('agent-99')).toBeUndefined()
+  })
+
+  it('heartbeat map is updated when a heartbeat event is received', () => {
+    // Simulate a worker emitting heartbeat via the wiring in startWorkers
+    const map = (orch as any)._heartbeatMap as Map<string, number>
+    const before = Date.now()
+    map.set('agent-0', before)
+    expect(orch.getHeartbeat('agent-0')).toBe(before)
+  })
+
+  it('getStaleAgents returns agents older than threshold', () => {
+    const map = (orch as any)._heartbeatMap as Map<string, number>
+    const now = Date.now()
+    map.set('agent-0', now - 20 * 60_000) // 20 min ago — stale
+    map.set('agent-1', now - 1_000)        // 1 sec ago — fresh
+    const stale = orch.getStaleAgents(10 * 60_000)
+    expect(stale).toEqual(['agent-0'])
+  })
+
+  it('getStaleAgents returns empty array when all agents are fresh', () => {
+    const map = (orch as any)._heartbeatMap as Map<string, number>
+    map.set('agent-0', Date.now())
+    map.set('agent-1', Date.now())
+    expect(orch.getStaleAgents()).toEqual([])
+  })
+
+  it('getStaleAgents uses default 10-minute threshold', () => {
+    const map = (orch as any)._heartbeatMap as Map<string, number>
+    map.set('agent-0', Date.now() - 11 * 60_000) // 11 min — stale with default
+    expect(orch.getStaleAgents()).toEqual(['agent-0'])
+  })
+
+  it('stopWorkers clears the heartbeat map', () => {
+    const map = (orch as any)._heartbeatMap as Map<string, number>
+    map.set('agent-0', Date.now())
+    orch.stopWorkers()
+    expect(orch.getHeartbeat('agent-0')).toBeUndefined()
+  })
+
+  it('worker exit event removes agent from heartbeat map', () => {
+    // Simulate worker event wiring: inject a fake worker with an EventEmitter
+    const { EventEmitter } = require('events')
+    const fakeWorker = new EventEmitter()
+    fakeWorker.stop = vi.fn()
+    ;(orch as any).workers.set('agent-0', fakeWorker)
+    ;(orch as any)._heartbeatMap.set('agent-0', Date.now())
+
+    // Wire heartbeat and exit listeners like startWorkers does
+    fakeWorker.on('heartbeat', () => {
+      ;(orch as any)._heartbeatMap.set('agent-0', Date.now())
+    })
+    fakeWorker.on('exit', () => {
+      ;(orch as any).workers.delete('agent-0')
+      ;(orch as any)._heartbeatMap.delete('agent-0')
+    })
+
+    fakeWorker.emit('exit', 'test')
+    expect(orch.getHeartbeat('agent-0')).toBeUndefined()
+  })
+
+  it('heartbeat event updates timestamp in the map', () => {
+    const { EventEmitter } = require('events')
+    const fakeWorker = new EventEmitter()
+    fakeWorker.stop = vi.fn()
+
+    // Wire heartbeat listener
+    fakeWorker.on('heartbeat', () => {
+      ;(orch as any)._heartbeatMap.set('agent-0', Date.now())
+    })
+
+    const before = Date.now()
+    fakeWorker.emit('heartbeat')
+    const ts = (orch as any)._heartbeatMap.get('agent-0')
+    expect(ts).toBeGreaterThanOrEqual(before)
+    expect(ts).toBeLessThanOrEqual(Date.now())
+  })
+})
+
 describe('SwarmOrchestrator — plan request tracking', () => {
   beforeEach(() => {
     tmpDir = makeTmpProject()

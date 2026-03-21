@@ -407,6 +407,7 @@ export class WorkerLoop extends EventEmitter {
       proc.stdout!.on('data', (chunk: Buffer) => {
         const s = chunk.toString(); raw += s
         this.emit('output', s)
+        this.emit('heartbeat')
         fs.appendFileSync(outFile, s)
       })
       proc.stderr!.on('data', (chunk: Buffer) => fs.appendFileSync(outFile, chunk.toString()))
@@ -723,6 +724,7 @@ DO NOT write any implementation code. Analysis only.`
 
   private _setPhase(phase: string, beadId?: string, beadTitle?: string): void {
     this.emit('phase', phase, beadId, beadTitle)
+    this.emit('heartbeat')
     this.coordinator.updateAgent(this.agentId, { phase })
   }
 
