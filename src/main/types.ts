@@ -32,6 +32,8 @@ export interface RalphConfig {
   autoPush: boolean
   maxRetries: number
   autoSplitThreshold: number
+  buildMonitorCmd: string
+  buildMonitorInterval: number
   telegram?: TelegramConfig
 }
 
