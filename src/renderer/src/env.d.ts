@@ -18,8 +18,6 @@ interface SlashbotAPI {
   onCircuitUpdate: (cb: (...a: any[]) => void) => () => void
   onAnalysisUpdate: (cb: (...a: any[]) => void) => () => void
   onLogLines: (cb: (...a: any[]) => void) => () => void
-  onSlashbotExit: (cb: (...a: any[]) => void) => () => void
-  onPtyData: (cb: (...a: any[]) => void) => () => void
   readLogs: (p: string, lines?: number) => Promise<string[]>
   listLogs: (p: string) => Promise<string[]>
   readFile: (p: string, rel: string) => Promise<{ ok: boolean; content?: string; error?: string }>

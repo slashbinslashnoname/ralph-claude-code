@@ -29,8 +29,6 @@ contextBridge.exposeInMainWorld('slashbot', {
   onCircuitUpdate: (cb: (...a: unknown[]) => void) => listen('circuit:update', cb),
   onAnalysisUpdate: (cb: (...a: unknown[]) => void) => listen('analysis:update', cb),
   onLogLines: (cb: (...a: unknown[]) => void) => listen('logs:lines', cb),
-  onSlashbotExit: (cb: (...a: unknown[]) => void) => listen('slashbot:exit', cb),
-  onPtyData: (cb: (...a: unknown[]) => void) => listen('pty:data', cb),
 
   // ── Logs ────────────────────────────────────────────────────────────────
   readLogs: (projectPath: string, lines?: number) => ipcRenderer.invoke('logs:read', projectPath, lines),
