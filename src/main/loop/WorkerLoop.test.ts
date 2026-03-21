@@ -1415,4 +1415,210 @@ describe('WorkerLoop', () => {
       expect(splitIdx).toBeLessThan(executeIdx)
     })
   })
+
+  describe('knowledge integration', () => {
+    describe('_extractKnowledge', () => {
+      it('parses well-formatted discoveries and posts them to coordinator', () => {
+        const coord = makeCoordinator()
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+        const raw = `### Understanding
+Some analysis here.
+
+### Discoveries
+- **pattern** (high): Functions in utils.ts use a factory pattern
+- **gotcha** (medium): The config loader silently ignores unknown keys
+- **risk** (low): Race condition possible when two agents merge simultaneously
+
+### Split Analysis
+No split needed.`
+
+        worker._extractKnowledge(raw, 'sb-abc')
+
+        expect(coord.postKnowledge).toHaveBeenCalledTimes(3)
+        expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+          agentId: 'agent-0',
+          beadId: 'sb-abc',
+          category: 'pattern',
+          confidence: 'high',
+          summary: 'Functions in utils.ts use a factory pattern'
+        }))
+        expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+          category: 'gotcha',
+          confidence: 'medium',
+          summary: 'The config loader silently ignores unknown keys'
+        }))
+        expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+          category: 'risk',
+          confidence: 'low',
+          summary: 'Race condition possible when two agents merge simultaneously'
+        }))
+      })
+
+      it('returns empty for "None." discoveries', () => {
+        const coord = makeCoordinator()
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+        const raw = `### Discoveries
+None.
+
+### Split Analysis`
+
+        worker._extractKnowledge(raw, 'sb-abc')
+        expect(coord.postKnowledge).not.toHaveBeenCalled()
+      })
+
+      it('returns empty when no Discoveries heading exists', () => {
+        const coord = makeCoordinator()
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+        worker._extractKnowledge('### Understanding\nSome text.', 'sb-abc')
+        expect(coord.postKnowledge).not.toHaveBeenCalled()
+      })
+
+      it('skips entries with invalid categories', () => {
+        const coord = makeCoordinator()
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+        const raw = `### Discoveries
+- **invalid_cat** (high): Should be skipped
+- **pattern** (high): Should be kept`
+
+        worker._extractKnowledge(raw, 'sb-abc')
+        expect(coord.postKnowledge).toHaveBeenCalledTimes(1)
+        expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+          category: 'pattern'
+        }))
+      })
+
+      it('skips entries with invalid confidence levels', () => {
+        const coord = makeCoordinator()
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+        const raw = `### Discoveries
+- **pattern** (extreme): Bad confidence
+- **gotcha** (medium): Good entry`
+
+        worker._extractKnowledge(raw, 'sb-abc')
+        expect(coord.postKnowledge).toHaveBeenCalledTimes(1)
+        expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+          category: 'gotcha',
+          confidence: 'medium'
+        }))
+      })
+
+      it('skips entries with empty summary when at end of section', () => {
+        const coord = makeCoordinator()
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+
+        const raw = `### Discoveries
+- **gotcha** (medium): Actual content
+- **pattern** (high):
+
+### Split Analysis`
+
+        worker._extractKnowledge(raw, 'sb-abc')
+        expect(coord.postKnowledge).toHaveBeenCalledTimes(1)
+        expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+          category: 'gotcha',
+          summary: 'Actual content'
+        }))
+      })
+    })
+
+    describe('_buildThinkingPrompt knowledge inclusion', () => {
+      it('includes knowledge section when entries exist', () => {
+        const coord = makeCoordinator()
+        coord.readKnowledge.mockReturnValue([
+          { ts: '2026-01-01T00:00:00Z', agentId: 'agent-1', beadId: 'sb-other', category: 'pattern', summary: 'Use factory pattern', detail: '', confidence: 'high' },
+          { ts: '2026-01-01T00:01:00Z', agentId: 'agent-1', beadId: 'sb-other', category: 'gotcha', summary: 'Config ignores unknowns', detail: '', confidence: 'medium' }
+        ])
+        vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
+
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+
+        expect(prompt).toContain('## Collective Knowledge')
+        expect(prompt).toContain('**pattern**: Use factory pattern')
+        expect(prompt).toContain('**gotcha** [medium]: Config ignores unknowns')
+      })
+
+      it('omits knowledge section when no entries exist', () => {
+        const coord = makeCoordinator()
+        coord.readKnowledge.mockReturnValue([])
+        vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
+
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+
+        expect(prompt).not.toContain('## Collective Knowledge')
+      })
+    })
+
+    describe('self-filtering', () => {
+      it('excludes own entries for the current bead', () => {
+        const coord = makeCoordinator()
+        coord.readKnowledge.mockReturnValue([
+          { ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', beadId: 'sb-abc', category: 'pattern', summary: 'My own finding for this bead', detail: '', confidence: 'high' },
+          { ts: '2026-01-01T00:01:00Z', agentId: 'agent-1', beadId: 'sb-abc', category: 'gotcha', summary: 'Other agent finding', detail: '', confidence: 'medium' }
+        ])
+        vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
+
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const prompt = (worker as any)._buildThinkingPrompt(makeBead({ id: 'sb-abc' }))
+
+        expect(prompt).not.toContain('My own finding for this bead')
+        expect(prompt).toContain('Other agent finding')
+      })
+
+      it('keeps own entries from a different bead', () => {
+        const coord = makeCoordinator()
+        coord.readKnowledge.mockReturnValue([
+          { ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', beadId: 'sb-other', category: 'dependency', summary: 'Finding from my other bead', detail: '', confidence: 'high' }
+        ])
+        vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
+
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const prompt = (worker as any)._buildThinkingPrompt(makeBead({ id: 'sb-abc' }))
+
+        expect(prompt).toContain('Finding from my other bead')
+      })
+    })
+
+    describe('end-to-end knowledge flow', () => {
+      it('Agent-0 writes knowledge that Agent-1 reads', () => {
+        // Shared knowledge store simulating real coordinator behavior
+        const knowledgeStore: any[] = []
+        const sharedCoordMethods = {
+          postKnowledge: vi.fn((entry: any) => {
+            knowledgeStore.push({ ts: new Date().toISOString(), ...entry })
+          }),
+          readKnowledge: vi.fn(() => [...knowledgeStore])
+        }
+
+        const coord0 = { ...makeCoordinator(), ...sharedCoordMethods }
+        const coord1 = { ...makeCoordinator(), ...sharedCoordMethods }
+
+        vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
+
+        // Agent-0 extracts knowledge from thinking output
+        const worker0 = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord0)
+        const thinkingOutput = `### Discoveries
+- **convention** (high): All test files use .test.ts suffix
+- **dependency** (medium): WorkerLoop depends on AgentCoordinator for file locks`
+
+        worker0._extractKnowledge(thinkingOutput, 'sb-bead-0')
+
+        expect(knowledgeStore).toHaveLength(2)
+
+        // Agent-1 builds thinking prompt and sees Agent-0's knowledge
+        const worker1 = new WorkerLoop('agent-1', 1, '/project', makeConfig(), coord1)
+        const prompt = (worker1 as any)._buildThinkingPrompt(makeBead({ id: 'sb-bead-1' }))
+
+        expect(prompt).toContain('## Collective Knowledge')
+        expect(prompt).toContain('All test files use .test.ts suffix')
+        expect(prompt).toContain('WorkerLoop depends on AgentCoordinator for file locks')
+      })
+    })
+  })
 })
