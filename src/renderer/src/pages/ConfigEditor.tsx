@@ -89,8 +89,12 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
   const handleTest = useCallback(async () => {
     setTesting(true)
     setTestResult(null)
-    const r = await sb.telegram.test(projectPath)
-    setTestResult(r)
+    try {
+      const r = await sb.telegram.test(projectPath)
+      setTestResult(r)
+    } catch (e) {
+      setTestResult({ ok: false, error: e instanceof Error ? e.message : String(e) })
+    }
     setTesting(false)
   }, [projectPath])
 
