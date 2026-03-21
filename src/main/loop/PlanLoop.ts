@@ -285,10 +285,10 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
       }
     }
 
-    this.coordinator.post({
-      from: this.agentId,
-      type: 'info',
-      text: `${created} beads created via bd CLI`
+    this.coordinator.postActivity({
+      agentId: this.agentId,
+      type: 'info' as any,
+      summary: `${created} beads created via bd CLI`
     })
 
     return created

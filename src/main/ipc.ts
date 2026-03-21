@@ -42,7 +42,7 @@ import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
 
-const watchers = new Map<string, chokidar.FSWatcher>()
+const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
 const loops = new Map<string, RalphLoop>()
 const swarms = new Map<string, SwarmOrchestrator>()
 
@@ -53,7 +53,7 @@ const swarms = new Map<string, SwarmOrchestrator>()
 export async function gracefulShutdown(storePath: string, timeoutMs = 30_000): Promise<void> {
   // 1. Shut down all active swarms (waits for in-flight merges)
   const shutdownPromises = [...swarms.entries()].map(([projectPath, swarm]) =>
-    swarm.shutdown(timeoutMs).catch(err => {
+    swarm.shutdown(timeoutMs).catch((err: unknown) => {
       console.error(`[gracefulShutdown] swarm shutdown failed for ${projectPath}:`, err)
     })
   )

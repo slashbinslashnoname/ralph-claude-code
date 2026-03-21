@@ -21,7 +21,7 @@ export class RalphLoop extends EventEmitter {
   loopCount = 0
   private testOnlyCount = 0
   private lastSessionId?: string
-  private ptyProc: pty.IPty | null = null
+  private ptyProc: import('node-pty').IPty | null = null
   private slashbotDir: string
   private logDir: string
   private config!: RalphConfig
@@ -221,7 +221,7 @@ export class RalphLoop extends EventEmitter {
       const resolvedCmd = resolveCmd(this.config.claudeCodeCmd, env)
       const args = this._buildArgs(prompt)
 
-      let proc: pty.IPty
+      let proc: import('node-pty').IPty
       try {
         proc = pty.spawn(resolvedCmd, args, {
           name: 'xterm-256color', cols: 220, rows: 50,
@@ -242,13 +242,13 @@ export class RalphLoop extends EventEmitter {
         else reject(new Error(`Claude timed out after ${this.config.claudeTimeoutMinutes}m`))
       }, this.config.claudeTimeoutMinutes * 60_000)
 
-      proc.onData(chunk => {
+      proc.onData((chunk: string) => {
         rawOutput += chunk
         this.emit('output', chunk)
         fs.appendFileSync(outFile, chunk)
       })
 
-      proc.onExit(({ exitCode }) => {
+      proc.onExit(({ exitCode }: { exitCode: number }) => {
         clearTimeout(timer)
         this.ptyProc = null
         if (this.stopped) { resolve(rawOutput); return }

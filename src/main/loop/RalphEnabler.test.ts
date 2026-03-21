@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as fs from 'fs'
 import { detectProjectContext, checkEnabled, enableRalph } from './RalphEnabler'
 
