@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import type { ActivityEvent } from './types/ipc'
 
 // Page components
 import Dashboard from './pages/Dashboard'
@@ -31,7 +32,7 @@ interface TabState {
 
 // Global agent output + activity buffers (survive page navigation)
 export const globalAgentOutputs: Record<string, string> = {}
-const globalActivity: any[] = []
+const globalActivity: ActivityEvent[] = []
 
 export default function App() {
   const [tabs, setTabs] = useState<TabState[]>([])
@@ -105,7 +106,7 @@ export default function App() {
 
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
   const [agentOutputs, setAgentOutputs] = useState<Record<string, string>>(globalAgentOutputs)
-  const [swarmActivity, setSwarmActivity] = useState<any[]>(globalActivity)
+  const [swarmActivity, setSwarmActivity] = useState<ActivityEvent[]>(globalActivity)
   const outputFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const outputDirty = useRef(false)
 
@@ -137,7 +138,7 @@ export default function App() {
         outputDirty.current = true
         scheduleFlush()
       }),
-      sb.swarm.onActivity((_p: string, event: any) => {
+      sb.swarm.onActivity((_p: string, event: ActivityEvent) => {
         const key = `${event.ts}:${event.agentId}:${event.type}`
         const last = globalActivity.length > 0 ? globalActivity[globalActivity.length - 1] : null
         const lastKey = last ? `${last.ts}:${last.agentId}:${last.type}` : ''

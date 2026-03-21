@@ -162,7 +162,7 @@ describe('knowledgeCategoryColor', () => {
 
 describe('Activity tab with activity events', () => {
   test('tab label includes activity count from props', () => {
-    const events = [
+    const events: import('../types/ipc').ActivityEvent[] = [
       { ts: '2026-03-21T10:00:00Z', agentId: 'agent-0', type: 'executing', beadId: 'sb-1', summary: 'Working' },
       { ts: '2026-03-21T10:01:00Z', agentId: 'agent-0', type: 'completed', beadId: 'sb-1', summary: 'Done' },
     ]

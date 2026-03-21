@@ -1,19 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
-
-type KnowledgeCategory = 'pattern' | 'gotcha' | 'dependency' | 'convention' | 'environment' | 'risk'
-type KnowledgeConfidence = 'high' | 'medium' | 'low'
-
-interface KnowledgeEntry {
-  ts: string
-  agentId: string
-  beadId: string
-  category: KnowledgeCategory
-  summary: string
-  detail: string
-  confidence: KnowledgeConfidence
-}
+import type { SwarmStatus, AgentInfo, ActivityEvent, ProgressStats, KnowledgeEntry } from '../types/ipc'
 
 export function knowledgeCategoryColor(cat: string): string {
   switch (cat) {
@@ -98,19 +86,19 @@ interface Props {
   projectPath: string
   agentOutputs: Record<string, string>
   setAgentOutputs: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  activity: any[]
-  setActivity: React.Dispatch<React.SetStateAction<any[]>>
+  activity: ActivityEvent[]
+  setActivity: React.Dispatch<React.SetStateAction<ActivityEvent[]>>
 }
 
 export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, activity, setActivity }: Props) {
-  const [swarmStatus, setSwarmStatus] = useState<any>(null)
-  const [agents, setAgents] = useState<any[]>([])
-  const [stats, setStats] = useState<any>(null)
+  const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [stats, setStats] = useState<ProgressStats | null>(null)
   const [planPhase, setPlanPhase] = useState('')
   const [workerCount, setWorkerCount] = useState(2)
   // Sync local count from actual running count
   useEffect(() => {
-    if (swarmStatus?.workerCount > 0) setWorkerCount(swarmStatus.workerCount)
+    if (swarmStatus && swarmStatus.workerCount > 0) setWorkerCount(swarmStatus.workerCount)
   }, [swarmStatus?.workerCount])
   const [activeTab, setActiveTab] = useState<string>('overview')
   const outputRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -155,7 +143,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   useEffect(() => {
     const poll = () =>
       sb.swarm.buildMonitor.status(projectPath)
-        .then((s: any) => {
+        .then((s: { enabled: boolean; running: boolean; error?: string }) => {
           if (s && !s.error) setBuildMonitor(prev => ({ ...prev, enabled: s.enabled, running: s.running }))
         })
         .catch(() => {})
@@ -166,7 +154,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
   // Live build status events
   useEffect(() => {
-    const unsub = sb.swarm.onBuildStatus((_p: string, status: string, detail?: any) => {
+    const unsub = sb.swarm.onBuildStatus((_p: string, status: string, detail?: { beadCreated?: boolean; beadId?: string; beadTitle?: string }) => {
       setBuildMonitor(prev => ({ ...prev, lastStatus: status as 'passed' | 'failed' }))
       // When a fix bead is auto-created, inject into activity feed
       if (detail?.beadCreated) {
@@ -193,8 +181,8 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   // Live events (agents, stats, plan — output & activity handled by App)
   useEffect(() => {
     const unsubs = [
-      sb.swarm.onAgents((_p: string, a: any) => setAgents(a)),
-      sb.swarm.onGraph((_p: string, s: any) => setStats(s)),
+      sb.swarm.onAgents((_p: string, a: AgentInfo[]) => setAgents(a)),
+      sb.swarm.onGraph((_p: string, s: ProgressStats) => setStats(s)),
       sb.swarm.onPlanPhase((_p: string, phase: string) => setPlanPhase(phase)),
       sb.swarm.onPlanQueue(() => {}),
     ]
@@ -283,7 +271,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   }
 
   type FeedItem =
-    | { kind: 'activity'; ts: string; data: (typeof activity)[number] }
+    | { kind: 'activity'; ts: string; data: ActivityEvent }
     | { kind: 'knowledge'; ts: string; data: KnowledgeEntry }
 
   const mergedFeed = useMemo<FeedItem[]>(() => {
@@ -507,7 +495,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                     </div>
                   )
                 }
-                const e = item.data as (typeof activity)[number]
+                const e = item.data as ActivityEvent
                 return (
                   <div key={`a-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type}`}>
                     <span className="activity-icon">{activityIcon(e.type)}</span>
@@ -574,7 +562,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
           {/* Per-agent live output */}
           {(agents.some(a => a.id === activeTab) || activeTab === 'planner') && (
-            <div className="agent-output" ref={el => { outputRefs.current[activeTab] = el as any }}>
+            <div className="agent-output" ref={el => { outputRefs.current[activeTab] = el }}>
               {agentOutputs[activeTab]
                 ? <AgentOutputRenderer output={agentOutputs[activeTab]} />
                 : <span className="cr-waiting">Loading output...</span>
