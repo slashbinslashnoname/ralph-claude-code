@@ -1503,3 +1503,133 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     expect(closeSpy).toHaveBeenCalled()
   })
 })
+
+describe('AgentCoordinator — activity indexes', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('readActivityForBead returns events filtered by beadId', () => {
+    coord.postActivity({ agentId: 'a0', type: 'claimed', beadId: 'b1', summary: 'claimed b1' })
+    coord.postActivity({ agentId: 'a0', type: 'executing', beadId: 'b2', summary: 'exec b2' })
+    coord.postActivity({ agentId: 'a1', type: 'completed', beadId: 'b1', summary: 'done b1' })
+
+    const b1Events = coord.readActivityForBead('b1')
+    expect(b1Events.length).toBe(2)
+    expect(b1Events.every(e => e.beadId === 'b1')).toBe(true)
+
+    const b2Events = coord.readActivityForBead('b2')
+    expect(b2Events.length).toBe(1)
+    expect(b2Events[0].beadId).toBe('b2')
+  })
+
+  it('readActivityForAgent returns events filtered by agentId', () => {
+    coord.postActivity({ agentId: 'a0', type: 'claimed', beadId: 'b1' })
+    coord.postActivity({ agentId: 'a1', type: 'claimed', beadId: 'b2' })
+    coord.postActivity({ agentId: 'a0', type: 'completed', beadId: 'b1' })
+
+    const a0Events = coord.readActivityForAgent('a0')
+    expect(a0Events.length).toBe(2)
+    expect(a0Events.every(e => e.agentId === 'a0')).toBe(true)
+
+    const a1Events = coord.readActivityForAgent('a1')
+    expect(a1Events.length).toBe(1)
+  })
+
+  it('readActivityForBead returns empty array for unknown bead', () => {
+    expect(coord.readActivityForBead('nonexistent')).toEqual([])
+  })
+
+  it('readActivityForAgent returns empty array for unknown agent', () => {
+    expect(coord.readActivityForAgent('nonexistent')).toEqual([])
+  })
+
+  it('readActivityForBead respects limit parameter', () => {
+    for (let i = 0; i < 10; i++) {
+      coord.postActivity({ agentId: 'a0', type: 'executing', beadId: 'b1', summary: `step ${i}` })
+    }
+
+    const limited = coord.readActivityForBead('b1', 3)
+    expect(limited.length).toBe(3)
+    // Should return the last 3 events
+    expect(limited[0].summary).toBe('step 7')
+    expect(limited[2].summary).toBe('step 9')
+  })
+
+  it('readActivityForAgent respects limit parameter', () => {
+    for (let i = 0; i < 10; i++) {
+      coord.postActivity({ agentId: 'a0', type: 'executing', beadId: `b${i}` })
+    }
+
+    const limited = coord.readActivityForAgent('a0', 5)
+    expect(limited.length).toBe(5)
+  })
+
+  it('per-key index is capped at 200 entries via postActivity', () => {
+    for (let i = 0; i < 210; i++) {
+      coord.postActivity({ agentId: 'a0', type: 'executing', beadId: 'b1', summary: `e${i}` })
+    }
+
+    const events = coord.readActivityForBead('b1', 300)
+    expect(events.length).toBe(200)
+    // Oldest events should have been evicted — first remaining is e10
+    expect(events[0].summary).toBe('e10')
+    expect(events[199].summary).toBe('e209')
+  })
+
+  it('per-agent index is capped at 200 entries via postActivity', () => {
+    for (let i = 0; i < 210; i++) {
+      coord.postActivity({ agentId: 'a0', type: 'executing', beadId: `b${i}` })
+    }
+
+    const events = coord.readActivityForAgent('a0', 300)
+    expect(events.length).toBe(200)
+  })
+
+  it('indexes are populated from disk on construction', () => {
+    // Post some events via the first coordinator
+    coord.postActivity({ agentId: 'a0', type: 'claimed', beadId: 'b1' })
+    coord.postActivity({ agentId: 'a1', type: 'executing', beadId: 'b2' })
+    coord.postActivity({ agentId: 'a0', type: 'completed', beadId: 'b1' })
+
+    // Create a new coordinator that reads from the same disk file
+    const coord2 = new AgentCoordinator(slashbotDir, tmpDir)
+
+    const b1Events = coord2.readActivityForBead('b1')
+    expect(b1Events.length).toBe(2)
+
+    const a1Events = coord2.readActivityForAgent('a1')
+    expect(a1Events.length).toBe(1)
+  })
+
+  it('events without beadId are not indexed by bead but are indexed by agent', () => {
+    coord.postActivity({ agentId: 'a0', type: 'started', summary: 'agent started' })
+
+    expect(coord.readActivityForAgent('a0').length).toBe(1)
+    // No bead key was created
+    expect(coord.readActivityForBead('undefined')).toEqual([])
+  })
+
+  it('rollbackBead uses indexed lookup (same behavior as before)', () => {
+    // Mock bd methods to avoid CLI calls
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    // Simulate a merged event with a commit SHA
+    coord.postActivity({ agentId: 'a0', type: 'merged', beadId: 'b1', commitSha: 'abc123' })
+
+    // rollbackBead should find the SHA from the index
+    const result = coord.rollbackBead('a0', 'b1')
+    // It will fail to revert because abc123 is not a real SHA, but it should attempt it
+    expect(result.revertedShas).toBeDefined()
+    // The error should mention the SHA, proving the index lookup found it
+    if (!result.reverted) {
+      expect(result.error).toContain('abc123')
+    }
+  })
+})

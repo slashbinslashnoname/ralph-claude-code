@@ -18,9 +18,12 @@ export class AgentCoordinator {
   private activityFile: string
   private knowledgeFile: string
   private _activityCache: ActivityEvent[] = []
+  private _activityByBead: Map<string, ActivityEvent[]> = new Map()
+  private _activityByAgent: Map<string, ActivityEvent[]> = new Map()
   private _knowledgeCache: KnowledgeEntry[] = []
   private static readonly CACHE_CAP = 1000
   private static readonly KNOWLEDGE_CAP = 200
+  private static readonly INDEX_CAP = 200
   bd: BdClient
   planningActive = false
 
@@ -43,12 +46,46 @@ export class AgentCoordinator {
         .split('\n')
         .filter(Boolean)
       for (const line of lines) {
-        try { this._activityCache.push(JSON.parse(line)) } catch { /* skip corrupt */ }
+        try {
+          const event: ActivityEvent = JSON.parse(line)
+          this._activityCache.push(event)
+          this._indexActivity(event)
+        } catch { /* skip corrupt */ }
       }
       if (this._activityCache.length > AgentCoordinator.CACHE_CAP) {
         this._activityCache = this._activityCache.slice(-AgentCoordinator.CACHE_CAP)
       }
+      // Cap per-key indexes
+      this._capIndexes()
     } catch { /* file unreadable — start with empty cache */ }
+  }
+
+  /** Add an event to the by-bead and by-agent indexes. */
+  private _indexActivity(event: ActivityEvent): void {
+    if (event.beadId) {
+      let list = this._activityByBead.get(event.beadId)
+      if (!list) { list = []; this._activityByBead.set(event.beadId, list) }
+      list.push(event)
+    }
+    {
+      let list = this._activityByAgent.get(event.agentId)
+      if (!list) { list = []; this._activityByAgent.set(event.agentId, list) }
+      list.push(event)
+    }
+  }
+
+  /** Enforce INDEX_CAP on all index entries. */
+  private _capIndexes(): void {
+    for (const [key, list] of this._activityByBead) {
+      if (list.length > AgentCoordinator.INDEX_CAP) {
+        this._activityByBead.set(key, list.slice(-AgentCoordinator.INDEX_CAP))
+      }
+    }
+    for (const [key, list] of this._activityByAgent) {
+      if (list.length > AgentCoordinator.INDEX_CAP) {
+        this._activityByAgent.set(key, list.slice(-AgentCoordinator.INDEX_CAP))
+      }
+    }
   }
 
   // ── File locks ────────────────────────────────────────────────────────────
@@ -132,6 +169,21 @@ export class AgentCoordinator {
     if (this._activityCache.length > AgentCoordinator.CACHE_CAP) {
       this._activityCache = this._activityCache.slice(-AgentCoordinator.CACHE_CAP)
     }
+    // Populate indexes
+    this._indexActivity(full)
+    // Cap the specific keys that were just appended to
+    if (full.beadId) {
+      const list = this._activityByBead.get(full.beadId)!
+      if (list.length > AgentCoordinator.INDEX_CAP) {
+        this._activityByBead.set(full.beadId, list.slice(-AgentCoordinator.INDEX_CAP))
+      }
+    }
+    {
+      const list = this._activityByAgent.get(full.agentId)!
+      if (list.length > AgentCoordinator.INDEX_CAP) {
+        this._activityByAgent.set(full.agentId, list.slice(-AgentCoordinator.INDEX_CAP))
+      }
+    }
     // Best-effort disk sync
     const line = JSON.stringify(full) + '\n'
     let fd: number | undefined
@@ -149,6 +201,18 @@ export class AgentCoordinator {
 
   readActivity(limit = 50): ActivityEvent[] {
     return this._activityCache.slice(-limit)
+  }
+
+  readActivityForBead(beadId: string, limit = 100): ActivityEvent[] {
+    const list = this._activityByBead.get(beadId)
+    if (!list) return []
+    return list.slice(-limit)
+  }
+
+  readActivityForAgent(agentId: string, limit = 100): ActivityEvent[] {
+    const list = this._activityByAgent.get(agentId)
+    if (!list) return []
+    return list.slice(-limit)
   }
 
   // ── Knowledge log ─────────────────────────────────────────────────────────
@@ -719,8 +783,8 @@ export class AgentCoordinator {
    * reopens the bead, and posts a rollback activity event.
    */
   rollbackBead(agentId: string, beadId: string): { reverted: boolean; revertedShas: string[]; error?: string } {
-    // Collect activity events for this bead
-    const beadEvents = this._activityCache.filter(e => e.beadId === beadId)
+    // Collect activity events for this bead (indexed lookup)
+    const beadEvents = this._activityByBead.get(beadId) ?? []
 
     // Find the index of the last failed/reopened event — we only care about events after it
     let cutoffIdx = -1
