@@ -212,6 +212,20 @@ export class AgentCoordinator {
     agentId: string, beadId: string, branch: string, worktreePath: string,
     opts?: { maxRetries?: number; stoppedFn?: () => boolean; claudeCmd?: string; env?: NodeJS.ProcessEnv }
   ): Promise<{ merged: boolean; filesChanged: string[]; error?: string }> {
+    // Serialize all merge operations — concurrent merges into the same main
+    // working tree corrupt git state (stash/merge/stash-pop race).
+    await this.mergeSemaphore.acquire(120000)
+    try {
+      return await this._mergeWorktreeInner(agentId, beadId, branch, worktreePath, opts)
+    } finally {
+      this.mergeSemaphore.release()
+    }
+  }
+
+  private async _mergeWorktreeInner(
+    agentId: string, beadId: string, branch: string, worktreePath: string,
+    opts?: { maxRetries?: number; stoppedFn?: () => boolean; claudeCmd?: string; env?: NodeJS.ProcessEnv }
+  ): Promise<{ merged: boolean; filesChanged: string[]; error?: string }> {
     const maxRetries = opts?.maxRetries ?? 2
     const stoppedFn = opts?.stoppedFn
 
@@ -307,8 +321,18 @@ export class AgentCoordinator {
         cwd: this.projectPath, timeout: 5000
       }).toString().trim()
 
+      // Verify both refs are resolvable before using .. range syntax.
+      // A freshly created worktree branch may not be resolvable from the main
+      // working tree if git hasn't flushed refs yet.
+      try {
+        execSync(`git rev-parse --verify "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+      } catch {
+        // Branch doesn't resolve — nothing to merge (brand-new worktree, no commits)
+        return { merged: true, filesChanged: [] }
+      }
+
       const diffOutput = execSync(`git log "${currentBranch}..${branch}" --oneline`, {
-        cwd: this.projectPath, timeout: 5000
+        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
       }).toString().trim()
 
       if (!diffOutput) {
@@ -316,7 +340,7 @@ export class AgentCoordinator {
       }
 
       const filesOutput = execSync(`git diff --name-only "${currentBranch}..${branch}"`, {
-        cwd: this.projectPath, timeout: 5000
+        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
       }).toString().trim()
       const filesChanged = filesOutput ? filesOutput.split('\n').filter(Boolean) : []
 
@@ -404,6 +428,7 @@ export class AgentCoordinator {
   // ── Bead operations via bd CLI ─────────────────────────────────────────
 
   private claimSemaphore = new AsyncSemaphore()
+  private mergeSemaphore = new AsyncSemaphore()
 
   async claimBestBead(agentId: string): Promise<Bead | null> {
     await this.claimSemaphore.acquire(5000)
@@ -417,13 +442,13 @@ export class AgentCoordinator {
       }
       // Build sets for dependency resolution
       const closedBeads = this.bd.listByStatus('closed')
-      const openBeads = this.bd.listByStatus('open')
       const doneIds = new Set(closedBeads.map(b => b.id))
 
-      // Count open children per parent (epics/tasks with children are implicitly blocked)
+      // Count non-closed children per parent (epics/tasks with open children should wait)
+      const allBeads = this.bd.listAll()
       const openChildCount = new Map<string, number>()
-      for (const b of openBeads) {
-        if (b.epicId) {
+      for (const b of allBeads) {
+        if (b.epicId && !doneIds.has(b.id)) {
           openChildCount.set(b.epicId, (openChildCount.get(b.epicId) ?? 0) + 1)
         }
       }
