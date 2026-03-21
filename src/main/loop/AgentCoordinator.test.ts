@@ -1303,4 +1303,25 @@ describe('AgentCoordinator — rollbackBead', () => {
     expect(result.revertedShas).toEqual([sha2])
     expect(result.revertedShas).not.toContain(sha1)
   })
+
+  it('releases file locks even when rollback fails due to conflict', () => {
+    fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'original')
+    execSync('git add . && git commit -m "original"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+    const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
+
+    // Modify same file so revert will conflict
+    fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'modified heavily\nwith extra lines\nand more content')
+    execSync('git add . && git commit -m "modify"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
+
+    coord.reserveFiles('agent-0', 'b1', ['conflict.ts'])
+    coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
+
+    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+
+    const result = coord.rollbackBead('agent-0', 'b1')
+    expect(result.reverted).toBe(false)
+    expect(result.error).toContain('Conflict')
+    // Locks should still be released on failure
+    expect(coord.readLocks().length).toBe(0)
+  })
 })

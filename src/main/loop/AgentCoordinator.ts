@@ -738,6 +738,7 @@ export class AgentCoordinator {
           execSync('git revert --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
         } catch { /* ignore — abort may fail if no revert in progress */ }
         const msg = err instanceof Error ? err.message : String(err)
+        this.releaseFiles(agentId, beadId)
         this.postActivity({
           agentId, type: 'rollback', beadId,
           summary: `Rollback failed for [${beadId}]: conflict reverting ${sha} — ${msg.slice(0, 100)}`
