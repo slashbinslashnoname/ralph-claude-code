@@ -1,22 +1,8 @@
 import * as cp from 'child_process'
 import { Bead, BeadStats, BeadType } from '../types'
+import { buildEnv } from './utils'
 
-/** Build a rich PATH that includes common install locations for bd, cargo, homebrew, etc. */
-function richEnv(): NodeJS.ProcessEnv {
-  const home = process.env.HOME ?? ''
-  const extras = [
-    '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
-    '/opt/homebrew/bin', '/opt/homebrew/sbin',
-    `${home}/.local/bin`, `${home}/.cargo/bin`,
-    `${home}/.npm-global/bin`, `${home}/.volta/bin`,
-  ]
-  const merged = [...new Set(
-    [process.env.PATH ?? '', ...extras].flatMap(p => p.split(':').filter(Boolean))
-  )].join(':')
-  return { ...process.env, PATH: merged }
-}
-
-const ENV = richEnv()
+const ENV = buildEnv()
 
 /**
  * Client wrapper around the `bd` CLI (beads-rust).
@@ -75,7 +61,7 @@ export class BdClient {
 
   check(): { available: boolean; reason?: string } {
     try {
-      cp.execSync('which bd', { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+      cp.execSync('which bd', { env: ENV, timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch {
       return { available: false, reason: '`bd` command not found on PATH. Install from: https://github.com/steveyegge/beads' }
     }
