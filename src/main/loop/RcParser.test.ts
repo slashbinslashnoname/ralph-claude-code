@@ -353,6 +353,38 @@ describe('telegram config parsing', () => {
     const result = parseRcFile(tmpDir)
     expect(result.telegram!.enabled).toBe(false)
   })
+
+  it('TELEGRAM_ENABLED only treats literal "true" as truthy', () => {
+    for (const val of ['TRUE', 'True', '1', 'yes', 'on', '']) {
+      writeRc(`TELEGRAM_ENABLED=${val}`)
+      const result = parseRcFile(tmpDir)
+      expect(result.telegram!.enabled).toBe(false)
+    }
+  })
+
+  it('parses each Telegram key individually', () => {
+    writeRc('TELEGRAM_CHAT_ID=-999')
+    expect(parseRcFile(tmpDir).telegram).toEqual({
+      ...DEFAULT_TELEGRAM_CONFIG,
+      chatId: '-999'
+    })
+  })
+
+  it('parses TELEGRAM_NOTIFY_LEVEL individually', () => {
+    writeRc('TELEGRAM_NOTIFY_LEVEL=completions')
+    expect(parseRcFile(tmpDir).telegram).toEqual({
+      ...DEFAULT_TELEGRAM_CONFIG,
+      notifyOn: 'completions'
+    })
+  })
+
+  it('parses TELEGRAM_ENABLED=true individually', () => {
+    writeRc('TELEGRAM_ENABLED=true')
+    expect(parseRcFile(tmpDir).telegram).toEqual({
+      ...DEFAULT_TELEGRAM_CONFIG,
+      enabled: true
+    })
+  })
 })
 
 describe('telegram config validation', () => {
@@ -406,6 +438,53 @@ describe('telegram config validation', () => {
     expect(warnings[0]).toContain('Invalid TELEGRAM_NOTIFY_LEVEL')
     expect(warnings[0]).toContain('important')
     expect(config.telegram!.notifyOn).toBe(DEFAULT_TELEGRAM_CONFIG.notifyOn)
+  })
+
+  it('rejects bot token starting with colon', () => {
+    const { warnings } = validateConfig({
+      telegram: { botToken: ':ABCdef', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_BOT_TOKEN format')
+  })
+
+  it('rejects bot token with letters before colon', () => {
+    const { warnings } = validateConfig({
+      telegram: { botToken: 'abc:def', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_BOT_TOKEN format')
+  })
+
+  it('rejects bot token containing spaces', () => {
+    const { warnings } = validateConfig({
+      telegram: { botToken: '123: abc def', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_BOT_TOKEN format')
+  })
+
+  it('rejects bot token that is just a colon', () => {
+    const { warnings } = validateConfig({
+      telegram: { botToken: ':', chatId: '', enabled: false, notifyOn: 'errors' }
+    })
+    expect(warnings.length).toBe(1)
+    expect(warnings[0]).toContain('Invalid TELEGRAM_BOT_TOKEN format')
+  })
+})
+
+describe('DEFAULT_TELEGRAM_CONFIG', () => {
+  it('has enabled === false', () => {
+    expect(DEFAULT_TELEGRAM_CONFIG.enabled).toBe(false)
+  })
+
+  it('has notifyOn === "errors"', () => {
+    expect(DEFAULT_TELEGRAM_CONFIG.notifyOn).toBe('errors')
+  })
+
+  it('has empty botToken and chatId', () => {
+    expect(DEFAULT_TELEGRAM_CONFIG.botToken).toBe('')
+    expect(DEFAULT_TELEGRAM_CONFIG.chatId).toBe('')
   })
 })
 
