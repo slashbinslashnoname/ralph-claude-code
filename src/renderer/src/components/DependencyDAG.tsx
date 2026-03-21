@@ -22,14 +22,6 @@ interface ViewBox {
   h: number
 }
 
-const STATUS_COLORS: Record<BeadStatus, string> = {
-  pending: '#6b7280',
-  ready: '#3b82f6',
-  claimed: '#f59e0b',
-  done: '#10b981',
-  failed: '#ef4444',
-}
-
 const NODE_WIDTH = 160
 const NODE_HEIGHT = 50
 const PADDING = 20
@@ -357,11 +349,11 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
   const vb = `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`
 
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div className="dag-container">
       <svg
         ref={svgRef}
-        width={width}
-        height={height}
+        width="100%"
+        height="100%"
         viewBox={vb}
         data-testid="dependency-dag"
         onWheel={handleWheel}
@@ -380,7 +372,7 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
             refY="3"
             orient="auto"
           >
-            <polygon points="0 0, 8 3, 0 6" fill="#9ca3af" />
+            <polygon points="0 0, 8 3, 0 6" fill="var(--text-2, #9ca3af)" />
           </marker>
           <marker
             id="arrowhead-critical"
@@ -390,7 +382,7 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
             refY="3"
             orient="auto"
           >
-            <polygon points="0 0, 8 3, 0 6" fill="#f97316" />
+            <polygon points="0 0, 8 3, 0 6" fill="var(--accent, #f97316)" />
           </marker>
         </defs>
 
@@ -401,11 +393,8 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
               <path
                 key={`${edge.source}-${edge.target}`}
                 d={pointsToPath(edge.points)}
-                fill="none"
-                stroke={isCritical ? '#f97316' : '#9ca3af'}
-                strokeWidth={isCritical ? 3 : 1.5}
+                className={isCritical ? 'dag-edge dag-critical' : 'dag-edge'}
                 markerEnd={isCritical ? 'url(#arrowhead-critical)' : 'url(#arrowhead)'}
-                className={isCritical ? 'dag-critical' : undefined}
                 data-testid="dag-edge"
               />
             )
@@ -418,7 +407,7 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
                 height={NODE_HEIGHT}
                 rx={8}
                 ry={8}
-                fill={STATUS_COLORS[node.status]}
+                className="dag-node"
                 opacity={0.9}
                 data-testid="dag-node"
                 data-status={node.status}
@@ -427,8 +416,7 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
                 x={NODE_WIDTH / 2}
                 y={20}
                 textAnchor="middle"
-                fill="white"
-                fontSize={12}
+                className="dag-label"
                 fontWeight="bold"
               >
                 {truncate(node.title, 18)}
@@ -437,7 +425,8 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
                 x={NODE_WIDTH / 2}
                 y={38}
                 textAnchor="middle"
-                fill="rgba(255,255,255,0.7)"
+                className="dag-label"
+                opacity={0.7}
                 fontSize={10}
               >
                 {node.id}
@@ -446,24 +435,14 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
           ))}
         </g>
       </svg>
-      <button
-        onClick={handleReset}
-        data-testid="dag-reset-view"
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          padding: '4px 8px',
-          fontSize: 12,
-          background: '#374151',
-          color: '#e5e7eb',
-          border: '1px solid #4b5563',
-          borderRadius: 4,
-          cursor: 'pointer',
-        }}
-      >
-        Reset View
-      </button>
+      <div className="view-toggle" style={{ position: 'absolute', top: 8, right: 8 }}>
+        <button
+          onClick={handleReset}
+          data-testid="dag-reset-view"
+        >
+          Reset View
+        </button>
+      </div>
     </div>
   )
 }

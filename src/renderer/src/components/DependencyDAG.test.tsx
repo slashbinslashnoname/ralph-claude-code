@@ -75,20 +75,14 @@ describe('DependencyDAG', () => {
     expect(countOccurrences(html, 'data-testid="dag-edge"')).toBe(0)
   })
 
-  test('status colors are applied correctly', () => {
+  test('status colors are applied via CSS class and data-status attribute', () => {
     const statuses: Array<DAGBead['status']> = ['pending', 'ready', 'claimed', 'done', 'failed']
-    const expectedColors: Record<string, string> = {
-      pending: '#6b7280',
-      ready: '#3b82f6',
-      claimed: '#f59e0b',
-      done: '#10b981',
-      failed: '#ef4444',
-    }
 
     for (const status of statuses) {
       const beads: DAGBead[] = [{ id: `s-${status}`, title: status, status, deps: [] }]
       const html = render(beads)
-      expect(html).toContain(expectedColors[status])
+      expect(html).toContain('class="dag-node"')
+      expect(html).toContain(`data-status="${status}"`)
     }
   })
 
@@ -131,16 +125,15 @@ describe('DependencyDAG', () => {
     expect(html).toContain('dag-critical')
   })
 
-  test('critical edges have distinct stroke color', () => {
+  test('critical edges use dag-edge and dag-critical CSS classes', () => {
     const beads: DAGBead[] = [
       { id: 'a', title: 'A', status: 'ready', deps: [] },
       { id: 'b', title: 'B', status: 'pending', deps: ['a'] },
       { id: 'c', title: 'C', status: 'pending', deps: ['b'] },
     ]
     const html = render(beads)
-    // Critical path edges use orange
-    expect(html).toContain('stroke="#f97316"')
-    expect(html).toContain('stroke-width="3"')
+    // Critical path edges get both classes; styling comes from CSS
+    expect(html).toContain('class="dag-edge dag-critical"')
   })
 
   test('no critical class on single node', () => {
