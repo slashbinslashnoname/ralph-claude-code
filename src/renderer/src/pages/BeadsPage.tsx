@@ -35,6 +35,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planPhase, setPlanPhase] = useState('')
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
+  const [rollingBack, setRollingBack] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -97,6 +98,16 @@ export default function BeadsPage({ projectPath }: Props) {
   const reopenBead = useCallback(async (id: string) => {
     await sb.beads.reopen(projectPath, id, 'Back to open')
     refresh()
+  }, [projectPath, refresh])
+
+  const rollbackBead = useCallback(async (id: string) => {
+    setRollingBack(id)
+    try {
+      await sb.beads.rollback(projectPath, id)
+    } finally {
+      setRollingBack(null)
+      refresh()
+    }
   }, [projectPath, refresh])
 
   const changePriority = useCallback(async (id: string, priority: number) => {
@@ -423,7 +434,16 @@ export default function BeadsPage({ projectPath }: Props) {
                 </>
               )}
               {bead.status === 'done' && (
-                <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Reopen</button>
+                <>
+                  <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Reopen</button>
+                  <button
+                    className="btn btn-xs btn-danger"
+                    onClick={() => rollbackBead(bead.id)}
+                    disabled={rollingBack === bead.id}
+                  >
+                    {rollingBack === bead.id ? 'Rolling back\u2026' : 'Rollback'}
+                  </button>
+                </>
               )}
               {bead.status === 'failed' && (
                 <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Retry</button>
