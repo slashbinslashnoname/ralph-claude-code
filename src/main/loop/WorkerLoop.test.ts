@@ -78,8 +78,10 @@ function makeCoordinator() {
     failBead: vi.fn(),
     bd: {
       getState: vi.fn(() => ''),
-      setState: vi.fn()
-    }
+      setState: vi.fn(),
+      show: vi.fn(() => null)
+    },
+    readKnowledge: vi.fn(() => [])
   } as any
 }
 
@@ -486,6 +488,152 @@ describe('WorkerLoop', () => {
       expect(prompt).toContain('Review me')
       expect(prompt).toContain('Fresh-eyes Review')
       expect(prompt).toContain('Do NOT run any `bd` commands')
+    })
+  })
+
+  describe('_buildParentContext', () => {
+    it('returns empty string when bead has no epicId or deps', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildParentContext(makeBead({ epicId: undefined, deps: [] }))
+      expect(result).toBe('')
+    })
+
+    it('includes parent epic info when epicId is set', () => {
+      const coord = makeCoordinator()
+      coord.bd.show.mockImplementation((id: string) => {
+        if (id === 'sb-epic') return makeBead({ id: 'sb-epic', title: 'Big Feature', description: 'The overarching goal', type: 'epic' })
+        return null
+      })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildParentContext(makeBead({ epicId: 'sb-epic' }))
+      expect(result).toContain('Parent epic')
+      expect(result).toContain('sb-epic')
+      expect(result).toContain('Big Feature')
+      expect(result).toContain('The overarching goal')
+    })
+
+    it('handles bd.show failure gracefully for parent', () => {
+      const coord = makeCoordinator()
+      coord.bd.show.mockImplementation(() => { throw new Error('bd failed') })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildParentContext(makeBead({ epicId: 'sb-epic' }))
+      expect(result).toBe('')
+    })
+
+    it('includes dependency beads with status', () => {
+      const coord = makeCoordinator()
+      coord.bd.show.mockImplementation((id: string) => {
+        if (id === 'sb-dep1') return makeBead({ id: 'sb-dep1', title: 'Setup DB', status: 'done' })
+        if (id === 'sb-dep2') return makeBead({ id: 'sb-dep2', title: 'Add auth', status: 'claimed' })
+        return null
+      })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildParentContext(makeBead({ deps: ['sb-dep1', 'sb-dep2'] }))
+      expect(result).toContain('Dependencies')
+      expect(result).toContain('sb-dep1')
+      expect(result).toContain('Setup DB')
+      expect(result).toContain('(done)')
+      expect(result).toContain('sb-dep2')
+      expect(result).toContain('Add auth')
+      expect(result).toContain('(claimed)')
+    })
+
+    it('handles bd.show failure gracefully for deps', () => {
+      const coord = makeCoordinator()
+      coord.bd.show.mockImplementation(() => { throw new Error('bd failed') })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      // Should not throw, just skip
+      const result = (worker as any)._buildParentContext(makeBead({ deps: ['sb-dep1'] }))
+      expect(result).toBe('')
+    })
+  })
+
+  describe('_buildKnowledgeContext', () => {
+    it('returns empty string when no knowledge entries', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildKnowledgeContext()
+      expect(result).toBe('')
+    })
+
+    it('renders knowledge entries with category and summary', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([
+        { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'gotcha', summary: 'Watch out for circular imports', detail: '', confidence: 'high' },
+        { ts: '2026-01-01', agentId: 'agent-2', beadId: 'sb-2', category: 'pattern', summary: 'Use factory pattern for services', detail: '', confidence: 'medium' }
+      ])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildKnowledgeContext()
+      expect(result).toContain('Shared knowledge from other agents')
+      expect(result).toContain('**gotcha**')
+      expect(result).toContain('Watch out for circular imports')
+      expect(result).toContain('**pattern**')
+      expect(result).toContain('[medium]')
+      expect(result).not.toContain('[high]') // high confidence doesn't show tag
+    })
+  })
+
+  describe('parent & knowledge in prompts', () => {
+    it('_buildThinkingPrompt includes parent context when epicId is set', () => {
+      const coord = makeCoordinator()
+      coord.bd.show.mockImplementation((id: string) => {
+        if (id === 'sb-epic') return makeBead({ id: 'sb-epic', title: 'Epic Goal', type: 'epic' })
+        return null
+      })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead({ epicId: 'sb-epic' }))
+      expect(prompt).toContain('Parent epic')
+      expect(prompt).toContain('Epic Goal')
+    })
+
+    it('_buildThinkingPrompt includes knowledge context', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([
+        { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'convention', summary: 'Use camelCase', detail: '', confidence: 'high' }
+      ])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('Shared knowledge')
+      expect(prompt).toContain('Use camelCase')
+    })
+
+    it('_buildExecutePrompt includes parent context', () => {
+      const coord = makeCoordinator()
+      coord.bd.show.mockImplementation((id: string) => {
+        if (id === 'sb-epic') return makeBead({ id: 'sb-epic', title: 'Epic Goal', type: 'epic' })
+        return null
+      })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const prompt = (worker as any)._buildExecutePrompt(makeBead({ epicId: 'sb-epic' }), '')
+      expect(prompt).toContain('Parent epic')
+      expect(prompt).toContain('Epic Goal')
+    })
+
+    it('_buildExecutePrompt includes knowledge context', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([
+        { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'risk', summary: 'Avoid direct fs writes', detail: '', confidence: 'low' }
+      ])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+      expect(prompt).toContain('Shared knowledge')
+      expect(prompt).toContain('Avoid direct fs writes')
+      expect(prompt).toContain('[low]')
+    })
+
+    it('prompts are unchanged when no parent or knowledge exists', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const thinkingPrompt = (worker as any)._buildThinkingPrompt(makeBead())
+      const executePrompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+      expect(thinkingPrompt).not.toContain('Parent epic')
+      expect(thinkingPrompt).not.toContain('Dependencies')
+      expect(thinkingPrompt).not.toContain('Shared knowledge')
+      expect(executePrompt).not.toContain('Parent epic')
+      expect(executePrompt).not.toContain('Shared knowledge')
     })
   })
 })
