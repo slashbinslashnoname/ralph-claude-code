@@ -96,11 +96,7 @@ export default function BeadDetailPanel({ beadId, beadStatus, projectPath }: Pro
         let best: LogEntry | null = null
         let bestDiff = Infinity
         for (const c of candidates) {
-          const logTime = new Date(
-            c.timestamp.replace(/-/g, (_, i) =>
-              i < 10 ? '-' : i < 13 ? 'T' : ':'
-            )
-          ).getTime()
+          const logTime = new Date(c.timestamp).getTime()
           const diff = Math.abs(logTime - evtTime)
           if (diff < bestDiff) { bestDiff = diff; best = c }
         }
@@ -114,11 +110,7 @@ export default function BeadDetailPanel({ beadId, beadStatus, projectPath }: Pro
           (l) => l.agentId === evt.agentId && l.phase === 'review'
         )
         for (const r of reviews) {
-          const logTime = new Date(
-            r.timestamp.replace(/-/g, (_, i) =>
-              i < 10 ? '-' : i < 13 ? 'T' : ':'
-            )
-          ).getTime()
+          const logTime = new Date(r.timestamp).getTime()
           if (
             logTime > evtTime &&
             logTime - evtTime < 30 * 60_000 &&
