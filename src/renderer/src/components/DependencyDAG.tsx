@@ -13,6 +13,8 @@ export interface DAGBead {
 
 interface DependencyDAGProps {
   beads: DAGBead[]
+  selectedBeadId?: string | null
+  onSelectBead?: (beadId: string) => void
 }
 
 interface ViewBox {
@@ -242,7 +244,7 @@ function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen - 1) + '\u2026' : text
 }
 
-export default function DependencyDAG({ beads }: DependencyDAGProps) {
+export default function DependencyDAG({ beads, selectedBeadId, onSelectBead }: DependencyDAGProps) {
   const { nodes, edges, width, height, criticalEdges } = useMemo(
     () => computeLayout(beads),
     [beads],
@@ -401,13 +403,18 @@ export default function DependencyDAG({ beads }: DependencyDAGProps) {
           })}
 
           {nodes.map((node) => (
-            <g key={node.id} transform={`translate(${node.x},${node.y})`}>
+            <g
+              key={node.id}
+              transform={`translate(${node.x},${node.y})`}
+              onClick={(e) => { e.stopPropagation(); onSelectBead?.(node.id) }}
+              style={{ cursor: onSelectBead ? 'pointer' : undefined }}
+            >
               <rect
                 width={NODE_WIDTH}
                 height={NODE_HEIGHT}
                 rx={8}
                 ry={8}
-                className="dag-node"
+                className={`dag-node${selectedBeadId === node.id ? ' dag-node-selected' : ''}`}
                 opacity={0.9}
                 data-testid="dag-node"
                 data-status={node.status}

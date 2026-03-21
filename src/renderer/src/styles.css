@@ -1217,6 +1217,11 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .dag-node[data-status="ready"]  { fill: var(--info); }
 .dag-node[data-status="pending"]{ fill: var(--text-2); }
 
+.dag-node-selected {
+  stroke: var(--accent, #f97316);
+  stroke-width: 3;
+}
+
 .dag-edge {
   stroke: var(--text-2);
   stroke-width: 1.5;

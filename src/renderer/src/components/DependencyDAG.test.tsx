@@ -115,6 +115,46 @@ describe('DependencyDAG', () => {
     expect(html).toContain('cursor:grab')
   })
 
+  test('selected node gets dag-node-selected class', () => {
+    const beads: DAGBead[] = [
+      { id: 'a', title: 'Task A', status: 'ready', deps: [] },
+      { id: 'b', title: 'Task B', status: 'done', deps: ['a'] },
+    ]
+    const html = renderToStaticMarkup(
+      <DependencyDAG beads={beads} selectedBeadId="a" onSelectBead={() => {}} />
+    )
+    expect(html).toContain('dag-node-selected')
+  })
+
+  test('unselected nodes do not get dag-node-selected class', () => {
+    const beads: DAGBead[] = [
+      { id: 'a', title: 'Task A', status: 'ready', deps: [] },
+    ]
+    const html = renderToStaticMarkup(
+      <DependencyDAG beads={beads} selectedBeadId="nonexistent" onSelectBead={() => {}} />
+    )
+    expect(html).not.toContain('dag-node-selected')
+  })
+
+  test('nodes have pointer cursor when onSelectBead is provided', () => {
+    const beads: DAGBead[] = [
+      { id: 'a', title: 'Task A', status: 'ready', deps: [] },
+    ]
+    const html = renderToStaticMarkup(
+      <DependencyDAG beads={beads} onSelectBead={() => {}} />
+    )
+    expect(html).toContain('cursor:pointer')
+  })
+
+  test('renders without selectedBeadId/onSelectBead (backward compat)', () => {
+    const beads: DAGBead[] = [
+      { id: 'a', title: 'Task A', status: 'ready', deps: [] },
+    ]
+    const html = render(beads)
+    expect(html).toContain('data-testid="dag-node"')
+    expect(html).not.toContain('dag-node-selected')
+  })
+
   test('critical edges have dag-critical class', () => {
     const beads: DAGBead[] = [
       { id: 'a', title: 'A', status: 'ready', deps: [] },
@@ -187,6 +227,12 @@ describe('DAG CSS styles', () => {
     expect(css).toContain('.dag-critical')
     expect(css).toMatch(/\.dag-critical\s*\{[^}]*stroke-width:\s*3/)
     expect(css).toMatch(/\.dag-critical\s*\{[^}]*filter:\s*brightness/)
+  })
+
+  test('.dag-node-selected has accent stroke', () => {
+    expect(css).toContain('.dag-node-selected')
+    expect(css).toMatch(/\.dag-node-selected\s*\{[^}]*stroke:\s*var\(--accent/)
+    expect(css).toMatch(/\.dag-node-selected\s*\{[^}]*stroke-width:\s*3/)
   })
 
   test('.dag-label matches bead-title font', () => {
