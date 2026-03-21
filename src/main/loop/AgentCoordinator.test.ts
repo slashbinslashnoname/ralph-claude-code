@@ -1000,3 +1000,113 @@ describe('AgentCoordinator — activity cache', () => {
     expect(events[0].summary).toBe('hello')
   })
 })
+
+describe('AgentCoordinator — knowledge log', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('readKnowledge returns empty array when no entries exist', () => {
+    expect(coord.readKnowledge()).toEqual([])
+  })
+
+  it('postKnowledge adds entry with timestamp and reads it back', () => {
+    const before = new Date().toISOString()
+    coord.postKnowledge({
+      agentId: 'agent-0', beadId: 'b1', category: 'pattern',
+      summary: 'Use factory pattern', detail: 'Factories are used everywhere', confidence: 'high'
+    })
+    const entries = coord.readKnowledge()
+    expect(entries.length).toBe(1)
+    expect(entries[0].ts >= before).toBe(true)
+    expect(entries[0].agentId).toBe('agent-0')
+    expect(entries[0].category).toBe('pattern')
+    expect(entries[0].summary).toBe('Use factory pattern')
+    expect(entries[0].confidence).toBe('high')
+  })
+
+  it('readKnowledge respects the limit parameter', () => {
+    for (let i = 0; i < 10; i++) {
+      coord.postKnowledge({
+        agentId: 'agent-0', beadId: 'b1', category: 'gotcha',
+        summary: `gotcha ${i}`, detail: '', confidence: 'medium'
+      })
+    }
+    const entries = coord.readKnowledge(3)
+    expect(entries.length).toBe(3)
+    expect(entries[0].summary).toBe('gotcha 7')
+    expect(entries[2].summary).toBe('gotcha 9')
+  })
+
+  it('caps cache at 200 entries, keeping newest', () => {
+    for (let i = 0; i < 220; i++) {
+      coord.postKnowledge({
+        agentId: 'agent-0', beadId: 'b1', category: 'convention',
+        summary: `conv-${i}`, detail: '', confidence: 'low'
+      })
+    }
+    const entries = coord.readKnowledge(500)
+    expect(entries.length).toBe(200)
+    expect(entries[0].summary).toBe('conv-20')
+    expect(entries[199].summary).toBe('conv-219')
+  })
+
+  it('seeds cache from existing JSONL on construction', () => {
+    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const entries = [
+      { ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', beadId: 'b1', category: 'risk', summary: 'one', detail: '', confidence: 'high' },
+      { ts: '2026-01-01T00:01:00Z', agentId: 'agent-0', beadId: 'b2', category: 'dependency', summary: 'two', detail: '', confidence: 'medium' },
+    ]
+    fs.writeFileSync(knowledgeFile, entries.map(e => JSON.stringify(e)).join('\n') + '\n')
+
+    const freshCoord = new AgentCoordinator(slashbotDir, tmpDir)
+    const result = freshCoord.readKnowledge(10)
+    expect(result.length).toBe(2)
+    expect(result[0].summary).toBe('one')
+    expect(result[1].summary).toBe('two')
+  })
+
+  it('skips corrupt lines when loading from disk', () => {
+    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const valid = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', beadId: 'b1', category: 'pattern', summary: 'ok', detail: '', confidence: 'high' })
+    fs.writeFileSync(knowledgeFile, valid + '\n' + 'CORRUPT{{{line\n' + valid + '\n')
+
+    const freshCoord = new AgentCoordinator(slashbotDir, tmpDir)
+    const result = freshCoord.readKnowledge()
+    expect(result.length).toBe(2)
+  })
+
+  it('postKnowledge does not throw when disk write fails', () => {
+    ;(coord as any).knowledgeFile = path.join(tmpDir, 'no', 'such', 'dir', 'knowledge.jsonl')
+    expect(() => {
+      coord.postKnowledge({
+        agentId: 'agent-0', beadId: 'b1', category: 'environment',
+        summary: 'cached-only', detail: '', confidence: 'low'
+      })
+    }).not.toThrow()
+    // Still available in cache
+    const entries = coord.readKnowledge()
+    expect(entries.length).toBe(1)
+    expect(entries[0].summary).toBe('cached-only')
+  })
+
+  it('persists to disk as JSONL', () => {
+    coord.postKnowledge({
+      agentId: 'agent-0', beadId: 'b1', category: 'pattern',
+      summary: 'test persist', detail: 'detail here', confidence: 'high'
+    })
+    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    expect(fs.existsSync(knowledgeFile)).toBe(true)
+    const lines = fs.readFileSync(knowledgeFile, 'utf8').split('\n').filter(Boolean)
+    expect(lines.length).toBe(1)
+    const parsed = JSON.parse(lines[0])
+    expect(parsed.summary).toBe('test persist')
+    expect(parsed.detail).toBe('detail here')
+  })
+})
