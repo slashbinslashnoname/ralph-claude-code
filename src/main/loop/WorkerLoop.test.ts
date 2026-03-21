@@ -2013,5 +2013,22 @@ None.
       // Should exit with 'all_beads_done' since no beads found and no open work
       expect(exitEvents[0]).toBe('all_beads_done')
     })
+
+    it('calls _exit even if runStateMachine throws (agent deregisters cleanly)', async () => {
+      process.env.SLASHBOT_STATE_MACHINE = '1'
+      const coord = makeCoordinator()
+      // Make claimBestBead throw to simulate an unexpected state machine error
+      coord.claimBestBead.mockRejectedValue(new Error('unexpected coordinator error'))
+      coord.hasOpenWork.mockReturnValue(true)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const exitEvents: string[] = []
+      worker.on('exit', (reason: string) => exitEvents.push(reason))
+
+      await expect(worker.start()).rejects.toThrow('unexpected coordinator error')
+
+      expect(exitEvents).toHaveLength(1)
+      expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
+    })
   })
 })

@@ -179,9 +179,8 @@ export class WorkerLoop extends EventEmitter {
       await runStateMachine(ctx)
     } finally {
       this._stateMachineCtx = null
+      this._exit(ctx.flags.stopped ? 'stopped' : 'all_beads_done')
     }
-
-    this._exit(ctx.flags.stopped ? 'stopped' : 'all_beads_done')
   }
 
   private async _loop(): Promise<void> {
