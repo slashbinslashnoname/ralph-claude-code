@@ -8,6 +8,7 @@ import {
   validateTitle,
   validateBeadType,
   validateDescription,
+  validateDeps,
   validateProjectPath,
   validateBeadsList,
   validateBeadsCreate,
@@ -174,6 +175,40 @@ describe('validateLabels', () => {
   })
 })
 
+// ── validateDeps ────────────────────────────────────────────────────────────
+
+describe('validateDeps', () => {
+  it('returns undefined for undefined/null', () => {
+    expect(validateDeps(undefined)).toBe(undefined)
+    expect(validateDeps(null)).toBe(undefined)
+  })
+
+  it('accepts valid bead ID arrays', () => {
+    expect(validateDeps(['sb-abc', 'task-42'])).toEqual(['sb-abc', 'task-42'])
+  })
+
+  it('accepts empty array', () => {
+    expect(validateDeps([])).toEqual([])
+  })
+
+  it('rejects non-array', () => {
+    expect(() => validateDeps('not-array')).toThrow(/must be an array/)
+    expect(() => validateDeps(42)).toThrow(/must be an array/)
+  })
+
+  it('rejects array with invalid bead IDs', () => {
+    expect(() => validateDeps(['ok', ';bad'])).toThrow(/invalid characters/)
+  })
+
+  it('includes index in error for invalid ID', () => {
+    expect(() => validateDeps(['ok', ';bad'])).toThrow(/deps\[1\]/)
+  })
+
+  it('rejects array with non-string elements', () => {
+    expect(() => validateDeps([123])).toThrow(/non-empty string/)
+  })
+})
+
 // ── validateTitle ───────────────────────────────────────────────────────────
 
 describe('validateTitle', () => {
@@ -309,6 +344,26 @@ describe('validateBeadsCreate', () => {
   it('throws on non-object opts', () => {
     expect(() => validateBeadsCreate('/proj', 'bad')).toThrow(/must be an object/)
     expect(() => validateBeadsCreate('/proj', null)).toThrow(/must be an object/)
+  })
+
+  it('validates deps array', () => {
+    const r = validateBeadsCreate('/proj', {
+      title: 'With deps',
+      deps: ['sb-abc', 'task-1'],
+    })
+    expect(r.opts.deps).toEqual(['sb-abc', 'task-1'])
+  })
+
+  it('passes through undefined deps', () => {
+    const r = validateBeadsCreate('/proj', { title: 'No deps' })
+    expect(r.opts.deps).toBe(undefined)
+  })
+
+  it('throws on invalid deps', () => {
+    expect(() => validateBeadsCreate('/proj', {
+      title: 'Bad deps',
+      deps: [';injection'],
+    })).toThrow(/invalid characters/)
   })
 })
 
