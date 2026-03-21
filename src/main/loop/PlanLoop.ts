@@ -318,20 +318,17 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
     // Gather batch IDs for dep resolution
     const batchIds = new Set(candidates.map(c => String(c.id ?? '')))
 
-    // Gather live open bead IDs for dep resolution
+    // Gather live bead data for dep resolution and duplicate detection (single call)
     let liveOpenIds = new Set<string>()
-    try {
-      const openBeads = this.coordinator.bd.listAll()
-        .filter((b: { status: string }) => b.status !== 'done')
-      liveOpenIds = new Set(openBeads.map((b: { id: string }) => b.id))
-    } catch { /* ignore */ }
-
-    // Gather closed bead titles for duplicate detection
     let closedTitles = new Set<string>()
     try {
-      const closedBeads = this.coordinator.bd.listAll()
-        .filter((b: { status: string }) => b.status === 'done')
-      closedTitles = new Set(closedBeads.map((b: { title: string }) => b.title.toLowerCase().trim()))
+      const allBeads = this.coordinator.bd.listAll()
+      liveOpenIds = new Set(
+        allBeads.filter((b: { status: string }) => b.status !== 'done').map((b: { id: string }) => b.id)
+      )
+      closedTitles = new Set(
+        allBeads.filter((b: { status: string }) => b.status === 'done').map((b: { title: string }) => b.title.toLowerCase().trim())
+      )
     } catch { /* ignore */ }
 
     // Soft ratio warning for large batches
