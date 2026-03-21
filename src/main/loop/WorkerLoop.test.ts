@@ -42,6 +42,7 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     cbCooldownMinutes: 30,
     autoPush: false,
     maxRetries: 2,
+    autoSplitThreshold: 3,
     ...overrides
   }
 }
