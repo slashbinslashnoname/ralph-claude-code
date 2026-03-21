@@ -1,5 +1,22 @@
 // Shared types for the main process
 
+export type TelegramNotifyLevel = 'all' | 'errors' | 'completions' | 'none'
+
+export interface TelegramConfig {
+  botToken: string
+  chatId: string
+  enabled: boolean
+  notifyOn: TelegramNotifyLevel
+}
+
+export interface TelegramStatus {
+  connected: boolean
+  botUsername: string | null
+  lastError: string | null
+  messagesSent: number
+  messagesReceived: number
+}
+
 export interface RalphConfig {
   maxCallsPerHour: number
   claudeTimeoutMinutes: number
@@ -14,6 +31,7 @@ export interface RalphConfig {
   cbCooldownMinutes: number
   autoPush: boolean
   maxRetries: number
+  telegram?: TelegramConfig
 }
 
 export interface CircuitBreakerSnapshot {
