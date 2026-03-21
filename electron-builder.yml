@@ -1,0 +1,66 @@
+appId: com.slashbot.app
+productName: Slashbot
+copyright: Copyright © 2024
+
+directories:
+  buildResources: resources
+  output: dist-electron
+
+files:
+  - out/**/*
+  - "!out/**/*.map"
+
+asar: true
+asarUnpack:
+  - "node_modules/node-pty/**/*"
+  - "node_modules/chokidar/**/*"
+  - "node_modules/fsevents/**/*"
+
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+  - from: resources/icon.svg
+    to: icon.svg
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  category: Development
+  icon: resources/icon.png
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: resources/icon.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+dmg:
+  writeUpdateInfo: false
