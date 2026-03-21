@@ -74,7 +74,11 @@ function generateRalphrc(ctx: ProjectContext, opts: EnableOptions): string {
     'CB_SAME_ERROR_THRESHOLD=5',
     'CB_PERMISSION_DENIAL_THRESHOLD=2',
     'CB_COOLDOWN_MINUTES=30', '',
-    `TASK_SOURCES="${opts.useBeads ? 'beads' : 'local'}"`, ''
+    `TASK_SOURCES="${opts.useBeads ? 'beads' : 'local'}"`, '',
+    '# Model routing — choose which Claude model to use for each phase',
+    '# CLAUDE_MODEL_THINK=sonnet',
+    '# CLAUDE_MODEL_EXECUTE=opus',
+    '# CLAUDE_MODEL_REVIEW=sonnet', ''
   ].join('\n')
 }
 

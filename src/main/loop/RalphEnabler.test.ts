@@ -258,6 +258,18 @@ describe('RalphEnabler', () => {
       expect(result.error).toBe('Permission denied')
     })
 
+    it('generates ralphrc with commented-out model routing entries', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] })
+      const calls = (fs.writeFileSync as any).mock.calls
+      const slashbotrcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
+      const content = String(slashbotrcCall![1])
+      expect(content).toContain('# Model routing — choose which Claude model to use for each phase')
+      expect(content).toContain('# CLAUDE_MODEL_THINK=sonnet')
+      expect(content).toContain('# CLAUDE_MODEL_EXECUTE=opus')
+      expect(content).toContain('# CLAUDE_MODEL_REVIEW=sonnet')
+    })
+
     it('returns project context in result', () => {
       ;(fs.existsSync as any).mockReturnValue(false)
       const result = enableRalph('/project')
