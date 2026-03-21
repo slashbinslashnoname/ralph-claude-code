@@ -3,6 +3,7 @@ import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../
 import BeadDetailPanel from '../components/BeadDetailPanel'
 import TreeBrowser from '../components/TreeBrowser'
 import type { DAGBead } from '../components/TreeBrowser'
+import KanbanBoard from '../components/KanbanBoard'
 
 const sb = window.slashbot
 
@@ -40,7 +41,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'tree'>('list')
+  const [viewMode, setViewMode] = useState<'list' | 'tree' | 'kanban'>('list')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -265,6 +266,13 @@ export default function BeadsPage({ projectPath }: Props) {
               data-testid="view-mode-list"
             >
               List
+            </button>
+            <button
+              className={`btn btn-xs ${viewMode === 'kanban' ? 'btn-sort-active' : 'btn-ghost'}`}
+              onClick={() => setViewMode('kanban')}
+              data-testid="view-mode-kanban"
+            >
+              Kanban
             </button>
             <button
               className={`btn btn-xs ${viewMode === 'tree' ? 'btn-sort-active' : 'btn-ghost'}`}
@@ -541,6 +549,26 @@ export default function BeadsPage({ projectPath }: Props) {
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {viewMode === 'kanban' && (
+        <>
+          <KanbanBoard
+            beads={beads}
+            onClaimBead={claimBead}
+            onCloseBead={closeBead}
+            onReopenBead={reopenBead}
+            onSelectBead={toggleDetail}
+            selectedBeadId={expandedBead}
+          />
+          {expandedBead && beads.find(b => b.id === expandedBead) && (
+            <BeadDetailPanel
+              beadId={expandedBead}
+              beadStatus={beads.find(b => b.id === expandedBead)!.status}
+              projectPath={projectPath}
+            />
+          )}
         </>
       )}
 
