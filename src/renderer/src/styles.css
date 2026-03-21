@@ -551,11 +551,49 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .bead-spacer { flex: 1; }
 .bead-type-tag { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.5px; }
 
-.bead-logs { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+/* Bead detail panel */
+.bead-detail-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.bead-detail-loading { font-size: 12px; color: var(--text-2); padding: 8px 0; }
+.bead-detail-empty { font-size: 12px; color: var(--text-2); padding: 8px 0; }
+
+.bead-detail-summary { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }
+.bead-detail-field { display: flex; flex-direction: column; gap: 2px; }
+.bead-detail-field.bead-detail-error { flex: 1; min-width: 200px; }
+.bead-detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-2); }
+.bead-detail-value { font-size: 12px; color: var(--text-1); }
+.bead-detail-error .bead-detail-value { color: var(--danger); }
+
+.bead-detail-think { margin-bottom: 10px; padding: 8px 10px; background: var(--bg-2); border-radius: var(--radius); border-left: 3px solid var(--accent); }
+.bead-detail-think .bead-detail-label { margin-bottom: 4px; }
+.bead-detail-think-text { font-size: 12px; color: var(--text-1); line-height: 1.5; margin: 0; white-space: pre-wrap; }
+
+.bead-detail-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+
+/* Timeline */
+.bead-detail-timeline { display: flex; flex-direction: column; gap: 0; padding-left: 4px; }
+.bead-timeline-event { display: flex; gap: 10px; position: relative; padding-bottom: 12px; }
+.bead-timeline-event:last-child { padding-bottom: 0; }
+.bead-timeline-event:last-child .bead-timeline-line { display: none; }
+.bead-timeline-icon { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-2); flex-shrink: 0; z-index: 1; background: var(--bg-card); }
+.bead-timeline-line { position: absolute; left: 9px; top: 22px; bottom: 0; width: 1px; background: var(--border); }
+.bead-timeline-content { flex: 1; min-width: 0; }
+.bead-timeline-header { display: flex; align-items: center; gap: 8px; }
+.bead-timeline-agent { font-size: 11px; color: var(--text-2); }
+.bead-timeline-time { font-size: 11px; color: var(--text-2); margin-left: auto; }
+.bead-timeline-summary { font-size: 12px; color: var(--text-1); margin: 4px 0 0; line-height: 1.4; }
+.bead-timeline-files { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+/* Logs tab (preserved from old bead-logs) */
+.bead-detail-logs-tab { }
+.bead-detail-log-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.bead-detail-log-filename { font-size: 11px; color: var(--text-2); }
+.bead-detail-log-size { font-size: 11px; color: var(--text-2); }
 .bead-log-list { display: flex; flex-direction: column; gap: 4px; }
 .bead-log-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; font-size: 12px; }
 .bead-log-item:hover { background: var(--bg-card-hover); }
 .bead-log-content { font-size: 11px; line-height: 1.5; max-height: 300px; overflow-y: auto; background: var(--bg-2); padding: 10px; border-radius: var(--radius); white-space: pre-wrap; word-break: break-all; }
+
+.tag-branch { font-family: var(--font); font-size: 10px; }
 
 .btn-xs { padding: 3px 8px; font-size: 11px; }
 
