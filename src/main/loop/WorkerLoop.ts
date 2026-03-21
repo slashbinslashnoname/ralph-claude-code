@@ -183,18 +183,19 @@ export class WorkerLoop extends EventEmitter {
           if (detectApiLimit(stripAnsi(thinkingOutput))) {
             this._log('WARN', `[${this.agentId}] API limit detected during thinking`)
             apiLimited = true
-            return
+            // Fall through to finally → merge, then Phase 5 handles rate limit
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('WARN', `[${this.agentId}] Thinking phase failed (continuing): ${msg}`)
         }
 
-        if (this.stopped) return // will still run finally → merge
-
-        // Pause gate: wait between thinking and executing
-        if (await this._waitIfPaused()) return
-
+        // Skip remaining phases if stopped, paused, or rate-limited
+        if (this.stopped || apiLimited) {
+          // Fall through to finally → merge, then Phase 5 handles it
+        } else if (await this._waitIfPaused()) {
+          // Paused and then stopped — fall through
+        } else {
         // ── Phase 2: Execute — implement the bead ───────────────────
         this._setPhase('executing', bead.id, bead.title)
         this._log('INFO', `[${this.agentId}] Executing bead…`)
@@ -209,28 +210,31 @@ export class WorkerLoop extends EventEmitter {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('ERROR', `[${this.agentId}] Execute failed: ${msg}`)
           executeFailed = true
-          return // will still run finally → merge whatever was done
+          // Fall through to finally → merge, then Phase 5 handles retry/fail
         }
 
-        if (this.stopped) return
-
-        // Pause gate: wait between executing and reviewing
-        if (await this._waitIfPaused()) return
-
-        if (detectApiLimit(stripAnsi(executeOutput))) {
-          this._log('WARN', `[${this.agentId}] API limit detected`)
-          apiLimited = true
-          return // will still run finally → merge
+        if (!executeFailed) {
+          if (this.stopped) {
+            // Fall through to finally → merge, then Phase 5 handles reopen
+          } else if (detectApiLimit(stripAnsi(executeOutput))) {
+            this._log('WARN', `[${this.agentId}] API limit detected`)
+            apiLimited = true
+            // Fall through to finally → merge, then Phase 5 handles rate limit
+          } else {
+            // Pause gate: wait between executing and reviewing
+            if (!(await this._waitIfPaused())) {
+              // ── Phase 3: Review — fresh-eyes pass ───────────────────────
+              this._setPhase('reviewing', bead.id, bead.title)
+              this._log('INFO', `[${this.agentId}] Review: fresh-eyes pass…`)
+              try {
+                await this._runClaude(this._buildReviewPrompt(bead), 'review', workDir)
+              } catch (err) {
+                this._log('WARN', `[${this.agentId}] Review failed (non-fatal): ${err instanceof Error ? err.message : err}`)
+              }
+            }
+          }
         }
-
-        // ── Phase 3: Review — fresh-eyes pass ───────────────────────
-        this._setPhase('reviewing', bead.id, bead.title)
-        this._log('INFO', `[${this.agentId}] Review: fresh-eyes pass…`)
-        try {
-          await this._runClaude(this._buildReviewPrompt(bead), 'review', workDir)
-        } catch (err) {
-          this._log('WARN', `[${this.agentId}] Review failed (non-fatal): ${err instanceof Error ? err.message : err}`)
-        }
+        } // close else block from Phase 1 guard
       } finally {
         // ── Phase 4: Always merge worktree back ─────────────────────
         if (wt) {
