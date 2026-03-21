@@ -294,12 +294,11 @@ describe('BuildMonitor', () => {
     monitor.stop()
   })
 
-  it('uses stderr for error output, falls back to stdout', () => {
+  it('uses stderr for error output when present', () => {
     const bd = makeBd()
     const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
 
     monitor.start()
-    // stderr present — should use it
     simulateExec(new Error('fail'), 'stdout stuff', 'stderr error')
     vi.advanceTimersByTime(1_000)
     simulateExec(new Error('fail'), 'stdout stuff', 'stderr error')
@@ -308,6 +307,39 @@ describe('BuildMonitor', () => {
 
     const desc = (bd.create as ReturnType<typeof vi.fn>).mock.calls[0][0].description as string
     expect(desc).toContain('stderr error')
+    expect(desc).not.toContain('stdout stuff')
+    monitor.stop()
+  })
+
+  it('ignores exec result if stopped mid-check', () => {
+    const bd = makeBd()
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+    const statuses: string[] = []
+    monitor.on('status', (s: string) => statuses.push(s))
+
+    monitor.start()
+    expect(mockExec).toHaveBeenCalledTimes(1)
+    // Stop before the exec callback fires
+    monitor.stop()
+    // Now the callback fires — should be ignored
+    simulateExec(new Error('fail'), '', 'build error')
+    expect(statuses).toHaveLength(0)
+    expect(bd.create).not.toHaveBeenCalled()
+  })
+
+  it('falls back to stdout when stderr is empty', () => {
+    const bd = makeBd()
+    const monitor = new BuildMonitor(makeConfig('npm test', 1), makeCoordinator(), bd)
+
+    monitor.start()
+    simulateExec(new Error('fail'), 'stdout error output', '')
+    vi.advanceTimersByTime(1_000)
+    simulateExec(new Error('fail'), 'stdout error output', '')
+    vi.advanceTimersByTime(1_000)
+    simulateExec(new Error('fail'), 'stdout error output', '')
+
+    const desc = (bd.create as ReturnType<typeof vi.fn>).mock.calls[0][0].description as string
+    expect(desc).toContain('stdout error output')
     monitor.stop()
   })
 })
