@@ -631,7 +631,7 @@ export class AgentCoordinator {
 
   /** Commit any pending changes and push to remote. Returns the commit SHA or null. */
   async commitAndPush(agentId: string, beadId: string, autoPush = true): Promise<string | null> {
-    await this.commitSemaphore.acquire(15000)
+    await this.commitSemaphore.acquire(60000)
     try {
       try {
         // Stage everything (merged code + .beads db changes)
