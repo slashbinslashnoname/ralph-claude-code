@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execSync, spawn } from 'child_process'
 import { BdClient } from './BdClient'
-import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent } from '../types'
+import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
 
 /** Write to a temp file then rename — atomic on POSIX (prevents corruption on crash). */
@@ -16,8 +16,11 @@ export class AgentCoordinator {
   private lockFile: string
   private agentsFile: string
   private activityFile: string
+  private knowledgeFile: string
   private _activityCache: ActivityEvent[] = []
+  private _knowledgeCache: KnowledgeEntry[] = []
   private static readonly CACHE_CAP = 1000
+  private static readonly KNOWLEDGE_CAP = 200
   bd: BdClient
   planningActive = false
 
@@ -25,9 +28,11 @@ export class AgentCoordinator {
     this.lockFile = path.join(slashbotDir, 'file_locks.json')
     this.agentsFile = path.join(slashbotDir, 'agents.json')
     this.activityFile = path.join(slashbotDir, 'activity.jsonl')
+    this.knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
     fs.mkdirSync(slashbotDir, { recursive: true })
     this.bd = new BdClient(projectPath)
     this._loadActivityFromDisk()
+    this._loadKnowledgeFromDisk()
   }
 
   private _loadActivityFromDisk(): void {
@@ -144,6 +149,50 @@ export class AgentCoordinator {
 
   readActivity(limit = 50): ActivityEvent[] {
     return this._activityCache.slice(-limit)
+  }
+
+  // ── Knowledge log ─────────────────────────────────────────────────────────
+
+  private _loadKnowledgeFromDisk(): void {
+    if (!fs.existsSync(this.knowledgeFile)) return
+    try {
+      const lines = fs
+        .readFileSync(this.knowledgeFile, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+      for (const line of lines) {
+        try { this._knowledgeCache.push(JSON.parse(line)) } catch { /* skip corrupt */ }
+      }
+      if (this._knowledgeCache.length > AgentCoordinator.KNOWLEDGE_CAP) {
+        this._knowledgeCache = this._knowledgeCache.slice(-AgentCoordinator.KNOWLEDGE_CAP)
+      }
+    } catch { /* file unreadable — start with empty cache */ }
+  }
+
+  postKnowledge(entry: Omit<KnowledgeEntry, 'ts'>): void {
+    const full: KnowledgeEntry = { ts: new Date().toISOString(), ...entry } as KnowledgeEntry
+    // Append to in-memory cache
+    this._knowledgeCache.push(full)
+    if (this._knowledgeCache.length > AgentCoordinator.KNOWLEDGE_CAP) {
+      this._knowledgeCache = this._knowledgeCache.slice(-AgentCoordinator.KNOWLEDGE_CAP)
+    }
+    // Best-effort disk sync
+    const line = JSON.stringify(full) + '\n'
+    let fd: number | undefined
+    try {
+      fd = fs.openSync(this.knowledgeFile, 'a') // O_WRONLY | O_APPEND | O_CREAT
+      fs.writeSync(fd, line)
+    } catch {
+      // Knowledge log is best-effort; the bead DB is the source of truth.
+    } finally {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd) } catch { /* avoid fd leak */ }
+      }
+    }
+  }
+
+  readKnowledge(limit = 50): KnowledgeEntry[] {
+    return this._knowledgeCache.slice(-limit)
   }
 
   // ── Git worktree management ─────────────────────────────────────────────
