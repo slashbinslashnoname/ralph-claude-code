@@ -516,7 +516,7 @@ export function registerIpc(
     swarm.on('graph', (stats: unknown) => broadcast('swarm:graph', projectPath, stats, null))
     swarm.on('agents', (agents: unknown) => broadcast('swarm:agents', projectPath, agents))
     swarm.on('activity', (event: unknown) => broadcast('swarm:activity', projectPath, event))
-    swarm.on('planPhase', (phase: string) => broadcast('swarm:planPhase', projectPath, phase))
+    swarm.on('planPhase', (phase: string, request: string) => broadcast('swarm:planPhase', projectPath, phase, request))
     swarm.on('planQueue', (queue: unknown) => broadcast('swarm:planQueue', projectPath, queue))
     swarm.on('stopped', () => {
       swarms.delete(projectPath)
@@ -671,10 +671,11 @@ export function registerIpc(
     try {
       const v = validateSwarmStatus(projectPath)
       const swarm = swarms.get(v.projectPath)
-      if (!swarm) return { running: false, planning: false, workerCount: 0, agents: [], stats: null, sessionStartedAt: null, stoppingGracefully: false }
+      if (!swarm) return { running: false, planning: false, planRequest: null, workerCount: 0, agents: [], stats: null, sessionStartedAt: null, stoppingGracefully: false }
       return {
         running: swarm.workerCount() > 0,
         planning: swarm.isPlanning(),
+        planRequest: swarm.getPlanRequest(),
         workerCount: swarm.workerCount(),
         agents: swarm.getAgents(),
         stats: swarm.getStats(),

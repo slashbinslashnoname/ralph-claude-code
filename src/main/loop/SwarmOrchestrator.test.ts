@@ -70,11 +70,14 @@ describe('SwarmOrchestrator.shutdown()', () => {
     expect(true).toBe(true)
   })
 
-  it('clears plan queue during shutdown', async () => {
+  it('clears plan queue and currentPlanRequest during shutdown', async () => {
+    ;(orch as any).planning = true
+    ;(orch as any).currentPlanRequest = 'Build something'
     orch.on('log', () => {}) // swallow log events
     await orch.shutdown()
     expect(orch.getPlanQueue()).toEqual([])
     expect(orch.isPlanning()).toBe(false)
+    expect(orch.getPlanRequest()).toBeNull()
   })
 
   it('blocks startWorkers during shutdown', async () => {
@@ -259,12 +262,15 @@ describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
     expect(orch.coordinator.getAgents().length).toBe(0)
   })
 
-  it('stopAll clears plan queue', () => {
-    // Directly set queue to avoid triggering async _drainQueue
+  it('stopAll clears plan queue and currentPlanRequest', () => {
+    // Directly set queue and planning state to avoid triggering async _drainQueue
     ;(orch as any).planQueue = [{ id: 'plan-1', request: 'A' }]
+    ;(orch as any).planning = true
+    ;(orch as any).currentPlanRequest = 'Build a widget'
     orch.stopAll()
     expect(orch.getPlanQueue()).toEqual([])
     expect(orch.isPlanning()).toBe(false)
+    expect(orch.getPlanRequest()).toBeNull()
   })
 
   it('stopAll emits stopped event', () => {
@@ -355,6 +361,10 @@ describe('SwarmOrchestrator — status queries', () => {
 
   it('isPlanning returns false initially', () => {
     expect(orch.isPlanning()).toBe(false)
+  })
+
+  it('getPlanRequest returns null initially', () => {
+    expect(orch.getPlanRequest()).toBeNull()
   })
 
   it('isShuttingDown returns false initially', () => {
@@ -530,5 +540,47 @@ describe('SwarmOrchestrator — build monitor integration', () => {
       ['passed', undefined],
       ['bead-created', { id: 'b-123', title: 'test bead' }],
     ])
+  })
+})
+
+describe('SwarmOrchestrator — plan request tracking', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpProject()
+    orch = new SwarmOrchestrator(tmpDir)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('getPlanRequest returns the current request during planning', () => {
+    // Simulate planning state without triggering _drainQueue
+    ;(orch as any).planning = true
+    ;(orch as any).currentPlanRequest = 'Build a login page'
+    expect(orch.getPlanRequest()).toBe('Build a login page')
+  })
+
+  it('getPlanRequest returns null when not planning', () => {
+    expect(orch.getPlanRequest()).toBeNull()
+  })
+
+  it('planPhase event includes the request string', () => {
+    const events: Array<[string, string]> = []
+    orch.on('planPhase', (phase: string, request: string) => events.push([phase, request]))
+
+    // Simulate what _drainQueue does: set up state and emit planPhase with request
+    const request = 'Add dark mode support'
+    ;(orch as any).currentPlanRequest = request
+    orch.emit('planPhase', 'analyzing', request)
+
+    expect(events).toEqual([['analyzing', 'Add dark mode support']])
+  })
+
+  it('stopAll clears currentPlanRequest', () => {
+    ;(orch as any).planning = true
+    ;(orch as any).currentPlanRequest = 'Some plan'
+    orch.stopAll()
+    expect(orch.getPlanRequest()).toBeNull()
   })
 })

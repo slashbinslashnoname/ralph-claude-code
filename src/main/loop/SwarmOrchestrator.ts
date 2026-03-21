@@ -17,6 +17,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private activityPollTimer: ReturnType<typeof setInterval> | null = null
   private lastActivityIndex = 0
   private planQueue: PlanQueueItem[] = []
+  private currentPlanRequest: string | null = null
   coordinator: AgentCoordinator
   private slashbotDir: string
   private logDir: string
@@ -62,6 +63,7 @@ export class SwarmOrchestrator extends EventEmitter {
     const next = this.planQueue.shift()!
     this._broadcastQueue()
     this.planning = true
+    this.currentPlanRequest = next.request
     this.coordinator.planningActive = true
     const config = loadConfig(this.projectPath)
     this._log('INFO', `━━ Swarm: running plan [${next.id}] ━━`)
@@ -72,9 +74,10 @@ export class SwarmOrchestrator extends EventEmitter {
       this._bufferOutput('planner', chunk)
       this.emit('output', 'planner', chunk)
     })
-    this.planner.on('phase', (phase: string) => this.emit('planPhase', phase))
+    this.planner.on('phase', (phase: string) => this.emit('planPhase', phase, next.request))
     this.planner.on('done', (beadCount: number) => {
       this.planning = false
+      this.currentPlanRequest = null
       this.coordinator.planningActive = false
       this._log('SUCCESS', `Plan [${next.id}] complete — ${beadCount} beads created`)
       this._broadcastGraph()
@@ -82,6 +85,7 @@ export class SwarmOrchestrator extends EventEmitter {
     })
     this.planner.on('error', (msg: string) => {
       this.planning = false
+      this.currentPlanRequest = null
       this.coordinator.planningActive = false
       this._log('ERROR', `Plan [${next.id}] failed: ${msg}`)
       this._drainQueue()
@@ -219,6 +223,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this.planner?.stop()
     this.planner = null
     this.planning = false
+    this.currentPlanRequest = null
     this.planQueue = []
     this._broadcastQueue()
     this.stopWorkers()
@@ -237,6 +242,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this.planner?.stop()
     this.planner = null
     this.planning = false
+    this.currentPlanRequest = null
     this.planQueue = []
     this._broadcastQueue()
 
@@ -275,6 +281,7 @@ export class SwarmOrchestrator extends EventEmitter {
   isShuttingDown(): boolean { return this.shuttingDown }
   workerCount(): number { return this.workers.size }
   isPlanning(): boolean { return this.planning }
+  getPlanRequest(): string | null { return this.currentPlanRequest }
   getAgents(): AgentInfo[] { return this.coordinator.getAgents() }
   getActivity(limit = 50): ActivityEvent[] { return this.coordinator.readActivity(limit) }
   getKnowledge(limit = 50): KnowledgeEntry[] { return this.coordinator.readKnowledge(limit) }

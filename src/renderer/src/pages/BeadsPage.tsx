@@ -35,6 +35,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planPrompt, setPlanPrompt] = useState('')
   const [isPlanning, setIsPlanning] = useState(false)
   const [planPhase, setPlanPhase] = useState('')
+  const [planRequest, setPlanRequest] = useState('')
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
@@ -55,16 +56,20 @@ export default function BeadsPage({ projectPath }: Props) {
 
   // Plan inject listeners
   useEffect(() => {
-    sb.swarm.status(projectPath).then(s => setIsPlanning(s.planning ?? false))
+    sb.swarm.status(projectPath).then(s => {
+      setIsPlanning(s.planning ?? false)
+      setPlanRequest(s.planRequest ?? '')
+    })
     sb.swarm.queue(projectPath).then(setPlanQueue)
     const unsubs = [
-      sb.swarm.onPlanPhase((_p: string, phase: string) => {
+      sb.swarm.onPlanPhase((_p: string, phase: string, request: string) => {
         setPlanPhase(phase)
+        setPlanRequest(request ?? '')
         setIsPlanning(phase !== '' && phase !== 'done')
-        if (phase === 'done') setTimeout(refresh, 1000)
+        if (phase === 'done') { setPlanRequest(''); setTimeout(refresh, 1000) }
       }),
       sb.swarm.onPlanQueue((_p: string, q: any[]) => setPlanQueue(q)),
-      sb.swarm.onStopped(() => { setIsPlanning(false); refresh() }),
+      sb.swarm.onStopped(() => { setIsPlanning(false); setPlanRequest(''); refresh() }),
     ]
     return () => unsubs.forEach(u => u())
   }, [projectPath])
@@ -300,7 +305,7 @@ export default function BeadsPage({ projectPath }: Props) {
             {isPlanning && (
               <div className="queue-item queue-item-active">
                 <span className="badge badge-warning animate-pulse">{planPhase || 'planning'}</span>
-                <span>Running...</span>
+                <span title={planRequest}>{planRequest ? (planRequest.length > 80 ? planRequest.slice(0, 80) + '...' : planRequest) : 'Running...'}</span>
               </div>
             )}
             {planQueue.map((q, i) => (
