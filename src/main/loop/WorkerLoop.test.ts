@@ -86,7 +86,8 @@ function makeCoordinator() {
       close: vi.fn(),
       assignTo: vi.fn(() => true)
     },
-    readKnowledge: vi.fn(() => [])
+    readKnowledge: vi.fn(() => []),
+    postKnowledge: vi.fn()
   } as any
 }
 
@@ -653,24 +654,166 @@ describe('WorkerLoop', () => {
       const coord = makeCoordinator()
       coord.readKnowledge.mockReturnValue([])
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      const result = (worker as any)._buildKnowledgeContext()
+      const result = (worker as any)._buildKnowledgeContext('sb-abc')
       expect(result).toBe('')
     })
 
-    it('renders knowledge entries with category and summary', () => {
+    it('renders knowledge entries with category and summary under Collective Knowledge heading', () => {
       const coord = makeCoordinator()
       coord.readKnowledge.mockReturnValue([
         { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'gotcha', summary: 'Watch out for circular imports', detail: '', confidence: 'high' },
         { ts: '2026-01-01', agentId: 'agent-2', beadId: 'sb-2', category: 'pattern', summary: 'Use factory pattern for services', detail: '', confidence: 'medium' }
       ])
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
-      const result = (worker as any)._buildKnowledgeContext()
-      expect(result).toContain('Shared knowledge from other agents')
+      const result = (worker as any)._buildKnowledgeContext('sb-abc')
+      expect(result).toContain('Collective Knowledge')
       expect(result).toContain('**gotcha**')
       expect(result).toContain('Watch out for circular imports')
       expect(result).toContain('**pattern**')
       expect(result).toContain('[medium]')
       expect(result).not.toContain('[high]') // high confidence doesn't show tag
+    })
+
+    it('filters out self-entries for the current bead', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([
+        { ts: '2026-01-01', agentId: 'agent-0', beadId: 'sb-abc', category: 'gotcha', summary: 'Self entry same bead', detail: '', confidence: 'high' },
+        { ts: '2026-01-01', agentId: 'agent-0', beadId: 'sb-other', category: 'pattern', summary: 'Self entry different bead', detail: '', confidence: 'high' },
+        { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-abc', category: 'risk', summary: 'Other agent same bead', detail: '', confidence: 'high' }
+      ])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildKnowledgeContext('sb-abc')
+      expect(result).not.toContain('Self entry same bead')
+      expect(result).toContain('Self entry different bead')
+      expect(result).toContain('Other agent same bead')
+    })
+
+    it('caps entries at 20', () => {
+      const coord = makeCoordinator()
+      const entries = Array.from({ length: 30 }, (_, i) => ({
+        ts: '2026-01-01', agentId: 'agent-1', beadId: `sb-${i}`,
+        category: 'pattern', summary: `Entry ${i}`, detail: '', confidence: 'high'
+      }))
+      coord.readKnowledge.mockReturnValue(entries)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const result = (worker as any)._buildKnowledgeContext('sb-abc')
+      // Should contain entries 10-29 (last 20)
+      const bulletCount = (result.match(/^- \*\*/gm) || []).length
+      expect(bulletCount).toBe(20)
+    })
+  })
+
+  describe('_buildThinkingPrompt Discoveries section', () => {
+    it('includes ### Discoveries section with format instructions', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('### Discoveries')
+      expect(prompt).toContain('**category** (confidence)')
+      expect(prompt).toContain('None.')
+    })
+
+    it('Discoveries section appears before Split Analysis', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      const discoveriesIdx = prompt.indexOf('### Discoveries')
+      const splitIdx = prompt.indexOf('### Split Analysis')
+      expect(discoveriesIdx).toBeGreaterThan(-1)
+      expect(splitIdx).toBeGreaterThan(discoveriesIdx)
+    })
+
+    it('includes ## Collective Knowledge when entries exist', () => {
+      const coord = makeCoordinator()
+      coord.readKnowledge.mockReturnValue([
+        { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'convention', summary: 'Use snake_case', detail: '', confidence: 'high' }
+      ])
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('## Collective Knowledge')
+      expect(prompt).toContain('Use snake_case')
+    })
+  })
+
+  describe('_extractKnowledge', () => {
+    it('extracts valid discoveries and posts them', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const input = [
+        '### Discoveries',
+        '- **gotcha** (high): Circular imports in auth module',
+        '- **pattern** (medium): Services follow factory pattern',
+        '',
+        '### Split Analysis'
+      ].join('\n')
+      worker._extractKnowledge(input, 'sb-abc')
+      expect(coord.postKnowledge).toHaveBeenCalledTimes(2)
+      expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0', beadId: 'sb-abc', category: 'gotcha',
+        summary: 'Circular imports in auth module', confidence: 'high'
+      }))
+      expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0', beadId: 'sb-abc', category: 'pattern',
+        summary: 'Services follow factory pattern', confidence: 'medium'
+      }))
+    })
+
+    it('does nothing when "None." is the response', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const input = '### Discoveries\nNone.\n\n### Split Analysis'
+      worker._extractKnowledge(input, 'sb-abc')
+      expect(coord.postKnowledge).not.toHaveBeenCalled()
+    })
+
+    it('does nothing when ### Discoveries section is missing', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      worker._extractKnowledge('### Understanding\nSome analysis', 'sb-abc')
+      expect(coord.postKnowledge).not.toHaveBeenCalled()
+    })
+
+    it('skips entries with invalid category', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const input = '### Discoveries\n- **invalid** (high): Some finding'
+      worker._extractKnowledge(input, 'sb-abc')
+      expect(coord.postKnowledge).not.toHaveBeenCalled()
+    })
+
+    it('skips entries with invalid confidence', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const input = '### Discoveries\n- **gotcha** (extreme): Some finding'
+      worker._extractKnowledge(input, 'sb-abc')
+      expect(coord.postKnowledge).not.toHaveBeenCalled()
+    })
+
+    it('processes good entries and skips malformed ones', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const input = [
+        '### Discoveries',
+        '- **gotcha** (high): Valid finding',
+        '- malformed entry without proper format',
+        '- **risk** (low): Another valid finding'
+      ].join('\n')
+      worker._extractKnowledge(input, 'sb-abc')
+      expect(coord.postKnowledge).toHaveBeenCalledTimes(2)
+    })
+
+    it('stops parsing at next heading', () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const input = [
+        '### Discoveries',
+        '- **gotcha** (high): Before heading',
+        '### Split Analysis',
+        '- **risk** (high): After heading'
+      ].join('\n')
+      worker._extractKnowledge(input, 'sb-abc')
+      expect(coord.postKnowledge).toHaveBeenCalledTimes(1)
+      expect(coord.postKnowledge).toHaveBeenCalledWith(expect.objectContaining({
+        summary: 'Before heading'
+      }))
     })
   })
 
@@ -815,7 +958,7 @@ describe('WorkerLoop', () => {
       ])
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
-      expect(prompt).toContain('Shared knowledge')
+      expect(prompt).toContain('Collective Knowledge')
       expect(prompt).toContain('Use camelCase')
     })
 
@@ -838,7 +981,7 @@ describe('WorkerLoop', () => {
       ])
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
       const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
-      expect(prompt).toContain('Shared knowledge')
+      expect(prompt).toContain('Collective Knowledge')
       expect(prompt).toContain('Avoid direct fs writes')
       expect(prompt).toContain('[low]')
     })
@@ -851,9 +994,9 @@ describe('WorkerLoop', () => {
       const executePrompt = (worker as any)._buildExecutePrompt(makeBead(), '')
       expect(thinkingPrompt).not.toContain('Parent epic')
       expect(thinkingPrompt).not.toContain('Dependencies')
-      expect(thinkingPrompt).not.toContain('Shared knowledge')
+      expect(thinkingPrompt).not.toContain('Collective Knowledge')
       expect(executePrompt).not.toContain('Parent epic')
-      expect(executePrompt).not.toContain('Shared knowledge')
+      expect(executePrompt).not.toContain('Collective Knowledge')
     })
   })
 
