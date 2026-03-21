@@ -1,9 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
+import * as cp from 'child_process'
 import { WorkerLoop } from './WorkerLoop'
 import { RalphConfig, Bead } from '../types'
 
-import * as cp from 'child_process'
+vi.mock('fs', async (importOriginal) => {
+  const orig = await importOriginal<typeof fs>()
+  return {
+    ...orig,
+    existsSync: vi.fn(),
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    appendFileSync: vi.fn(),
+    readFileSync: vi.fn()
+  }
+})
+
+vi.mock('child_process', async (importOriginal) => {
+  const orig = await importOriginal<typeof cp>()
+  return {
+    ...orig,
+    spawn: vi.fn(),
+    execSync: vi.fn()
+  }
+})
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
@@ -63,13 +83,13 @@ function makeCoordinator() {
 describe('WorkerLoop', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(fs, 'existsSync').mockReturnValue(false)
-    vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined as any)
-    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
-    vi.spyOn(fs, 'appendFileSync').mockReturnValue(undefined)
-    vi.spyOn(fs, 'readFileSync').mockReturnValue('')
-    vi.spyOn(cp, 'spawn').mockReturnValue(undefined as any)
-    vi.spyOn(cp, 'execSync').mockReturnValue(Buffer.from('/usr/local/bin/claude'))
+    vi.mocked(fs.existsSync).mockReturnValue(false)
+    vi.mocked(fs.mkdirSync).mockReturnValue(undefined as any)
+    vi.mocked(fs.writeFileSync).mockReturnValue(undefined)
+    vi.mocked(fs.appendFileSync).mockReturnValue(undefined)
+    vi.mocked(fs.readFileSync).mockReturnValue('')
+    vi.mocked(cp.spawn).mockReturnValue(undefined as any)
+    vi.mocked(cp.execSync).mockReturnValue(Buffer.from('/usr/local/bin/claude'))
   })
 
   afterEach(() => {
