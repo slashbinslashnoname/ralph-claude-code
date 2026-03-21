@@ -530,6 +530,11 @@ export class AgentCoordinator {
         // Epics close automatically when all children are done.
         if (bead.type === 'epic') continue
 
+        // Hard-skip beads whose dependencies are not yet closed
+        const unresolvedDeps = bead.deps.filter(d => !doneIds.has(d)).length
+        const openChildren = openChildCount.get(bead.id) ?? 0
+        if (unresolvedDeps > 0 || openChildren > 0) continue
+
         if (bead.files.some(f => lockedFiles.has(f))) continue
 
         // Skip if already claimed by another agent
