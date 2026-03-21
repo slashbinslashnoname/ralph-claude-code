@@ -10,6 +10,7 @@ interface ActivityEvent {
   summary?: string
   filesChanged?: string[]
   branch?: string
+  commitSha?: string
 }
 
 interface LogEntry {
