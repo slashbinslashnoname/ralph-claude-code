@@ -3,10 +3,10 @@ import { promisify } from 'util'
 import { exec, execSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
-import { createRequire } from 'module'
+import { createNativeRequire } from './nativeRequire'
 
 // Dynamic require to prevent rollup from bundling native fsevents module
-const _require = createRequire(import.meta.url ?? __filename)
+const _require = createNativeRequire()
 const chokidar: typeof import('chokidar') = _require('chokidar')
 import { RalphLoop } from './loop/RalphLoop'
 import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
