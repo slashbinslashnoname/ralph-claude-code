@@ -705,6 +705,43 @@ export class AgentCoordinator {
     const commitSha = await this.commitAndPush(agentId, beadId, autoPush)
 
     this.postActivity({ agentId, type: 'completed', beadId, filesChanged, commitSha: commitSha ?? undefined, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
+
+    // Auto-close parent epic if all siblings are done
+    this._maybeCloseEpic(agentId, beadId)
+  }
+
+  /**
+   * If the completed bead has a parent epic, check whether all siblings under
+   * that epic are now done. If so, close the epic automatically.
+   * Leverages idempotent close — a spurious double-close is harmless.
+   */
+  private _maybeCloseEpic(agentId: string, beadId: string): void {
+    try {
+      const bead = this.bd.show(beadId)
+      if (!bead?.epicId) return
+
+      const epicId = bead.epicId
+      const epic = this.bd.show(epicId)
+      if (!epic || epic.status === 'done') return // already closed or missing
+
+      const allBeads = this.bd.listAll()
+      const siblings = allBeads.filter(b => b.epicId === epicId && b.id !== epicId)
+      if (siblings.length === 0) return
+
+      const allDone = siblings.every(b => b.status === 'done')
+      if (!allDone) return
+
+      this.bd.close(epicId, `All children completed — auto-closed by ${agentId}`)
+      this.postActivity({
+        agentId,
+        type: 'completed',
+        beadId: epicId,
+        beadTitle: epic.title,
+        summary: `Auto-closed epic [${epicId}] — all children done`
+      })
+    } catch {
+      // Non-fatal — epic auto-close is best-effort
+    }
   }
 
   /** Commit any pending changes and push to remote. Returns the commit SHA or null. */

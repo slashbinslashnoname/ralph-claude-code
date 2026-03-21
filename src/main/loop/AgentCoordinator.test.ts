@@ -1712,3 +1712,154 @@ describe('AgentCoordinator — activity log rotation', () => {
     expect(activity.length).toBe(50)
   })
 })
+
+describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    slashbotDir = path.join(tmpDir, '.slashbot')
+    coord = new AgentCoordinator(slashbotDir, tmpDir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  function makeBead(overrides: Partial<Bead>): Bead {
+    return {
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'done', deps: [], files: [], priority: 2, tags: [],
+      ...overrides
+    }
+  }
+
+  it('closes parent epic when all siblings are done', async () => {
+    let b1CallCount = 0
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+      if (id === 'b1') {
+        b1CallCount++
+        // First call = idempotency check, return claimed so close proceeds
+        if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
+        // Second call = _maybeCloseEpic lookup
+        return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
+      }
+      if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' })
+      return null
+    })
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([
+      makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' }),
+      makeBead({ id: 'b2', epicId: 'epic-1', status: 'done' }),
+      makeBead({ id: 'b3', epicId: 'epic-1', status: 'done' }),
+      makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' }),
+    ])
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    // close called for bead AND epic
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+    expect(closeSpy).toHaveBeenCalledWith('epic-1', expect.stringContaining('auto-closed'))
+    const events = coord.readActivity()
+    const epicClose = events.find(e => e.beadId === 'epic-1' && e.type === 'completed')
+    expect(epicClose).toBeDefined()
+    expect(epicClose!.summary).toContain('Auto-closed epic')
+  })
+
+  it('does not close epic when some siblings are still open', async () => {
+    let b1CallCount = 0
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+      if (id === 'b1') {
+        b1CallCount++
+        if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
+        return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
+      }
+      if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' })
+      return null
+    })
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([
+      makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' }),
+      makeBead({ id: 'b2', epicId: 'epic-1', status: 'claimed' }),
+    ])
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    // close called for bead only, NOT for epic
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+    expect(closeSpy).not.toHaveBeenCalledWith('epic-1', expect.any(String))
+  })
+
+  it('skips if bead has no parent epic', async () => {
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+      if (id === 'b1') return makeBead({ id: 'b1', status: 'claimed' })
+      return null
+    })
+    const listAllSpy = vi.spyOn(coord.bd, 'listAll')
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    // close called for bead only; listAll never called (early return)
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+    expect(listAllSpy).not.toHaveBeenCalled()
+  })
+
+  it('skips if epic is already done', async () => {
+    let b1CallCount = 0
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+      if (id === 'b1') {
+        b1CallCount++
+        if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
+        return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
+      }
+      if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'done' })
+      return null
+    })
+    const listAllSpy = vi.spyOn(coord.bd, 'listAll')
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    // listAll never called because epic is already done
+    expect(listAllSpy).not.toHaveBeenCalled()
+    // close called for bead only
+    expect(closeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('is non-fatal if bd.show throws during epic check', async () => {
+    let callCount = 0
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+      callCount++
+      // First call (idempotency check) returns claimed bead
+      if (callCount === 1) return makeBead({ id: 'b1', status: 'claimed' })
+      // Second call (_maybeCloseEpic) throws
+      throw new Error('bd crashed')
+    })
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    // Should not throw
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
+    expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
+  })
+
+  it('handles failed siblings — does not close epic', async () => {
+    let b1CallCount = 0
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+      if (id === 'b1') {
+        b1CallCount++
+        if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
+        return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
+      }
+      if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' })
+      return null
+    })
+    vi.spyOn(coord.bd, 'listAll').mockReturnValue([
+      makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' }),
+      makeBead({ id: 'b2', epicId: 'epic-1', status: 'failed' }),
+    ])
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+
+    await coord.completeBead('agent-0', 'b1', ['a.ts'])
+
+    expect(closeSpy).not.toHaveBeenCalledWith('epic-1', expect.any(String))
+  })
+})
