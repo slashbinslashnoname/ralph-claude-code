@@ -664,6 +664,13 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .stat-chip.ready::before { background: var(--info); }
 .stat-chip.pending::before { background: var(--text-2); }
 .stat-chip.failed::before { background: var(--danger); }
+.stat-chip.telegram-status { margin-left: 8px; cursor: help; }
+.stat-chip.telegram-status::before { display: none; }
+.telegram-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.telegram-dot.green { background: var(--success); }
+.telegram-dot.red { background: var(--danger); }
+.stat-chip.telegram-status.connected { color: var(--success); }
+.stat-chip.telegram-status.disconnected { color: var(--text-2); opacity: 0.6; }
 
 .card-loop1 { border-left: 3px solid var(--accent); }
 .card-loop2 { border-left: 3px solid var(--success); }
