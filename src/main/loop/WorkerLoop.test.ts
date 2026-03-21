@@ -108,7 +108,8 @@ function makeCoordinator() {
     },
     readKnowledge: vi.fn(() => []),
     postKnowledge: vi.fn(),
-    heartbeat: vi.fn()
+    heartbeat: vi.fn(),
+    clearHeartbeat: vi.fn()
   } as any
 }
 

@@ -820,6 +820,7 @@ DO NOT write any implementation code. Analysis only.`
     this.running = false
     // Deregister after loop fully exits (including finally-block merges)
     this.coordinator.deregisterAgent(this.agentId)
+    this.coordinator.clearHeartbeat(this.agentId)
     this._log('INFO', `[${this.agentId}] exit: ${reason}`)
     this.emit('exit', reason)
   }
