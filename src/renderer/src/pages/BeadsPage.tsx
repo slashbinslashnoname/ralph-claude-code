@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import BeadDetailPanel from '../components/BeadDetailPanel'
+import DependencyDAG from '../components/DependencyDAG'
+import type { DAGBead } from '../components/DependencyDAG'
 
 const sb = window.slashbot
 
@@ -36,6 +38,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<any[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'list' | 'graph'>('list')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -150,6 +153,14 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const sortedBeads = useMemo(() => sortBeads(beads, sortBy, sortDir), [beads, sortBy, sortDir])
 
+  const dagBeads: DAGBead[] = useMemo(() => beads.map(b => ({
+    id: b.id,
+    title: b.title,
+    status: b.status,
+    deps: b.deps ?? [],
+    epicId: b.epicId,
+  })), [beads])
+
   // ── Drag-and-drop reordering ──────────────────────────────────────────
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
@@ -240,6 +251,22 @@ export default function BeadsPage({ projectPath }: Props) {
       <header className="page-header">
         <h2>Beads</h2>
         <div className="header-actions">
+          <div className="view-toggle">
+            <button
+              className={`btn btn-xs ${viewMode === 'list' ? 'btn-sort-active' : 'btn-ghost'}`}
+              onClick={() => setViewMode('list')}
+              data-testid="view-mode-list"
+            >
+              List
+            </button>
+            <button
+              className={`btn btn-xs ${viewMode === 'graph' ? 'btn-sort-active' : 'btn-ghost'}`}
+              onClick={() => setViewMode('graph')}
+              data-testid="view-mode-graph"
+            >
+              Graph
+            </button>
+          </div>
           <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
             + Create Bead
           </button>
@@ -361,116 +388,137 @@ export default function BeadsPage({ projectPath }: Props) {
         </div>
       )}
 
-      {/* Sort bar */}
-      <div className="sort-bar">
-        <span className="sort-label">Sort by:</span>
-        {SORT_OPTIONS.map(opt => (
-          <button
-            key={opt.id}
-            className={`btn btn-xs ${sortBy === opt.id ? 'btn-sort-active' : 'btn-ghost'}`}
-            onClick={() => toggleSort(opt.id)}
-          >
-            {opt.label}
-            {sortBy === opt.id && (
-              <span className="sort-arrow">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Bead list */}
-      <div className="bead-list">
-        {sortedBeads.length === 0 && !loading && (
-          <div className="empty-state">
-            <span className="empty-icon">{'\u29BE'}</span>
-            <h3>No beads</h3>
-            <p>Create a bead or inject a plan via the Swarm page.</p>
+      {viewMode === 'list' && (
+        <>
+          {/* Sort bar */}
+          <div className="sort-bar">
+            <span className="sort-label">Sort by:</span>
+            {SORT_OPTIONS.map(opt => (
+              <button
+                key={opt.id}
+                className={`btn btn-xs ${sortBy === opt.id ? 'btn-sort-active' : 'btn-ghost'}`}
+                onClick={() => toggleSort(opt.id)}
+              >
+                {opt.label}
+                {sortBy === opt.id && (
+                  <span className="sort-arrow">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>
+                )}
+              </button>
+            ))}
           </div>
-        )}
-        {sortedBeads.map((bead, idx) => (
-          <div key={bead.id}
-            className={`bead-card${dragIdx === idx ? ' bead-dragging' : ''}${dropIdx === idx ? ' bead-drop-target' : ''}`}
-            draggable
-            onDragStart={() => handleDragStart(idx)}
-            onDragOver={(e) => handleDragOver(e, idx)}
-            onDragEnd={handleDragEnd}>
-            <div className="bead-card-header">
-              <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
-              <span className="bead-id">{bead.id}</span>
-              <span className="bead-type-tag">{bead.type}</span>
-              <span className="bead-spacer" />
 
-              <select className={`select select-xs priority-select p${bead.priority}`}
-                value={bead.priority}
-                onChange={e => changePriority(bead.id, Number(e.target.value))}>
-                <option value={0}>P0</option>
-                <option value={1}>P1</option>
-                <option value={2}>P2</option>
-                <option value={3}>P3</option>
-                <option value={4}>P4</option>
-              </select>
-            </div>
-
-            <h4 className="bead-title">{bead.title}</h4>
-            {bead.description && <p className="bead-desc">{bead.description.slice(0, 200)}</p>}
-
-            {bead.tags?.length > 0 && (
-              <div className="bead-meta">
-                {bead.tags.map((t: string) => <span key={t} className="tag">{t}</span>)}
+          {/* Bead list */}
+          <div className="bead-list">
+            {sortedBeads.length === 0 && !loading && (
+              <div className="empty-state">
+                <span className="empty-icon">{'\u29BE'}</span>
+                <h3>No beads</h3>
+                <p>Create a bead or inject a plan via the Swarm page.</p>
               </div>
             )}
+            {sortedBeads.map((bead, idx) => (
+              <div key={bead.id}
+                className={`bead-card${dragIdx === idx ? ' bead-dragging' : ''}${dropIdx === idx ? ' bead-drop-target' : ''}`}
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}>
+                <div className="bead-card-header">
+                  <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
+                  <span className="bead-id">{bead.id}</span>
+                  <span className="bead-type-tag">{bead.type}</span>
+                  <span className="bead-spacer" />
 
-            <div className="bead-actions">
-              {bead.status === 'ready' && (
-                <>
-                  <button className="btn btn-xs btn-info" onClick={() => claimBead(bead.id)}>Claim</button>
-                  <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
-                </>
-              )}
-              {bead.status === 'claimed' && (
-                <>
-                  <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Back to Open</button>
-                  <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
-                </>
-              )}
-              {bead.status === 'done' && (
-                <>
-                  <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Reopen</button>
-                  <button
-                    className="btn btn-xs btn-danger"
-                    onClick={() => rollbackBead(bead.id)}
-                    disabled={rollingBack === bead.id}
-                  >
-                    {rollingBack === bead.id ? 'Rolling back\u2026' : 'Rollback'}
+                  <select className={`select select-xs priority-select p${bead.priority}`}
+                    value={bead.priority}
+                    onChange={e => changePriority(bead.id, Number(e.target.value))}>
+                    <option value={0}>P0</option>
+                    <option value={1}>P1</option>
+                    <option value={2}>P2</option>
+                    <option value={3}>P3</option>
+                    <option value={4}>P4</option>
+                  </select>
+                </div>
+
+                <h4 className="bead-title">{bead.title}</h4>
+                {bead.description && <p className="bead-desc">{bead.description.slice(0, 200)}</p>}
+
+                {bead.tags?.length > 0 && (
+                  <div className="bead-meta">
+                    {bead.tags.map((t: string) => <span key={t} className="tag">{t}</span>)}
+                  </div>
+                )}
+
+                <div className="bead-actions">
+                  {bead.status === 'ready' && (
+                    <>
+                      <button className="btn btn-xs btn-info" onClick={() => claimBead(bead.id)}>Claim</button>
+                      <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
+                    </>
+                  )}
+                  {bead.status === 'claimed' && (
+                    <>
+                      <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Back to Open</button>
+                      <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
+                    </>
+                  )}
+                  {bead.status === 'done' && (
+                    <>
+                      <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Reopen</button>
+                      <button
+                        className="btn btn-xs btn-danger"
+                        onClick={() => rollbackBead(bead.id)}
+                        disabled={rollingBack === bead.id}
+                      >
+                        {rollingBack === bead.id ? 'Rolling back\u2026' : 'Rollback'}
+                      </button>
+                    </>
+                  )}
+                  {bead.status === 'failed' && (
+                    <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Retry</button>
+                  )}
+                  {bead.status === 'pending' && (
+                    <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Unblock</button>
+                  )}
+
+                  <span className="bead-action-spacer" />
+                  <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)}>Edit</button>
+                  <button className="btn btn-xs btn-ghost" onClick={() => toggleDetail(bead.id)}>
+                    {expandedBead === bead.id ? 'Hide Detail' : 'Detail'}
                   </button>
-                </>
-              )}
-              {bead.status === 'failed' && (
-                <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Retry</button>
-              )}
-              {bead.status === 'pending' && (
-                <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Unblock</button>
-              )}
+                  {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
+                </div>
 
-              <span className="bead-action-spacer" />
-              <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)}>Edit</button>
-              <button className="btn btn-xs btn-ghost" onClick={() => toggleDetail(bead.id)}>
-                {expandedBead === bead.id ? 'Hide Detail' : 'Detail'}
-              </button>
-              {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
-            </div>
-
-            {/* Bead detail panel with audit trail */}
-            {expandedBead === bead.id && (
-              <BeadDetailPanel
-                beadId={bead.id}
-                beadStatus={bead.status}
-                projectPath={projectPath}
-              />
-            )}
+                {/* Bead detail panel with audit trail */}
+                {expandedBead === bead.id && (
+                  <BeadDetailPanel
+                    beadId={bead.id}
+                    beadStatus={bead.status}
+                    projectPath={projectPath}
+                  />
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
+
+      {viewMode === 'graph' && (
+        <>
+          <DependencyDAG
+            beads={dagBeads}
+            selectedBeadId={expandedBead}
+            onSelectBead={toggleDetail}
+          />
+          {expandedBead && beads.find(b => b.id === expandedBead) && (
+            <BeadDetailPanel
+              beadId={expandedBead}
+              beadStatus={beads.find(b => b.id === expandedBead)!.status}
+              projectPath={projectPath}
+            />
+          )}
+        </>
+      )}
     </div>
   )
 }
