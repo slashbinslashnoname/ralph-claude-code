@@ -7,7 +7,7 @@
 import * as path from 'path'
 
 // ── Allowlist ────────────────────────────────────────────────────────────────
-const EDITABLE_FILES = new Set(['.slashbotrc', '.slashbot/PROMPT.md', '.slashbot/AGENT.md'])
+const EDITABLE_FILES = new Set(['.slashbotrc', 'PROMPT.md', 'AGENT.md'])
 
 // ── Content limits ───────────────────────────────────────────────────────────
 const MAX_CONTENT_LENGTH = 1_000_000 // 1 MB
@@ -61,21 +61,23 @@ export function validateConfigProjectPath(projectPath: unknown): string {
 
 // ── Composite validators for IPC handlers ────────────────────────────────────
 
-export function validateConfigRead(projectPath: unknown, relPath: unknown): {
+export function validateConfigRead(projectPath: unknown, relPath: unknown, configDir?: string): {
   projectPath: string; relPath: string; resolvedPath: string
 } {
   const p = validateConfigProjectPath(projectPath)
   const r = validateRelPath(relPath)
-  const resolved = validateContainment(p, r)
+  const root = configDir ?? p
+  const resolved = validateContainment(root, r)
   return { projectPath: p, relPath: r, resolvedPath: resolved }
 }
 
-export function validateConfigWrite(projectPath: unknown, relPath: unknown, content: unknown): {
+export function validateConfigWrite(projectPath: unknown, relPath: unknown, content: unknown, configDir?: string): {
   projectPath: string; relPath: string; resolvedPath: string; content: string
 } {
   const p = validateConfigProjectPath(projectPath)
   const r = validateRelPath(relPath)
-  const resolved = validateContainment(p, r)
+  const root = configDir ?? p
+  const resolved = validateContainment(root, r)
   const c = validateContent(content)
   return { projectPath: p, relPath: r, resolvedPath: resolved, content: c }
 }

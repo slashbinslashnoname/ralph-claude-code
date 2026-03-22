@@ -13,8 +13,13 @@ import {
 describe('validateRelPath', () => {
   it('accepts allowed config files', () => {
     expect(validateRelPath('.slashbotrc')).toBe('.slashbotrc')
-    expect(validateRelPath('.slashbot/PROMPT.md')).toBe('.slashbot/PROMPT.md')
-    expect(validateRelPath('.slashbot/AGENT.md')).toBe('.slashbot/AGENT.md')
+    expect(validateRelPath('PROMPT.md')).toBe('PROMPT.md')
+    expect(validateRelPath('AGENT.md')).toBe('AGENT.md')
+  })
+
+  it('rejects old .slashbot/ prefixed paths', () => {
+    expect(() => validateRelPath('.slashbot/PROMPT.md')).toThrow(/Not an editable file/)
+    expect(() => validateRelPath('.slashbot/AGENT.md')).toThrow(/Not an editable file/)
   })
 
   it('rejects non-allowed files', () => {
@@ -43,8 +48,8 @@ describe('validateContainment', () => {
   })
 
   it('allows nested paths within project', () => {
-    const resolved = validateContainment('/home/user/project', '.slashbot/PROMPT.md')
-    expect(resolved).toBe('/home/user/project/.slashbot/PROMPT.md')
+    const resolved = validateContainment('/home/user/project', 'PROMPT.md')
+    expect(resolved).toBe('/home/user/project/PROMPT.md')
   })
 
   it('rejects path traversal with ../', () => {
@@ -55,7 +60,7 @@ describe('validateContainment', () => {
 
   it('rejects path traversal with embedded ..', () => {
     expect(
-      () => validateContainment('/home/user/project', '.slashbot/../../etc/passwd')
+      () => validateContainment('/home/user/project', 'sub/../../etc/passwd')
     ).toThrow(/Path traversal detected/)
   })
 })
@@ -113,11 +118,24 @@ describe('validateConfigProjectPath', () => {
 // ── Composite: validateConfigRead ────────────────────────────────────────────
 
 describe('validateConfigRead', () => {
-  it('validates and resolves allowed path', () => {
+  it('validates and resolves allowed path against projectPath', () => {
     const r = validateConfigRead('/proj', '.slashbotrc')
     expect(r.projectPath).toBe('/proj')
     expect(r.relPath).toBe('.slashbotrc')
     expect(r.resolvedPath).toBe('/proj/.slashbotrc')
+  })
+
+  it('resolves against configDir when provided', () => {
+    const r = validateConfigRead('/proj', 'PROMPT.md', '/home/user/.slashbot/projects/abc')
+    expect(r.projectPath).toBe('/proj')
+    expect(r.relPath).toBe('PROMPT.md')
+    expect(r.resolvedPath).toBe('/home/user/.slashbot/projects/abc/PROMPT.md')
+  })
+
+  it('checks containment against configDir when provided', () => {
+    expect(
+      () => validateConfigRead('/proj', '../../../etc/passwd' as any, '/home/user/.slashbot/projects/abc')
+    ).toThrow(/Not an editable file/)
   })
 
   it('throws on disallowed file', () => {
@@ -136,12 +154,26 @@ describe('validateConfigRead', () => {
 // ── Composite: validateConfigWrite ───────────────────────────────────────────
 
 describe('validateConfigWrite', () => {
-  it('validates all inputs', () => {
-    const r = validateConfigWrite('/proj', '.slashbot/AGENT.md', '# Agent config')
+  it('validates all inputs against projectPath', () => {
+    const r = validateConfigWrite('/proj', 'AGENT.md', '# Agent config')
     expect(r.projectPath).toBe('/proj')
-    expect(r.relPath).toBe('.slashbot/AGENT.md')
-    expect(r.resolvedPath).toBe('/proj/.slashbot/AGENT.md')
+    expect(r.relPath).toBe('AGENT.md')
+    expect(r.resolvedPath).toBe('/proj/AGENT.md')
     expect(r.content).toBe('# Agent config')
+  })
+
+  it('resolves against configDir when provided', () => {
+    const r = validateConfigWrite('/proj', 'AGENT.md', '# Agent config', '/home/user/.slashbot/projects/abc')
+    expect(r.projectPath).toBe('/proj')
+    expect(r.relPath).toBe('AGENT.md')
+    expect(r.resolvedPath).toBe('/home/user/.slashbot/projects/abc/AGENT.md')
+    expect(r.content).toBe('# Agent config')
+  })
+
+  it('checks containment against configDir when provided', () => {
+    expect(
+      () => validateConfigWrite('/proj', '../../../etc/passwd' as any, 'data', '/home/user/.slashbot/projects/abc')
+    ).toThrow(/Not an editable file/)
   })
 
   it('throws on disallowed file', () => {
