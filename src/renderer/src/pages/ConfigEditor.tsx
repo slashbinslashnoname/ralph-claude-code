@@ -8,8 +8,8 @@ type ActiveTab = 'file' | 'telegram'
 
 const EDITABLE_FILES = [
   { path: '.slashbotrc', label: 'Configuration (.slashbotrc)' },
-  { path: '.slashbot/PROMPT.md', label: 'Prompt (PROMPT.md)' },
-  { path: '.slashbot/AGENT.md', label: 'Agent (AGENT.md)' },
+  { path: 'PROMPT.md', label: 'Prompt (PROMPT.md)' },
+  { path: 'AGENT.md', label: 'Agent (AGENT.md)' },
 ]
 
 const NOTIFY_LEVELS = [
