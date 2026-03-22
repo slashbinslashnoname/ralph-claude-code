@@ -131,6 +131,26 @@ describe('parseRcFile', () => {
     expect(result.cbCooldownMinutes).toBe(60)
   })
 
+  it('reads from explicit rcPath when provided', () => {
+    const customPath = path.join(tmpDir, 'custom.rc')
+    fs.writeFileSync(customPath, 'MAX_CALLS_PER_HOUR=999', 'utf8')
+    const result = parseRcFile(tmpDir, customPath)
+    expect(result.maxCallsPerHour).toBe(999)
+  })
+
+  it('ignores .slashbotrc in projectPath when rcPath is provided', () => {
+    writeRc('MAX_CALLS_PER_HOUR=111')
+    const customPath = path.join(tmpDir, 'other.rc')
+    fs.writeFileSync(customPath, 'MAX_CALLS_PER_HOUR=222', 'utf8')
+    const result = parseRcFile(tmpDir, customPath)
+    expect(result.maxCallsPerHour).toBe(222)
+  })
+
+  it('returns empty object when explicit rcPath does not exist', () => {
+    const result = parseRcFile(tmpDir, path.join(tmpDir, 'nonexistent.rc'))
+    expect(result).toEqual({})
+  })
+
   it('parses AUTO_SPLIT_THRESHOLD', () => {
     writeRc('AUTO_SPLIT_THRESHOLD=5')
     const result = parseRcFile(tmpDir)
@@ -532,6 +552,15 @@ describe('loadConfig', () => {
     expect(config.claudeModelThink).toBe('sonnet')
     expect(config.claudeModelExecute).toBe('opus')
     expect(config.claudeModelReview).toBe('sonnet')
+  })
+
+  it('loads config from explicit rcPath when provided', () => {
+    const customPath = path.join(tmpDir, 'custom.rc')
+    fs.writeFileSync(customPath, 'MAX_CALLS_PER_HOUR=300\nCLAUDE_CODE_CMD=my-claude', 'utf8')
+    const config = loadConfig(tmpDir, customPath)
+    expect(config.maxCallsPerHour).toBe(300)
+    expect(config.claudeCodeCmd).toBe('my-claude')
+    expect(config.claudeTimeoutMinutes).toBe(DEFAULT_CONFIG.claudeTimeoutMinutes)
   })
 
   it('falls back to defaults for invalid values in .slashbotrc', () => {

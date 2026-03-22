@@ -63,10 +63,10 @@ const TELEGRAM_KEY_MAP: Record<string, keyof TelegramConfig> = {
 const TELEGRAM_BOT_TOKEN_RE = /^\d+:[A-Za-z0-9_-]+$/
 const VALID_NOTIFY_LEVELS = new Set<TelegramNotifyLevel>(['all', 'errors', 'completions', 'none'])
 
-export function parseRcFile(projectPath: string): Partial<RalphConfig> {
-  const rcPath = path.join(projectPath, '.slashbotrc')
-  if (!fs.existsSync(rcPath)) return {}
-  const lines = fs.readFileSync(rcPath, 'utf8').split('\n')
+export function parseRcFile(projectPath: string, rcPath?: string): Partial<RalphConfig> {
+  const resolvedPath = rcPath ?? path.join(projectPath, '.slashbotrc')
+  if (!fs.existsSync(resolvedPath)) return {}
+  const lines = fs.readFileSync(resolvedPath, 'utf8').split('\n')
   const result: Record<string, unknown> = {}
 
   const telegram: Partial<TelegramConfig> = {}
@@ -232,8 +232,8 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
   }
 }
 
-export function loadConfig(projectPath: string): RalphConfig {
-  const parsed = parseRcFile(projectPath)
+export function loadConfig(projectPath: string, rcPath?: string): RalphConfig {
+  const parsed = parseRcFile(projectPath, rcPath)
   const { config, warnings } = validateConfig(parsed)
   for (const w of warnings) {
     console.warn(`[RcParser] ${w}`)
