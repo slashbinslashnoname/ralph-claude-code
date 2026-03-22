@@ -23,6 +23,7 @@ export interface Bead {
   files: string[]
   priority: number
   tags: string[]
+  createdAt?: string
   claimedBy?: string
   claimedAt?: string
   completedAt?: string

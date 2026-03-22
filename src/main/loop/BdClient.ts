@@ -354,6 +354,7 @@ export class BdClient {
       files: Array.isArray(r.files) ? r.files.map(String) : [],
       priority: typeof r.priority === 'number' ? r.priority : 2,
       tags: labels,
+      createdAt: r.created_at ? String(r.created_at) : undefined,
       claimedBy: r.assignee ? String(r.assignee) : undefined,
       claimedAt: r.claimed_at ? String(r.claimed_at) : undefined,
       completedAt: r.closed_at ? String(r.closed_at) : undefined,

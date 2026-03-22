@@ -652,8 +652,19 @@ describe('BdClient', () => {
       expect(client.list()[0].priority).toBe(2)
     })
 
+    it('maps created_at to createdAt', () => {
+      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ created_at: '2026-03-20T10:00:00Z' })]))
+      expect(client.list()[0].createdAt).toBe('2026-03-20T10:00:00Z')
+    })
+
+    it('leaves createdAt undefined when created_at is missing', () => {
+      mockExecSync.mockReturnValue(JSON.stringify([rawBead()]))
+      expect(client.list()[0].createdAt).toBeUndefined()
+    })
+
     it('maps all optional fields', () => {
       mockExecSync.mockReturnValue(JSON.stringify([rawBead({
+        created_at: '2025-12-31',
         assignee: 'agent-3',
         claimed_at: '2026-01-01',
         closed_at: '2026-01-02',
@@ -663,6 +674,7 @@ describe('BdClient', () => {
       })]))
 
       const bead = client.list()[0]
+      expect(bead.createdAt).toBe('2025-12-31')
       expect(bead.claimedBy).toBe('agent-3')
       expect(bead.claimedAt).toBe('2026-01-01')
       expect(bead.completedAt).toBe('2026-01-02')
