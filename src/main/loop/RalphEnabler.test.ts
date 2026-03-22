@@ -452,6 +452,16 @@ describe('RalphEnabler', () => {
       expect(content).not.toContain('.slashbot/logs/')
     })
 
+    it('PROMPT.md in centralized mode references .slashbotid not .slashbot/', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      const calls = (fs.writeFileSync as any).mock.calls
+      const promptCall = calls.find((c: any) => String(c[0]).endsWith('PROMPT.md'))
+      const content = String(promptCall![1])
+      expect(content).toContain('.slashbotid')
+      expect(content).not.toContain('.slashbot/')
+    })
+
     it('force overwrites config files in configDir', () => {
       ;(fs.existsSync as any).mockReturnValue(true)
       ;(fs.readFileSync as any).mockReturnValue('{"name":"test"}')

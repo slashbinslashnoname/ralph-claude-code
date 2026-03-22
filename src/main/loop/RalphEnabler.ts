@@ -101,7 +101,10 @@ function generateRalphrc(ctx: ProjectContext, opts: EnableOptions): string {
   ].join('\n')
 }
 
-function generatePromptMd(ctx: ProjectContext): string {
+function generatePromptMd(ctx: ProjectContext, centralized = false): string {
+  const protectedFiles = centralized
+    ? '- `.slashbotid`'
+    : '- `.slashbot/` directory and all its contents\n- `.slashbotrc`'
   return `# Slashbot Development Instructions
 
 You are an autonomous developer working on **${ctx.name}** (${ctx.type} project).
@@ -125,8 +128,7 @@ bd create "title" -t task -p 2 -d "desc" # Create if you discover new work
 - Close the bead via bd when done
 
 ## Protected files (DO NOT modify or delete)
-- \`.slashbot/\` directory and all its contents
-- \`.slashbotrc\`
+${protectedFiles}
 
 ## Status reporting
 End every response with:
@@ -176,7 +178,7 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
         }
       }
       write('.slashbotrc', generateRalphrc(ctx, opts))
-      write('PROMPT.md', generatePromptMd(ctx))
+      write('PROMPT.md', generatePromptMd(ctx, true))
       write('AGENT.md', generateAgentMd(ctx))
       // Write .slashbotid pointer in project root
       const idPath = path.join(projectPath, '.slashbotid')
