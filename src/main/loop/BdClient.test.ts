@@ -657,7 +657,17 @@ describe('BdClient', () => {
       expect(client.list()[0].createdAt).toBe('2026-03-20T10:00:00Z')
     })
 
-    it('leaves createdAt undefined when created_at is missing', () => {
+    it('falls back to created field when created_at is missing', () => {
+      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ created: '2026-03-19T08:00:00Z' })]))
+      expect(client.list()[0].createdAt).toBe('2026-03-19T08:00:00Z')
+    })
+
+    it('prefers created_at over created fallback', () => {
+      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ created_at: '2026-03-20T10:00:00Z', created: '2026-03-19T08:00:00Z' })]))
+      expect(client.list()[0].createdAt).toBe('2026-03-20T10:00:00Z')
+    })
+
+    it('leaves createdAt undefined when both created_at and created are missing', () => {
       mockExecSync.mockReturnValue(JSON.stringify([rawBead()]))
       expect(client.list()[0].createdAt).toBeUndefined()
     })
