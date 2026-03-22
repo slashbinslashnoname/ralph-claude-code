@@ -52,6 +52,7 @@ describe('ProjectStore', () => {
       expect(paths.knowledge).toBe(path.join(STORE_DIR, 'knowledge.jsonl'))
       expect(paths.agents).toBe(path.join(STORE_DIR, 'agents.json'))
       expect(paths.fileLocks).toBe(path.join(STORE_DIR, 'file_locks.json'))
+      expect(paths.configDir).toBe(path.join(STORE_DIR, 'config'))
     })
 
     it('resolves relative paths to absolute before hashing', () => {
@@ -69,12 +70,13 @@ describe('ProjectStore', () => {
   })
 
   describe('ensureStoreDirs', () => {
-    it('creates storeDir and logsDir recursively', () => {
+    it('creates storeDir, logsDir, and configDir recursively', () => {
       const paths = getProjectPaths(PROJECT_PATH)
       ensureStoreDirs(paths)
 
       expect(fs.mkdirSync).toHaveBeenCalledWith(paths.storeDir, { recursive: true })
       expect(fs.mkdirSync).toHaveBeenCalledWith(paths.logsDir, { recursive: true })
+      expect(fs.mkdirSync).toHaveBeenCalledWith(paths.configDir, { recursive: true })
     })
   })
 

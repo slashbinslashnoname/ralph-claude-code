@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { ProjectContext, EnableOptions, EnableResult } from '../types'
+import { ProjectPaths, ensureStoreDirs } from './ProjectStore'
 
 const TYPE_MARKERS: [string, string, string, string, string][] = [
   ['nodejs', 'package.json', 'npm install', 'npm test', 'npm run build'],
@@ -15,7 +16,7 @@ const TYPE_MARKERS: [string, string, string, string, string][] = [
   ['php', 'composer.json', 'composer install', 'vendor/bin/phpunit', '']
 ]
 
-export function detectProjectContext(projectPath: string): ProjectContext {
+export function detectProjectContext(projectPath: string, beadsRoot?: string): ProjectContext {
   let type = 'unknown', installCmd = '', testCmd = '', buildCmd = ''
   for (const [t, marker, install, test, build] of TYPE_MARKERS) {
     if (fs.existsSync(path.join(projectPath, marker))) {
@@ -29,20 +30,38 @@ export function detectProjectContext(projectPath: string): ProjectContext {
       if (pkg.name) name = pkg.name
     } catch { /* ignore */ }
   }
+  const hasBeads = beadsRoot
+    ? fs.existsSync(beadsRoot)
+    : fs.existsSync(path.join(projectPath, '.beads'))
   return {
     type, name,
     hasGit: fs.existsSync(path.join(projectPath, '.git')),
-    hasBeads: fs.existsSync(path.join(projectPath, '.beads')),
+    hasBeads,
     installCmd, testCmd, buildCmd
   }
 }
 
-const REQUIRED = ['.slashbotrc', '.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md']
+const REQUIRED_LEGACY = ['.slashbotrc', '.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md']
 
-export function checkEnabled(projectPath: string): {
+export function checkEnabled(projectPath: string, paths?: ProjectPaths): {
   enabled: boolean; missing: string[]; hasRalphrc: boolean; hasRalphDir: boolean
 } {
-  const missing = REQUIRED.filter(p => !fs.existsSync(path.join(projectPath, p)))
+  if (paths) {
+    const configDir = paths.configDir
+    const required: [string, string][] = [
+      ['.slashbotrc', path.join(configDir, '.slashbotrc')],
+      ['PROMPT.md', path.join(configDir, 'PROMPT.md')],
+      ['AGENT.md', path.join(configDir, 'AGENT.md')],
+    ]
+    const missing = required.filter(([, abs]) => !fs.existsSync(abs)).map(([name]) => name)
+    return {
+      enabled: missing.length === 0,
+      missing,
+      hasRalphrc: fs.existsSync(path.join(configDir, '.slashbotrc')),
+      hasRalphDir: fs.existsSync(configDir)
+    }
+  }
+  const missing = REQUIRED_LEGACY.filter(p => !fs.existsSync(path.join(projectPath, p)))
   return {
     enabled: missing.length === 0,
     missing,
@@ -127,7 +146,10 @@ function generateAgentMd(ctx: ProjectContext): string {
   return sections.join('\n')
 }
 
-function generateGitignoreAdditions(): string {
+function generateGitignoreAdditions(centralized = false): string {
+  if (centralized) {
+    return '\n# Slashbot\n.slashbotid\n'
+  }
   return '\n# Slashbot\n.slashbot/logs/\n.slashbot/.call_count\n.slashbot/.exit_signals\n.slashbot/.response_analysis\n.slashbot/.circuit_breaker_state\n.slashbot/.claude_session_id\n.slashbot/progress.json\n'
 }
 
@@ -135,31 +157,52 @@ const DEFAULT_ENABLE_OPTIONS: EnableOptions = {
   force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: []
 }
 
-export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_ENABLE_OPTIONS): EnableResult {
-  const status = checkEnabled(projectPath)
+export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_ENABLE_OPTIONS, paths?: ProjectPaths): EnableResult {
+  const status = checkEnabled(projectPath, paths)
   if (status.enabled && !opts.force) {
     return { ok: true, alreadyEnabled: true, filesCreated: [], context: detectProjectContext(projectPath) }
   }
   const ctx = detectProjectContext(projectPath)
   const created: string[] = []
   try {
-    const slashbotDir = path.join(projectPath, '.slashbot')
-    fs.mkdirSync(slashbotDir, { recursive: true })
-    fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
-    const write = (relPath: string, content: string) => {
-      const full = path.join(projectPath, relPath)
-      if (!fs.existsSync(full) || opts.force) {
-        fs.writeFileSync(full, content, 'utf8')
-        created.push(relPath)
+    if (paths) {
+      ensureStoreDirs(paths)
+      const configDir = paths.configDir
+      const write = (name: string, content: string) => {
+        const full = path.join(configDir, name)
+        if (!fs.existsSync(full) || opts.force) {
+          fs.writeFileSync(full, content, 'utf8')
+          created.push(name)
+        }
       }
+      write('.slashbotrc', generateRalphrc(ctx, opts))
+      write('PROMPT.md', generatePromptMd(ctx))
+      write('AGENT.md', generateAgentMd(ctx))
+      // Write .slashbotid pointer in project root
+      const idPath = path.join(projectPath, '.slashbotid')
+      if (!fs.existsSync(idPath) || opts.force) {
+        fs.writeFileSync(idPath, paths.id + '\n', 'utf8')
+        created.push('.slashbotid')
+      }
+    } else {
+      const slashbotDir = path.join(projectPath, '.slashbot')
+      fs.mkdirSync(slashbotDir, { recursive: true })
+      fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
+      const write = (relPath: string, content: string) => {
+        const full = path.join(projectPath, relPath)
+        if (!fs.existsSync(full) || opts.force) {
+          fs.writeFileSync(full, content, 'utf8')
+          created.push(relPath)
+        }
+      }
+      write('.slashbotrc', generateRalphrc(ctx, opts))
+      write('.slashbot/PROMPT.md', generatePromptMd(ctx))
+      write('.slashbot/AGENT.md', generateAgentMd(ctx))
     }
-    write('.slashbotrc', generateRalphrc(ctx, opts))
-    write('.slashbot/PROMPT.md', generatePromptMd(ctx))
-    write('.slashbot/AGENT.md', generateAgentMd(ctx))
     const gitignorePath = path.join(projectPath, '.gitignore')
     const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : ''
     if (!existing.includes('# Slashbot')) {
-      fs.writeFileSync(gitignorePath, existing + generateGitignoreAdditions())
+      fs.writeFileSync(gitignorePath, existing + generateGitignoreAdditions(!!paths))
     }
     return { ok: true, alreadyEnabled: false, filesCreated: created, context: ctx }
   } catch (e) {

@@ -22,6 +22,8 @@ export interface ProjectPaths {
   agents: string
   /** ~/.slashbot/projects/<id>/file_locks.json */
   fileLocks: string
+  /** ~/.slashbot/projects/<id>/config */
+  configDir: string
 }
 
 function slashbotHome(): string {
@@ -43,12 +45,14 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     knowledge: path.join(storeDir, 'knowledge.jsonl'),
     agents: path.join(storeDir, 'agents.json'),
     fileLocks: path.join(storeDir, 'file_locks.json'),
+    configDir: path.join(storeDir, 'config'),
   }
 }
 
 export function ensureStoreDirs(paths: ProjectPaths): void {
   fs.mkdirSync(paths.storeDir, { recursive: true })
   fs.mkdirSync(paths.logsDir, { recursive: true })
+  fs.mkdirSync(paths.configDir, { recursive: true })
 }
 
 const LEGACY_FILES = [

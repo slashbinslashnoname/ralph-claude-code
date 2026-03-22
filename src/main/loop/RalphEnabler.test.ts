@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as fs from 'fs'
+import * as path from 'path'
 import { detectProjectContext, checkEnabled, enableRalph } from './RalphEnabler'
+import { ProjectPaths } from './ProjectStore'
 
 describe('RalphEnabler', () => {
   beforeEach(() => {
@@ -298,6 +300,165 @@ describe('RalphEnabler', () => {
       const agentCall = calls.find((c: any) => String(c[0]).endsWith('AGENT.md'))
       expect(agentCall).toBeDefined()
       expect(String(agentCall![1])).toContain('cargo test')
+    })
+  })
+
+  describe('detectProjectContext with beadsRoot', () => {
+    it('checks beadsRoot when provided instead of project .beads', () => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
+        return String(p) === '/central/beads'
+      })
+      const ctx = detectProjectContext('/project', '/central/beads')
+      expect(ctx.hasBeads).toBe(true)
+    })
+
+    it('returns hasBeads false when beadsRoot does not exist', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      const ctx = detectProjectContext('/project', '/central/beads')
+      expect(ctx.hasBeads).toBe(false)
+    })
+
+    it('falls back to project .beads when beadsRoot not provided', () => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
+        return String(p).endsWith('.beads')
+      })
+      const ctx = detectProjectContext('/project')
+      expect(ctx.hasBeads).toBe(true)
+    })
+  })
+
+  describe('checkEnabled with ProjectPaths', () => {
+    const fakePaths: ProjectPaths = {
+      id: 'abc123',
+      storeDir: '/home/.slashbot/projects/abc123',
+      logsDir: '/home/.slashbot/projects/abc123/logs',
+      circuitBreakerState: '/home/.slashbot/projects/abc123/.circuit_breaker_state',
+      callCount: '/home/.slashbot/projects/abc123/.call_count',
+      activity: '/home/.slashbot/projects/abc123/activity.jsonl',
+      knowledge: '/home/.slashbot/projects/abc123/knowledge.jsonl',
+      agents: '/home/.slashbot/projects/abc123/agents.json',
+      fileLocks: '/home/.slashbot/projects/abc123/file_locks.json',
+      configDir: '/home/.slashbot/projects/abc123/config',
+    }
+
+    it('returns enabled:true when all config files exist in configDir', () => {
+      ;(fs.existsSync as any).mockReturnValue(true)
+      const status = checkEnabled('/project', fakePaths)
+      expect(status.enabled).toBe(true)
+      expect(status.missing).toEqual([])
+      expect(status.hasRalphrc).toBe(true)
+      expect(status.hasRalphDir).toBe(true)
+    })
+
+    it('returns enabled:false when config files missing from configDir', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      const status = checkEnabled('/project', fakePaths)
+      expect(status.enabled).toBe(false)
+      expect(status.missing).toContain('.slashbotrc')
+      expect(status.missing).toContain('PROMPT.md')
+      expect(status.missing).toContain('AGENT.md')
+    })
+
+    it('checks paths in configDir not project root', () => {
+      const checked: string[] = []
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
+        checked.push(String(p))
+        return true
+      })
+      checkEnabled('/project', fakePaths)
+      expect(checked).toContain(path.join(fakePaths.configDir, '.slashbotrc'))
+      expect(checked).toContain(path.join(fakePaths.configDir, 'PROMPT.md'))
+      expect(checked).toContain(path.join(fakePaths.configDir, 'AGENT.md'))
+    })
+  })
+
+  describe('enableRalph with ProjectPaths', () => {
+    const fakePaths: ProjectPaths = {
+      id: 'abc123',
+      storeDir: '/home/.slashbot/projects/abc123',
+      logsDir: '/home/.slashbot/projects/abc123/logs',
+      circuitBreakerState: '/home/.slashbot/projects/abc123/.circuit_breaker_state',
+      callCount: '/home/.slashbot/projects/abc123/.call_count',
+      activity: '/home/.slashbot/projects/abc123/activity.jsonl',
+      knowledge: '/home/.slashbot/projects/abc123/knowledge.jsonl',
+      agents: '/home/.slashbot/projects/abc123/agents.json',
+      fileLocks: '/home/.slashbot/projects/abc123/file_locks.json',
+      configDir: '/home/.slashbot/projects/abc123/config',
+    }
+    const defaultOpts = { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] as string[] }
+
+    it('writes config files to configDir when paths provided', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      const result = enableRalph('/project', defaultOpts, fakePaths)
+      expect(result.ok).toBe(true)
+      expect(result.filesCreated).toContain('.slashbotrc')
+      expect(result.filesCreated).toContain('PROMPT.md')
+      expect(result.filesCreated).toContain('AGENT.md')
+      expect(result.filesCreated).toContain('.slashbotid')
+    })
+
+    it('writes .slashbotrc to configDir not project root', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      const calls = (fs.writeFileSync as any).mock.calls
+      const rcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
+      expect(rcCall).toBeDefined()
+      expect(String(rcCall![0])).toBe(path.join(fakePaths.configDir, '.slashbotrc'))
+    })
+
+    it('writes PROMPT.md and AGENT.md to configDir', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      const calls = (fs.writeFileSync as any).mock.calls
+      const promptCall = calls.find((c: any) => String(c[0]).endsWith('PROMPT.md'))
+      const agentCall = calls.find((c: any) => String(c[0]).endsWith('AGENT.md'))
+      expect(String(promptCall![0])).toBe(path.join(fakePaths.configDir, 'PROMPT.md'))
+      expect(String(agentCall![0])).toBe(path.join(fakePaths.configDir, 'AGENT.md'))
+    })
+
+    it('writes .slashbotid with project id to project root', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      const calls = (fs.writeFileSync as any).mock.calls
+      const idCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotid'))
+      expect(idCall).toBeDefined()
+      expect(String(idCall![0])).toBe('/project/.slashbotid')
+      expect(String(idCall![1])).toBe('abc123\n')
+    })
+
+    it('calls ensureStoreDirs when paths provided', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      expect(fs.mkdirSync).toHaveBeenCalledWith(fakePaths.storeDir, { recursive: true })
+      expect(fs.mkdirSync).toHaveBeenCalledWith(fakePaths.logsDir, { recursive: true })
+      expect(fs.mkdirSync).toHaveBeenCalledWith(fakePaths.configDir, { recursive: true })
+    })
+
+    it('does not create .slashbot dir when paths provided', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      const mkdirCalls = (fs.mkdirSync as any).mock.calls.map((c: any) => String(c[0]))
+      expect(mkdirCalls).not.toContain('/project/.slashbot')
+    })
+
+    it('generates centralized gitignore with .slashbotid only', () => {
+      ;(fs.existsSync as any).mockReturnValue(false)
+      enableRalph('/project', defaultOpts, fakePaths)
+      const calls = (fs.writeFileSync as any).mock.calls
+      const gitignoreCall = calls.find((c: any) => String(c[0]).endsWith('.gitignore'))
+      expect(gitignoreCall).toBeDefined()
+      const content = String(gitignoreCall![1])
+      expect(content).toContain('.slashbotid')
+      expect(content).not.toContain('.slashbot/logs/')
+    })
+
+    it('force overwrites config files in configDir', () => {
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue('{"name":"test"}')
+      const result = enableRalph('/project', { ...defaultOpts, force: true }, fakePaths)
+      expect(result.ok).toBe(true)
+      expect(result.alreadyEnabled).toBe(false)
+      expect(result.filesCreated.length).toBeGreaterThan(0)
     })
   })
 })
