@@ -796,6 +796,71 @@ describe('AgentCoordinator — bead claiming with contention', () => {
     expect(events[0].type).toBe('claimed')
   })
 
+  it('claimBestBead prefers earlier createdAt when priority ties (FIFO)', async () => {
+    const beads = [
+      makeBead({ id: 'b1', priority: 1, createdAt: '2026-03-22T12:00:00Z' }),
+      makeBead({ id: 'b2', priority: 1, createdAt: '2026-03-22T10:00:00Z' }),
+      makeBead({ id: 'b3', priority: 1, createdAt: '2026-03-22T11:00:00Z' }),
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
+  })
+
+  it('claimBestBead sorts undefined createdAt after defined createdAt', async () => {
+    const beads = [
+      makeBead({ id: 'b1', priority: 1 }), // no createdAt
+      makeBead({ id: 'b2', priority: 1, createdAt: '2026-03-22T10:00:00Z' }),
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
+  })
+
+  it('claimBestBead uses numeric ID as final tiebreaker', async () => {
+    const beads = [
+      makeBead({ id: '10', priority: 1, createdAt: '2026-03-22T10:00:00Z' }),
+      makeBead({ id: '2', priority: 1, createdAt: '2026-03-22T10:00:00Z' }),
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: '2', status: 'claimed', claimedBy: 'agent-0' }))
+
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('2')
+  })
+
+  it('claimBestBead uses localeCompare for non-numeric IDs', async () => {
+    const beads = [
+      makeBead({ id: 'xyz', priority: 1, createdAt: '2026-03-22T10:00:00Z' }),
+      makeBead({ id: 'abc', priority: 1, createdAt: '2026-03-22T10:00:00Z' }),
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'abc', status: 'claimed', claimedBy: 'agent-0' }))
+
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('abc')
+  })
+
   it('concurrent claimBestBead calls are serialized by semaphore', async () => {
     const order: string[] = []
     let callNum = 0

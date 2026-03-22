@@ -702,7 +702,8 @@ export class AgentCoordinator {
         if (!isNaN(n) && n > 0) retryCount.set(c.id, n)
       }
 
-      // Sort: fewest retries first, then fewest unresolved deps + open children, then priority
+      // Sort: fewest retries first, then fewest unresolved deps + open children, then priority,
+      // then earliest createdAt (FIFO), then numeric ID ascending / localeCompare fallback
       candidates.sort((a, b) => {
         const retriesA = retryCount.get(a.id) ?? 0
         const retriesB = retryCount.get(b.id) ?? 0
@@ -710,7 +711,22 @@ export class AgentCoordinator {
         const unresolvedA = a.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
         const unresolvedB = b.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
         if (unresolvedA !== unresolvedB) return unresolvedA - unresolvedB
-        return (a.priority ?? 2) - (b.priority ?? 2)
+        const priDiff = (a.priority ?? 2) - (b.priority ?? 2)
+        if (priDiff !== 0) return priDiff
+        // FIFO tiebreaker: earliest createdAt first (undefined sorts last)
+        const ca = a.createdAt
+        const cb = b.createdAt
+        if (ca !== cb) {
+          if (!ca) return 1
+          if (!cb) return -1
+          if (ca < cb) return -1
+          if (ca > cb) return 1
+        }
+        // Final fallback: numeric ID ascending, then localeCompare for non-numeric
+        const na = Number(a.id)
+        const nb = Number(b.id)
+        if (!isNaN(na) && !isNaN(nb)) return na - nb
+        return a.id.localeCompare(b.id)
       })
 
       for (const bead of candidates) {
