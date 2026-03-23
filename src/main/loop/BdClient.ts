@@ -174,6 +174,24 @@ export class BdClient {
     }
   }
 
+  // ── Async wrappers (yield to event loop between bd calls) ──────────────
+  // These delegate to the sync methods via setImmediate so that:
+  // 1. The Electron event loop is not blocked
+  // 2. Tests that mock the sync methods (ready, listByStatus, etc.) still work
+
+  private yieldThen<T>(fn: () => T): Promise<T> {
+    return new Promise((resolve, reject) => {
+      setImmediate(() => { try { resolve(fn()) } catch (e) { reject(e) } })
+    })
+  }
+
+  readyAsync(): Promise<Bead[]> { return this.yieldThen(() => this.ready()) }
+  listAllAsync(): Promise<Bead[]> { return this.yieldThen(() => this.listAll()) }
+  listByStatusAsync(status: string): Promise<Bead[]> { return this.yieldThen(() => this.listByStatus(status)) }
+  assignToAsync(id: string, assignee: string): Promise<boolean> { return this.yieldThen(() => this.assignTo(id, assignee)) }
+  showAsync(id: string): Promise<Bead | null> { return this.yieldThen(() => this.show(id)) }
+  getStateAsync(id: string, key: string): Promise<string> { return this.yieldThen(() => this.getState(id, key)) }
+
   // ── Show ───────────────────────────────────────────────────────────────
 
   show(id: string): Bead | null {
