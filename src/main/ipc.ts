@@ -12,6 +12,7 @@ import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
 import { loadConfig } from './loop/RcParser'
 import { CircuitBreaker } from './loop/CircuitBreaker'
 import { checkEnabled, detectProjectContext, enableRalph } from './loop/RalphEnabler'
+import { getProjectPaths, ensureStoreDirs, detectLegacyStorage, migrateLegacyStorage } from './loop/ProjectStore'
 import { BdClient } from './loop/BdClient'
 import {
   validateBeadsList,
@@ -97,7 +98,7 @@ function readProjectStore(storePath: string): string[] {
 }
 
 function cleanOrphanedWorktrees(projectPath: string): void {
-  const worktreesDir = path.join(projectPath, '.worktrees')
+  const worktreesDir = getProjectPaths(projectPath).worktreesDir
   if (!fs.existsSync(worktreesDir)) return
 
   let entries: string[]
@@ -152,7 +153,6 @@ const readJson = (filePath: string): unknown => {
 const readText = (filePath: string): string | null => {
   try { return fs.readFileSync(filePath, 'utf8') } catch { return null }
 }
-const slashbotDir = (p: string): string => path.join(p, '.slashbot')
 
 export function registerIpc(
   getMainWindow: () => BrowserWindow | null,
@@ -185,8 +185,15 @@ export function registerIpc(
       title: 'Open project'
     })
     if (r.canceled) return null
-    addToStore(r.filePaths[0])
-    return r.filePaths[0]
+    const selected = r.filePaths[0]
+    addToStore(selected)
+    // Auto-migrate legacy .slashbot/ storage if present
+    if (detectLegacyStorage(selected)) {
+      const paths = getProjectPaths(selected)
+      ensureStoreDirs(paths)
+      migrateLegacyStorage(selected)
+    }
+    return selected
   })
 
   ipcMain.handle('project:recent', () => readStore())
@@ -195,6 +202,12 @@ export function registerIpc(
     try {
       const validated = validateProjectPathArg(p)
       addToStore(validated)
+      // Auto-migrate legacy .slashbot/ storage if present
+      if (detectLegacyStorage(validated)) {
+        const paths = getProjectPaths(validated)
+        ensureStoreDirs(paths)
+        migrateLegacyStorage(validated)
+      }
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -216,28 +229,29 @@ export function registerIpc(
   // ── Status ──────────────────────────────────────────────────────────────
 
   ipcMain.handle('status:read', (_e, projectPath: string) => {
-    const rd = slashbotDir(projectPath)
+    const paths = getProjectPaths(projectPath)
     return {
-      status: readJson(path.join(rd, 'status.json')),
-      progress: readJson(path.join(rd, 'progress.json')),
-      circuit: readJson(path.join(rd, '.circuit_breaker_state')),
-      analysis: readJson(path.join(rd, '.response_analysis'))
+      status: readJson(path.join(paths.storeDir, 'status.json')),
+      progress: readJson(path.join(paths.storeDir, 'progress.json')),
+      circuit: readJson(paths.circuitBreakerState),
+      analysis: readJson(path.join(paths.storeDir, '.response_analysis'))
     }
   })
 
   function subscribeProject(projectPath: string): void {
     if (watchers.has(projectPath)) return
-    const rd = slashbotDir(projectPath)
-    if (!fs.existsSync(rd)) return
+    const paths = getProjectPaths(projectPath)
+    const sd = paths.storeDir
+    if (!fs.existsSync(sd)) return
 
-    const watcher = chokidar.watch(rd, {
+    const watcher = chokidar.watch(sd, {
       ignoreInitial: true,
       depth: 1,
       ignored: ['**/.claude_session_id', '**/.slashbot_session_history']
     })
 
     const push = (channel: string, file: string): void => {
-      const data = readJson(path.join(rd, file))
+      const data = readJson(path.join(sd, file))
       if (data) broadcast(channel, projectPath, data)
     }
 
@@ -247,7 +261,7 @@ export function registerIpc(
       if (name === '.circuit_breaker_state') push('circuit:update', '.circuit_breaker_state')
     })
 
-    const logFile = path.join(rd, 'logs', 'slashbot.log')
+    const logFile = path.join(paths.logsDir, 'slashbot.log')
     let logSize = fs.existsSync(logFile) ? (readText(logFile) ?? '').length : 0
     const logWatcher = chokidar.watch(logFile, { ignoreInitial: true })
     logWatcher.on('change', () => {
@@ -269,13 +283,13 @@ export function registerIpc(
   // ── Logs ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('logs:read', (_e, projectPath: string, lines = 200) => {
-    const logFile = path.join(slashbotDir(projectPath), 'logs', 'slashbot.log')
+    const logFile = path.join(getProjectPaths(projectPath).logsDir, 'slashbot.log')
     if (!fs.existsSync(logFile)) return []
     return (readText(logFile) ?? '').split('\n').filter(Boolean).slice(-lines)
   })
 
   ipcMain.handle('logs:list', (_e, projectPath: string) => {
-    const logsDir = path.join(slashbotDir(projectPath), 'logs')
+    const logsDir = getProjectPaths(projectPath).logsDir
     if (!fs.existsSync(logsDir)) return []
     return fs.readdirSync(logsDir).filter(f => f.endsWith('.log') && f !== 'slashbot.log').sort().reverse().slice(0, 30)
   })
@@ -284,7 +298,8 @@ export function registerIpc(
 
   ipcMain.handle('file:read', (_e, projectPath: string, relPath: string) => {
     try {
-      const v = validateConfigRead(projectPath, relPath)
+      const paths = getProjectPaths(projectPath)
+      const v = validateConfigRead(projectPath, relPath, paths.configDir)
       const c = readText(v.resolvedPath)
       return c !== null ? { ok: true, content: c } : { ok: false, error: 'File not found' }
     } catch (e) {
@@ -294,7 +309,8 @@ export function registerIpc(
 
   ipcMain.handle('file:write', (_e, projectPath: string, relPath: string, content: string) => {
     try {
-      const v = validateConfigWrite(projectPath, relPath, content)
+      const paths = getProjectPaths(projectPath)
+      const v = validateConfigWrite(projectPath, relPath, content, paths.configDir)
       fs.writeFileSync(v.resolvedPath, v.content)
       return { ok: true }
     } catch (e) {
@@ -307,7 +323,7 @@ export function registerIpc(
   ipcMain.handle('circuit:reset', (_e, projectPath: string) => {
     try {
       const config = loadConfig(projectPath)
-      const circuit = new CircuitBreaker(slashbotDir(projectPath), config)
+      const circuit = new CircuitBreaker(getProjectPaths(projectPath).storeDir, config)
       circuit.reset()
       broadcast('circuit:update', projectPath, circuit.snapshot())
       return { ok: true }
@@ -317,7 +333,7 @@ export function registerIpc(
   })
 
   ipcMain.handle('session:reset', (_e, projectPath: string) => {
-    const f = path.join(slashbotDir(projectPath), '.claude_session_id')
+    const f = path.join(getProjectPaths(projectPath).storeDir, '.claude_session_id')
     try {
       if (fs.existsSync(f)) fs.writeFileSync(f, '')
       return { ok: true }
@@ -328,13 +344,29 @@ export function registerIpc(
 
   // ── Slashbot enable ───────────────────────────────────────────────────────
 
-  ipcMain.handle('slashbot:is-enabled', (_e, projectPath: string) => ({
-    ...checkEnabled(projectPath),
-    context: detectProjectContext(projectPath)
-  }))
+  ipcMain.handle('slashbot:is-enabled', (_e, projectPath: string) => {
+    const paths = getProjectPaths(projectPath)
+    return {
+      ...checkEnabled(projectPath, paths),
+      context: detectProjectContext(projectPath)
+    }
+  })
 
-  ipcMain.handle('slashbot:enable', (_e, projectPath: string, opts: EnableOptions) =>
-    enableRalph(projectPath, opts))
+  ipcMain.handle('slashbot:enable', (_e, projectPath: string, opts: EnableOptions) => {
+    const paths = getProjectPaths(projectPath)
+    return enableRalph(projectPath, opts, paths)
+  })
+
+  ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) => {
+    try {
+      const legacyDir = path.join(projectPath, '.slashbot')
+      if (!fs.existsSync(legacyDir)) return { ok: true, removed: false }
+      fs.rmSync(legacyDir, { recursive: true, force: true })
+      return { ok: true, removed: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 
   ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) =>
     cleanupLegacyStorage(projectPath))
@@ -724,7 +756,7 @@ export function registerIpc(
   ipcMain.handle('swarm:agent-logs', (_e, projectPath: unknown) => {
     try {
       const v = validateSwarmAgentLogs(projectPath)
-      const logsDir = path.join(slashbotDir(v.projectPath), 'logs')
+      const logsDir = getProjectPaths(v.projectPath).logsDir
       if (!fs.existsSync(logsDir)) return []
       return fs.readdirSync(logsDir)
         .filter(f => f.match(/^agent-\d+_\w+_.*\.log$/))
@@ -747,7 +779,7 @@ export function registerIpc(
   ipcMain.handle('swarm:agent-log-content', (_e, projectPath: unknown, filename: unknown) => {
     try {
       const v = validateSwarmAgentLogContent(projectPath, filename)
-      const filePath = path.join(slashbotDir(v.projectPath), 'logs', v.filename)
+      const filePath = path.join(getProjectPaths(v.projectPath).logsDir, v.filename)
       return readText(filePath) ?? ''
     } catch {
       return ''
@@ -760,7 +792,7 @@ export function registerIpc(
       const swarm = swarms.get(v.projectPath)
       if (swarm) return swarm.getAgentOutput(v.agentId)
       // Fallback: read from disk even without active swarm
-      const logFile = path.join(slashbotDir(v.projectPath), 'logs', `${v.agentId}.log`)
+      const logFile = path.join(getProjectPaths(v.projectPath).logsDir, `${v.agentId}.log`)
       return readText(logFile) ?? ''
     } catch {
       return ''
