@@ -845,10 +845,16 @@ export class AgentCoordinator {
 
         this.reserveFiles(agentId, bead.id, bead.files)
         this.postActivity({ agentId, type: 'claimed', beadId: bead.id, beadTitle: bead.title, summary: `Claimed bead [${bead.id}] ${bead.title}` })
+        // Preserve original title — bd show may return a corrupted title after set-state
+        const originalTitle = bead.title
         let freshBead: Bead | null = null
         try { freshBead = await this.bd.showAsync(bead.id) }
         catch { freshBead = this.bd.show(bead.id) }
-        return freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
+        const result = freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
+        if (originalTitle && result.title !== originalTitle) {
+          result.title = originalTitle
+        }
+        return result
       }
       this._log('DEBUG', `[${agentId}] claimBestBead: no suitable candidate found`)
       return null
