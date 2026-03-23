@@ -240,18 +240,17 @@ export class WorkerLoop extends EventEmitter {
           continue
         }
         // There's open/in-progress work but nothing claimable for us.
-        // If all remaining claimable beads are blocked by in-progress work,
-        // don't spin-wait forever — exit after a few retries so we don't
-        // waste resources waiting for a single agent to finish.
+        // All beads are either claimed by other agents or blocked by dependencies.
+        // Park quickly — the orchestrator will restart us when new work becomes available.
         this.emptyRetries++
-        if (this.emptyRetries >= 5) {
-          this._log('INFO', `[${this.agentId}] No claimable beads after ${this.emptyRetries} attempts — parking worker`)
+        if (this.emptyRetries >= 3) {
+          this._log('INFO', `[${this.agentId}] No claimable beads after ${this.emptyRetries} attempts — parking worker (other agents have all available work)`)
           this._exit('all_beads_done')
           return
         }
-        this._log('INFO', `[${this.agentId}] No claimable beads (work in progress by others), waiting… (${this.emptyRetries}/5)`)
+        this._log('INFO', `[${this.agentId}] No claimable beads (blocked by deps or claimed by others), retrying… (${this.emptyRetries}/3)`)
         this._setPhase('waiting')
-        await this._sleep(10_000)
+        await this._sleep(5_000)
         continue
       }
       this.emptyRetries = 0
@@ -392,7 +391,8 @@ export class WorkerLoop extends EventEmitter {
             } catch { /* ignore — may have nothing to commit */ }
 
             const result = await this.coordinator.mergeWorktree(this.agentId, bead.id, wt.branch, wt.worktreePath, {
-              stoppedFn: () => this.stopped,
+              // During graceful stop, never abort the merge — let the bead complete
+              stoppedFn: this._gracefulStopping ? undefined : () => this.stopped,
               claudeCmd: this.resolvedCmd,
               env: this.env
             })

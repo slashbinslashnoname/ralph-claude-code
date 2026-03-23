@@ -192,15 +192,15 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
       return 'routing'
     }
     // Work exists but nothing claimable — all beads are blocked or claimed by others.
-    // Don't spin-wait forever; park after a few retries.
+    // Park quickly — the orchestrator will restart us when new work becomes available.
     ctx.flags.emptyRetries++
-    if (ctx.flags.emptyRetries >= 5) {
+    if (ctx.flags.emptyRetries >= 3) {
       log(ctx, 'INFO', `[${ctx.agentId}] No claimable beads after ${ctx.flags.emptyRetries} attempts — parking worker`)
       return 'stopping'
     }
-    log(ctx, 'INFO', `[${ctx.agentId}] No claimable beads (work in progress by others), waiting… (${ctx.flags.emptyRetries}/5)`)
+    log(ctx, 'INFO', `[${ctx.agentId}] No claimable beads (blocked by deps or claimed by others), retrying… (${ctx.flags.emptyRetries}/3)`)
     setPhase(ctx, 'waiting')
-    await ctx.capabilities.sleep(10_000)
+    await ctx.capabilities.sleep(5_000)
     return 'routing'
   }
 
