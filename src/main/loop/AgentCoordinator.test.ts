@@ -30,6 +30,7 @@ function makeTmpGitProject(): string {
 function makeTmpPaths(projectDir: string): ProjectPaths {
   const storeDir = path.join(projectDir, '.slashbot')
   fs.mkdirSync(path.join(storeDir, 'logs'), { recursive: true })
+  fs.mkdirSync(path.join(storeDir, 'config'), { recursive: true })
   return {
     id: 'test-id',
     projectRoot: projectDir,
@@ -663,7 +664,7 @@ describe('AgentCoordinator — worktree creation', () => {
   })
 
   it('worktree has .slashbotrc symlink when .slashbotrc exists', () => {
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), 'maxCallsPerHour=10')
+    fs.writeFileSync(tmpPaths.slashbotrc, 'maxCallsPerHour=10')
     const wt = coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const rcLink = path.join(wt!.worktreePath, '.slashbotrc')

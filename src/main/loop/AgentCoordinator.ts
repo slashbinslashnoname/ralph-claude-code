@@ -483,7 +483,7 @@ export class AgentCoordinator {
       }
 
       // Symlink .slashbotrc
-      const slashbotrcSrc = path.join(this.paths.projectRoot, '.slashbotrc')
+      const slashbotrcSrc = this.paths.slashbotrc
       const slashbotrcLink = path.join(worktreePath, '.slashbotrc')
       if (fs.existsSync(slashbotrcSrc) && !fs.existsSync(slashbotrcLink)) {
         fs.symlinkSync(slashbotrcSrc, slashbotrcLink, 'file')
