@@ -2057,4 +2057,83 @@ None.
       expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
     })
   })
+
+  describe('_currentBeadId tracking and MCP env injection', () => {
+    it('includes SLASHBOT_BEAD_ID in MCP config when _currentBeadId is set', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
+
+      // Set _currentBeadId to simulate being in a bead work cycle
+      ;(worker as any)._currentBeadId = 'sb-test-123'
+
+      // Mock existsSync to return true for the MCP server script
+      vi.mocked(fs.existsSync).mockReturnValue(true)
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+      proc.simulateStdout('done')
+      proc.simulateExit(0)
+      await promise
+
+      // Find the writeFileSync call that wrote the MCP config
+      const mcpWriteCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+        (call) => String(call[0]).includes('mcp-')
+      )
+      expect(mcpWriteCalls.length).toBeGreaterThan(0)
+      const mcpConfig = JSON.parse(mcpWriteCalls[0][1] as string)
+      expect(mcpConfig.mcpServers.coordination.env.SLASHBOT_BEAD_ID).toBe('sb-test-123')
+    })
+
+    it('omits SLASHBOT_BEAD_ID from MCP config when _currentBeadId is null', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
+
+      // _currentBeadId defaults to null
+      expect((worker as any)._currentBeadId).toBeNull()
+
+      vi.mocked(fs.existsSync).mockReturnValue(true)
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+      proc.simulateStdout('done')
+      proc.simulateExit(0)
+      await promise
+
+      const mcpWriteCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+        (call) => String(call[0]).includes('mcp-')
+      )
+      expect(mcpWriteCalls.length).toBeGreaterThan(0)
+      const mcpConfig = JSON.parse(mcpWriteCalls[0][1] as string)
+      expect(mcpConfig.mcpServers.coordination.env).not.toHaveProperty('SLASHBOT_BEAD_ID')
+    })
+
+    it('sets _currentBeadId after claim and clears it in finally', async () => {
+      const coord = makeCoordinator()
+      const bead = makeBead({ id: 'sb-xyz' })
+      let beadIdDuringExec: string | null = 'unset' as any
+
+      // claimBestBead returns a bead on first call, null on second (to end the loop)
+      coord.claimBestBead.mockResolvedValueOnce(bead).mockResolvedValueOnce(null)
+      coord.hasOpenWork.mockReturnValue(false)
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
+
+      // Mock _runClaude to capture _currentBeadId during execution
+      ;(worker as any)._runClaude = vi.fn(async () => {
+        beadIdDuringExec = (worker as any)._currentBeadId
+        return '{"result": "ok"}'
+      })
+
+      await worker.start()
+
+      // During execution, _currentBeadId should have been set
+      expect(beadIdDuringExec).toBe('sb-xyz')
+      // After loop completes, _currentBeadId should be cleared
+      expect((worker as any)._currentBeadId).toBeNull()
+    })
+  })
 })

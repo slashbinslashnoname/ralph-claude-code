@@ -44,6 +44,8 @@ export class WorkerLoop extends EventEmitter {
   private resolvedCmd: string
   /** Shared context when running in state-machine mode (feature-flagged). */
   private _stateMachineCtx: WorkerContext | null = null
+  /** Current bead ID being worked on, for MCP env injection. */
+  private _currentBeadId: string | null = null
 
   constructor(
     private agentId: string,
@@ -261,6 +263,7 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('claiming', bead.id, bead.title)
       this._log('INFO', `[${this.agentId}] Claimed: [${bead.id}] ${bead.title}`)
       this.coordinator.updateAgent(this.agentId, { currentBeadId: bead.id, currentBeadTitle: bead.title, loopCount: this.loopCount })
+      this._currentBeadId = bead.id
 
       // ── Create worktree for isolated work ─────────────────────────
       const wt = this.coordinator.createWorktree(this.agentId, bead.id)
@@ -370,6 +373,7 @@ export class WorkerLoop extends EventEmitter {
         }
         } // close else block from Phase 1 guard
       } finally {
+        this._currentBeadId = null
         // ── Phase 4: Merge worktree back (skip if stopped — no partial work) ──
         if (wt && this.stopped) {
           // Just clean up the worktree without merging
@@ -526,6 +530,7 @@ export class WorkerLoop extends EventEmitter {
               env: {
                 SLASHBOT_AGENT_ID: this.agentId,
                 SLASHBOT_STORE_DIR: this.paths.storeDir,
+                ...(this._currentBeadId ? { SLASHBOT_BEAD_ID: this._currentBeadId } : {}),
               },
             },
           },
