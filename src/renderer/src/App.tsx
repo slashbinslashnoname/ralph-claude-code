@@ -50,8 +50,6 @@ export default function App() {
     ]).then(async ([saved, recent]) => {
       setRecentProjects(recent)
       if (saved.paths.length > 0) {
-        // Trigger migration check for all restored projects
-        await Promise.all(saved.paths.map(p => sb.migrateCheck(p).catch(() => {})))
         setTabs(saved.paths.map(p => ({
           path: p,
           page: 'dashboard' as Page,
@@ -163,7 +161,6 @@ export default function App() {
       return
     }
     setRecentProjects(prev => [p!, ...prev.filter(x => x !== p)].slice(0, 10))
-    await sb.migrateCheck(p).catch(() => {})
     const newTab: TabState = {
       path: p,
       page: 'dashboard',
