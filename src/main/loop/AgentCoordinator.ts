@@ -748,8 +748,15 @@ export class AgentCoordinator {
         }
       }
 
-      // Beads in_progress can satisfy deps (speculative parallel execution)
+      // Beads in_progress can satisfy deps (speculative parallel execution).
+      // Also treat parent beads as "in progress" if any of their children are being worked on.
       const inProgressIds = new Set(allBeads.filter(b => b.status === 'claimed').map(b => b.id))
+      for (const b of allBeads) {
+        if (b.status === 'claimed' && b.epicId) {
+          // If a child is in_progress, its parent is effectively in_progress too
+          inProgressIds.add(b.epicId)
+        }
+      }
 
       // Sort: retries → unresolved deps → priority → epic convergence → FIFO → ID
       candidates.sort((a, b) => {
@@ -838,10 +845,16 @@ export class AgentCoordinator {
 
         this.reserveFiles(agentId, bead.id, bead.files)
         this.postActivity({ agentId, type: 'claimed', beadId: bead.id, beadTitle: bead.title, summary: `Claimed bead [${bead.id}] ${bead.title}` })
+        // Preserve original title — bd show may return a corrupted title after set-state
+        const originalTitle = bead.title
         let freshBead: Bead | null = null
         try { freshBead = await this.bd.showAsync(bead.id) }
         catch { freshBead = this.bd.show(bead.id) }
-        return freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
+        const result = freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
+        if (originalTitle && result.title !== originalTitle) {
+          result.title = originalTitle
+        }
+        return result
       }
       this._log('DEBUG', `[${agentId}] claimBestBead: no suitable candidate found`)
       return null
