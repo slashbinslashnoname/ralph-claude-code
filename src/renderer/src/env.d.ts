@@ -131,7 +131,7 @@ interface SlashbotAPI {
     list: (p: string, limit?: number) => Promise<MailMessage[]>
     subscribe: (p: string) => Promise<void>
     unsubscribe: (p: string) => Promise<void>
-    onMessage: (cb: (proj: string, messages: MailMessage[]) => void) => () => void
+    onMessage: (cb: (proj: string, msg: MailMessage) => void) => () => void
   }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>
