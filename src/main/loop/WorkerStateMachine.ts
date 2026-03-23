@@ -90,6 +90,8 @@ export interface WorkerCapabilities {
   detectApiLimit: (output: string) => boolean
   /** Strip ANSI codes from output */
   stripAnsi: (s: string) => string
+  /** Extract human-readable text from raw Claude output (handles JSON format) */
+  extractText: (raw: string) => string
   /** Wait for API quota to reset */
   waitForQuotaReset: () => Promise<void>
   /** Block until resumed (or stopped). Returns true if stopped while paused. */
@@ -230,7 +232,8 @@ export async function thinking(ctx: WorkerContext): Promise<StateId> {
       ctx.capabilities.buildThinkingPrompt(bead), 'think', workDir, ctx.config.claudeModelThink
     )
     ctx.thinkingOutput = raw
-    const stripped = ctx.capabilities.stripAnsi(raw)
+    const thinkingText = ctx.capabilities.extractText(raw)
+    const stripped = ctx.capabilities.stripAnsi(thinkingText)
     const summary = ctx.capabilities.extractThinkingSummary(stripped)
     ctx.coordinator.updateAgent(ctx.agentId, { thinkingSummary: summary })
 
@@ -243,7 +246,8 @@ export async function thinking(ctx: WorkerContext): Promise<StateId> {
     })
     log(ctx, 'INFO', `[${ctx.agentId}] Thinking complete: ${summary.slice(0, 120)}`)
 
-    if (ctx.capabilities.detectApiLimit(stripped)) {
+    // detectApiLimit needs raw output (checks JSON lines for rate limit patterns)
+    if (ctx.capabilities.detectApiLimit(ctx.capabilities.stripAnsi(raw))) {
       log(ctx, 'WARN', `[${ctx.agentId}] API limit detected during thinking`)
       ctx.flags.apiLimited = true
       return 'merging'
@@ -256,7 +260,7 @@ export async function thinking(ctx: WorkerContext): Promise<StateId> {
   // Auto-split check
   if (ctx.thinkingOutput && !ctx.flags.apiLimited && !ctx.flags.stopped) {
     const splitDecision = ctx.capabilities.parseSplitDecision(
-      ctx.capabilities.stripAnsi(ctx.thinkingOutput), bead
+      ctx.capabilities.stripAnsi(ctx.capabilities.extractText(ctx.thinkingOutput)), bead
     )
     if (splitDecision) {
       log(ctx, 'INFO', `[${ctx.agentId}] Split decision detected for [${bead.id}] — creating ${splitDecision.children.length} children`)

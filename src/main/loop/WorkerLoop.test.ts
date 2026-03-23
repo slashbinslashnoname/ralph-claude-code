@@ -1569,12 +1569,12 @@ describe('WorkerLoop', () => {
         require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
       )
       // Verify the split check exists and is positioned correctly
-      expect(workerSource).toContain('_parseSplitDecision(stripAnsi(thinkingOutput), bead)')
+      expect(workerSource).toContain('_parseSplitDecision(stripAnsi(this._extractText(thinkingOutput)), bead)')
       expect(workerSource).toContain('await this._splitBead(bead, splitDecision)')
       expect(workerSource).toContain("this.coordinator.updateAgent(this.agentId, { currentBeadId: bead.id, currentBeadTitle: bead.title })")
 
       // Verify ordering: split check appears after thinking, before execute
-      const splitIdx = workerSource.indexOf('_parseSplitDecision(stripAnsi(thinkingOutput)')
+      const splitIdx = workerSource.indexOf('_parseSplitDecision(stripAnsi(this._extractText(thinkingOutput))')
       const executeIdx = workerSource.indexOf("_setPhase('executing'")
       const thinkingIdx = workerSource.indexOf("_setPhase('thinking'")
       expect(thinkingIdx).toBeLessThan(splitIdx)

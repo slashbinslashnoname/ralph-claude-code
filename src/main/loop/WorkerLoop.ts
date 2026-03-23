@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as cp from 'child_process'
 import { RalphConfig, Bead, SplitDecision } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
-import { detectApiLimit } from './ResponseAnalyzer'
+import { detectApiLimit, extractResultFromJsonStream } from './ResponseAnalyzer'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 import { ProjectPaths } from './ProjectStore'
@@ -143,6 +143,7 @@ export class WorkerLoop extends EventEmitter {
       splitBead: (bead, decision) => this._splitBead(bead, decision),
       detectApiLimit: (output) => detectApiLimit(output),
       stripAnsi: (s) => stripAnsi(s),
+      extractText: (raw) => this._extractText(raw),
       waitForQuotaReset: () => this._waitForQuotaReset(),
       waitIfPaused: () => this._waitIfPaused(),
       sleep: (ms) => this._sleep(ms),
@@ -260,7 +261,8 @@ export class WorkerLoop extends EventEmitter {
         let thinkingOutput = ''
         try {
           thinkingOutput = await this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir, this.config.claudeModelThink)
-          const strippedThinking = stripAnsi(thinkingOutput)
+          const thinkingText = this._extractText(thinkingOutput)
+          const strippedThinking = stripAnsi(thinkingText)
           const summary = this._extractThinkingSummary(strippedThinking)
           this.coordinator.updateAgent(this.agentId, { thinkingSummary: summary })
           // Extract and share knowledge discoveries
@@ -282,7 +284,7 @@ export class WorkerLoop extends EventEmitter {
 
         // ── Auto-split check: split large beads before executing ──────
         if (thinkingOutput && !apiLimited && !this.stopped) {
-          const splitDecision = this._parseSplitDecision(stripAnsi(thinkingOutput), bead)
+          const splitDecision = this._parseSplitDecision(stripAnsi(this._extractText(thinkingOutput)), bead)
           if (splitDecision) {
             this._log('INFO', `[${this.agentId}] Split decision detected for [${bead.id}] — creating ${splitDecision.children.length} children`)
             const firstChild = await this._splitBead(bead, splitDecision)
@@ -514,6 +516,15 @@ export class WorkerLoop extends EventEmitter {
     })
   }
 
+  /** Extract human-readable text from raw Claude output. For JSON format, extracts the result text. For text format, returns as-is. */
+  private _extractText(raw: string): string {
+    if (this.config.claudeOutputFormat === 'json') {
+      const { text } = extractResultFromJsonStream(raw)
+      return text || raw // fall back to raw if no result found (e.g. incomplete output)
+    }
+    return raw
+  }
+
   /** Build context about the parent epic and dependency beads */
   private _buildParentContext(bead: Bead): string {
     const sections: string[] = []
@@ -667,7 +678,7 @@ DO NOT write any implementation code. Analysis only.`
   private _buildExecutePrompt(bead: Bead, thinkingContext: string): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
-    const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(thinkingContext)) : ''
+    const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(this._extractText(thinkingContext))) : ''
     const parentContext = this._buildParentContext(bead)
     const knowledgeContext = this._buildKnowledgeContext(bead.id)
 

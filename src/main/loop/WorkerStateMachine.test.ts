@@ -88,6 +88,7 @@ function makeCapabilities(overrides: Partial<WorkerCapabilities> = {}): WorkerCa
     splitBead: vi.fn().mockResolvedValue(null),
     detectApiLimit: vi.fn().mockReturnValue(false),
     stripAnsi: vi.fn().mockImplementation((s: string) => s),
+    extractText: vi.fn().mockImplementation((s: string) => s),
     waitForQuotaReset: vi.fn().mockResolvedValue(undefined),
     waitIfPaused: vi.fn().mockResolvedValue(false),
     sleep: vi.fn().mockResolvedValue(undefined),
