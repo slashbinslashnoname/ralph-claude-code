@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execSync, spawn } from 'child_process'
 import { BdClient } from './BdClient'
-import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
+import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry, MailMessage } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
 import { ProjectPaths } from './ProjectStore'
 
@@ -22,8 +22,14 @@ export class AgentCoordinator {
   private _activityByBead: Map<string, ActivityEvent[]> = new Map()
   private _activityByAgent: Map<string, ActivityEvent[]> = new Map()
   private _knowledgeCache: KnowledgeEntry[] = []
+  private _mailCache: MailMessage[] = []
+  private _mailByAgent: Map<string, MailMessage[]> = new Map()
+  private _mailWatcher: ReturnType<typeof import('chokidar').watch> | null = null
+  private _mailFileSize = 0
+  private mailFile: string
   private static readonly CACHE_CAP = 1000
   private static readonly KNOWLEDGE_CAP = 200
+  private static readonly MAIL_CAP = 500
   private static readonly INDEX_CAP = 200
   private static readonly ROTATION_SIZE = 1_048_576 // 1 MB
   private static readonly ROTATION_CHECK_INTERVAL = 50
@@ -47,10 +53,12 @@ export class AgentCoordinator {
     this.agentsFile = paths.agents
     this.activityFile = paths.activity
     this.knowledgeFile = paths.knowledge
+    this.mailFile = paths.mail
     fs.mkdirSync(paths.storeDir, { recursive: true })
     this.bd = new BdClient(paths.projectRoot)
     this._loadActivityFromDisk()
     this._loadKnowledgeFromDisk()
+    this._loadMailFromDisk()
   }
 
   private _loadActivityFromDisk(): void {
@@ -283,6 +291,132 @@ export class AgentCoordinator {
 
   readKnowledge(limit = 50): KnowledgeEntry[] {
     return this._knowledgeCache.slice(-limit)
+  }
+
+  // ── Mail (inter-agent messages from mail.jsonl) ─────────────────────────
+
+  private _loadMailFromDisk(): void {
+    if (!fs.existsSync(this.mailFile)) return
+    try {
+      const content = fs.readFileSync(this.mailFile, 'utf8')
+      this._mailFileSize = Buffer.byteLength(content, 'utf8')
+      const lines = content.split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const msg: MailMessage = JSON.parse(line)
+          this._mailCache.push(msg)
+          this._indexMail(msg)
+        } catch { /* skip corrupt */ }
+      }
+      if (this._mailCache.length > AgentCoordinator.MAIL_CAP) {
+        this._mailCache = this._mailCache.slice(-AgentCoordinator.MAIL_CAP)
+      }
+      this._capMailIndexes()
+    } catch { /* file unreadable — start with empty cache */ }
+  }
+
+  private _capMailIndexes(): void {
+    for (const [key, list] of this._mailByAgent) {
+      if (list.length > AgentCoordinator.INDEX_CAP) {
+        this._mailByAgent.set(key, list.slice(-AgentCoordinator.INDEX_CAP))
+      }
+    }
+  }
+
+  private _indexMail(msg: MailMessage): void {
+    // Index by 'to' agent
+    let toList = this._mailByAgent.get(msg.to)
+    if (!toList) { toList = []; this._mailByAgent.set(msg.to, toList) }
+    toList.push(msg)
+    // Also index by 'from' agent
+    if (msg.from !== msg.to) {
+      let fromList = this._mailByAgent.get(msg.from)
+      if (!fromList) { fromList = []; this._mailByAgent.set(msg.from, fromList) }
+      fromList.push(msg)
+    }
+  }
+
+  readMail(limit = 50): MailMessage[] {
+    return this._mailCache.slice(-limit)
+  }
+
+  readMailForAgent(agentId: string, limit = 100): MailMessage[] {
+    const list = this._mailByAgent.get(agentId)
+    if (!list) return []
+    return list.slice(-limit)
+  }
+
+  /**
+   * Watch mail.jsonl for new messages via chokidar.
+   * Tracks file size delta and only parses/emits newly appended lines.
+   */
+  watchMail(cb: (messages: MailMessage[]) => void): void {
+    if (this._mailWatcher) return // already watching
+
+    // Lazy-import chokidar to avoid pulling it in when not needed
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const chokidar = require('chokidar')
+
+    const mailBasename = path.basename(this.mailFile)
+    const mailDir = path.dirname(this.mailFile)
+
+    this._mailWatcher = chokidar.watch(mailDir, {
+      persistent: true,
+      ignoreInitial: true,
+      usePolling: false,
+      depth: 0,
+    })
+
+    const onFileEvent = (filePath: string): void => {
+      if (path.basename(filePath) !== mailBasename) return
+      this._readNewMailLines(cb)
+    }
+
+    this._mailWatcher!.on('change', onFileEvent)
+    this._mailWatcher!.on('add', onFileEvent)
+  }
+
+  private _readNewMailLines(cb: (messages: MailMessage[]) => void): void {
+    try {
+      const stat = fs.statSync(this.mailFile)
+      if (stat.size <= this._mailFileSize) return // no new data (or file was truncated)
+
+      const fd = fs.openSync(this.mailFile, 'r')
+      try {
+        const buf = Buffer.alloc(stat.size - this._mailFileSize)
+        fs.readSync(fd, buf, 0, buf.length, this._mailFileSize)
+        this._mailFileSize = stat.size
+
+        const newLines = buf.toString('utf8').split('\n').filter(Boolean)
+        const newMessages: MailMessage[] = []
+        for (const line of newLines) {
+          try {
+            const msg: MailMessage = JSON.parse(line)
+            this._mailCache.push(msg)
+            this._indexMail(msg)
+            newMessages.push(msg)
+          } catch { /* skip corrupt */ }
+        }
+
+        // Cap cache and indexes
+        if (this._mailCache.length > AgentCoordinator.MAIL_CAP) {
+          this._mailCache = this._mailCache.slice(-AgentCoordinator.MAIL_CAP)
+        }
+        this._capMailIndexes()
+
+        if (newMessages.length > 0) cb(newMessages)
+      } finally {
+        fs.closeSync(fd)
+      }
+    } catch { /* file disappeared or unreadable — ignore */ }
+  }
+
+  /** Stop the mail file watcher. */
+  unwatchMail(): void {
+    if (this._mailWatcher) {
+      this._mailWatcher.close()
+      this._mailWatcher = null
+    }
   }
 
   // ── Agent heartbeats ─────────────────────────────────────────────────────
