@@ -30,6 +30,16 @@ interface EnableResult {
   error?: string
   filesCreated: string[]
   context: ProjectContext
+  storeDir?: string
+}
+
+interface MigrateCheckResult {
+  ok: boolean
+  didMigrate?: boolean
+  storeDir?: string
+  error?: string
+  migratedFiles?: string[]
+  skipped?: string[]
 }
 
 interface BuildStatusDetail {
@@ -46,6 +56,7 @@ interface SlashbotAPI {
   saveActiveProjectTabs: (tabs: { paths: string[]; active: number }) => Promise<{ ok: boolean; error?: string }>
   isEnabled: (p: string) => Promise<{ enabled: boolean; missing: string[]; hasRalphrc: boolean; hasRalphDir: boolean; context: ProjectContext }>
   enable: (p: string, opts: EnableOptions) => Promise<EnableResult>
+  migrateCheck: (p: string) => Promise<MigrateCheckResult>
   readStatus: (p: string) => Promise<{ circuit: CircuitBreakerSnapshot | null; status: unknown; progress: unknown; analysis: unknown }>
   subscribeProject: (p: string) => Promise<void>
   unsubscribeProject: (p: string) => Promise<void>

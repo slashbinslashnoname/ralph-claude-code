@@ -143,7 +143,7 @@ describe('AgentCoordinator — atomic merge', () => {
     expect(log).toContain('atomic')
   })
 
-  it('retries merge after conflict and fails without claudeCmd', async () => {
+  it('auto-resolves conflict with --theirs when no claudeCmd', async () => {
     const wt = coord.createWorktree('agent-0', 'b2')
     expect(wt).toBeTruthy()
 
@@ -154,11 +154,13 @@ describe('AgentCoordinator — atomic merge', () => {
     execSync('git add . && git commit -m "agent change"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
     const result = await coord.mergeWorktree('agent-0', 'b2', wt!.branch, wt!.worktreePath, { maxRetries: 1 })
-    expect(result.merged).toBe(false)
-    expect(result.error).toBeTruthy()
+    expect(result.merged).toBe(true)
+    // Agent version wins via --theirs fallback
+    const content = fs.readFileSync(path.join(tmpDir, 'conflict.txt'), 'utf8')
+    expect(content).toBe('agent version')
   })
 
-  it('respects maxRetries=0 — no retry on failure', async () => {
+  it('auto-resolves conflict even with maxRetries=0', async () => {
     const wt = coord.createWorktree('agent-0', 'b3')
     expect(wt).toBeTruthy()
 
@@ -168,7 +170,7 @@ describe('AgentCoordinator — atomic merge', () => {
     execSync('git add . && git commit -m "agent"', { cwd: wt!.worktreePath, stdio: 'pipe', env: gitEnv })
 
     const result = await coord.mergeWorktree('agent-0', 'b3', wt!.branch, wt!.worktreePath, { maxRetries: 0 })
-    expect(result.merged).toBe(false)
+    expect(result.merged).toBe(true)
   })
 
   it('skips retry when stoppedFn returns true', async () => {
@@ -309,7 +311,7 @@ describe('AgentCoordinator — atomic merge', () => {
     expect(fs.existsSync(path.join(tmpDir, 'gamma.txt'))).toBe(true)
   })
 
-  it('concurrent merge with conflict — first succeeds, second fails', async () => {
+  it('concurrent merge with conflict — both succeed via --theirs fallback', async () => {
     const wt1 = coord.createWorktree('agent-0', 'e1')
     const wt2 = coord.createWorktree('agent-1', 'e2')
     expect(wt1).toBeTruthy()
@@ -322,13 +324,15 @@ describe('AgentCoordinator — atomic merge', () => {
     fs.writeFileSync(path.join(wt2!.worktreePath, 'shared.txt'), 'version-b')
     execSync('git add . && git commit -m "version b"', { cwd: wt2!.worktreePath, stdio: 'pipe', env: gitEnv })
 
-    // Merge sequentially — first should succeed, second should conflict
+    // Merge sequentially — first succeeds normally, second auto-resolves with --theirs
     const r1 = await coord.mergeWorktree('agent-0', 'e1', wt1!.branch, wt1!.worktreePath, { maxRetries: 0 })
     expect(r1.merged).toBe(true)
 
     const r2 = await coord.mergeWorktree('agent-1', 'e2', wt2!.branch, wt2!.worktreePath, { maxRetries: 0 })
-    expect(r2.merged).toBe(false)
-    expect(r2.error).toBeTruthy()
+    expect(r2.merged).toBe(true)
+    // Second agent's version wins
+    const content = fs.readFileSync(path.join(tmpDir, 'shared.txt'), 'utf8')
+    expect(content).toBe('version-b')
   })
 })
 

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('slashbot', {
   // ── Slashbot enable ────────────────────────────────────────────────────────
   isEnabled: (projectPath: string) => ipcRenderer.invoke('slashbot:is-enabled', projectPath),
   enable: (projectPath: string, opts: unknown) => ipcRenderer.invoke('slashbot:enable', projectPath, opts),
+  migrateCheck: (projectPath: string) => ipcRenderer.invoke('slashbot:migrate-check', projectPath),
 
   // ── Status ──────────────────────────────────────────────────────────────
   readStatus: (projectPath: string) => ipcRenderer.invoke('status:read', projectPath),

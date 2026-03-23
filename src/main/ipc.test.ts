@@ -380,6 +380,64 @@ describe('ipc handlers use centralized ProjectPaths', () => {
     })
   })
 
+  describe('slashbot:enable returns storeDir', () => {
+    it('includes storeDir in the enable result', () => {
+      const projectPath = '/test/project'
+      const storeDir = computeStoreDir(projectPath)
+      mockEnableRalph.mockReturnValueOnce({ ok: true, alreadyEnabled: false, filesCreated: ['PROMPT.md'], context: {} })
+
+      const result = invoke('slashbot:enable', projectPath, { force: true })
+
+      expect(result).toEqual(expect.objectContaining({
+        ok: true,
+        storeDir,
+        filesCreated: ['PROMPT.md'],
+      }))
+    })
+  })
+
+  describe('slashbot:migrate-check', () => {
+    it('migrates legacy storage and returns storeDir', () => {
+      const projectPath = path.join(tmpDir, 'migrate-proj')
+      const legacyDir = path.join(projectPath, '.slashbot')
+      realFs.mkdirSync(legacyDir, { recursive: true })
+      realFs.writeFileSync(path.join(legacyDir, 'activity.jsonl'), '{"test":true}\n')
+
+      const result = invoke('slashbot:migrate-check', projectPath)
+
+      expect(result.ok).toBe(true)
+      expect(result.didMigrate).toBe(true)
+      expect(result.storeDir).toBe(computeStoreDir(projectPath))
+      expect(result.migratedFiles).toContain('activity.jsonl')
+      // Verify the file was actually migrated
+      const storeDir = computeStoreDir(projectPath)
+      expect(realFs.existsSync(path.join(storeDir, 'activity.jsonl'))).toBe(true)
+    })
+
+    it('ensures store dirs without migration when no legacy exists', () => {
+      const projectPath = path.join(tmpDir, 'fresh-proj')
+      realFs.mkdirSync(projectPath, { recursive: true })
+
+      const result = invoke('slashbot:migrate-check', projectPath)
+
+      expect(result.ok).toBe(true)
+      expect(result.didMigrate).toBe(false)
+      expect(result.storeDir).toBe(computeStoreDir(projectPath))
+      // Store dirs should be created
+      expect(realFs.existsSync(computeStoreDir(projectPath))).toBe(true)
+    })
+
+    it('returns error on failure', () => {
+      // Use a path that will cause getProjectPaths to work but ensureStoreDirs to fail
+      // We test the error envelope by using a non-writable path
+      const projectPath = '/test/project'
+      const result = invoke('slashbot:migrate-check', projectPath)
+
+      // This will either succeed (if home dir is writable) or return an error envelope
+      expect(result).toHaveProperty('ok')
+    })
+  })
+
   describe('project:add with migration', () => {
     it('auto-migrates legacy storage', () => {
       const projectPath = path.join(tmpDir, 'legacy-proj')

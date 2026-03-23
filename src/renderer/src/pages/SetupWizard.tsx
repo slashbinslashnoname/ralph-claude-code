@@ -63,9 +63,11 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
             <h3>Ready to initialize</h3>
             <p>This will create:</p>
             <ul className="setup-files">
+              <li><code>.slashbotid</code> - Project identifier</li>
+              <li><code>~/.slashbot/projects/&lt;id&gt;/</code> - Centralized storage</li>
               <li><code>.slashbotrc</code> - Configuration</li>
-              <li><code>.slashbot/PROMPT.md</code> - AI instructions</li>
-              <li><code>.slashbot/AGENT.md</code> - Build commands</li>
+              <li><code>PROMPT.md</code> - AI instructions</li>
+              <li><code>AGENT.md</code> - Build commands</li>
             </ul>
             <div className="setup-actions">
               <button className="btn btn-ghost" onClick={() => setStep(0)}>Back</button>
@@ -75,7 +77,12 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
             </div>
             {result?.ok && (
               <div className="alert alert-success animate-fade-in mt-2">
-                Project initialized! Created {result.filesCreated.length} files.
+                <p>Project initialized! Created {result.filesCreated.length} files.</p>
+                {result.storeDir && (
+                  <p className="store-dir-info">
+                    Storage: <code>{result.storeDir}</code>
+                  </p>
+                )}
               </div>
             )}
             {result && !result.ok && (
