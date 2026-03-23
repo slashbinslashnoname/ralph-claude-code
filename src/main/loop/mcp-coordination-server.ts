@@ -138,7 +138,7 @@ server.tool(
   'send_message',
   'Send a message to another agent or broadcast to all agents. Use this to coordinate on shared files, report discoveries, or request help.',
   {
-    to: z.string().describe('Recipient agent ID (e.g. "agent-1") or "all" to broadcast'),
+    to: z.string().describe('Recipient agent ID (e.g. "worker-1") or "all" to broadcast'),
     subject: z.string().describe('Short subject line'),
     body: z.string().describe('Message body — be concise and actionable'),
     thread_id: z.string().optional().describe('Thread ID for grouping messages (defaults to your current bead ID)'),
