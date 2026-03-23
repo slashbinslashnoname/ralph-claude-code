@@ -267,16 +267,24 @@ export class WorkerLoop extends EventEmitter {
 
       // ── Create worktree for isolated work ─────────────────────────
       const wt = this.coordinator.createWorktree(this.agentId, bead.id)
-      const workDir = wt?.worktreePath ?? this.projectPath
-      const branch = wt?.branch ?? null
-      if (wt) {
-        this._log('INFO', `[${this.agentId}] Worktree created: ${wt.branch}`)
-        this.emit('output', `\n── Worktree: ${wt.branch} ──\n   ${wt.worktreePath}\n\n`)
-        this.coordinator.updateAgent(this.agentId, { worktreeBranch: branch })
-      } else {
-        this._log('WARN', `[${this.agentId}] Worktree creation failed, working in main dir`)
-        this.emit('output', `\n── Working in main directory (no worktree) ──\n\n`)
+      if (!wt) {
+        this._log('ERROR', `[${this.agentId}] Worktree creation failed for bead [${bead.id}] — refusing to proceed without isolation`)
+        this.emit('output', `\n── ERROR: Worktree creation failed for [${bead.id}] — reopening bead and retrying ──\n\n`)
+        this.coordinator.postActivity({
+          agentId: this.agentId, type: 'failed', beadId: bead.id,
+          beadTitle: bead.title, summary: `Worktree creation failed for [${bead.id}]`
+        })
+        this.coordinator.reopenBead(this.agentId, bead.id)
+        this._currentBeadId = null
+        this.coordinator.updateAgent(this.agentId, { currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, phase: 'idle' })
+        await this._sleep(10_000)
+        continue
       }
+      const workDir = wt.worktreePath
+      const branch = wt.branch
+      this._log('INFO', `[${this.agentId}] Worktree created: ${wt.branch}`)
+      this.emit('output', `\n── Worktree: ${wt.branch} ──\n   ${wt.worktreePath}\n\n`)
+      this.coordinator.updateAgent(this.agentId, { worktreeBranch: branch })
 
       // ── Phases 1-3: Think, Execute, Review ─────────────────────
       // Wrap in try/finally to ensure worktree is always merged back
