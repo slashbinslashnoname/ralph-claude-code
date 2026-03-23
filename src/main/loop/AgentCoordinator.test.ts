@@ -1108,6 +1108,18 @@ describe('AgentCoordinator — completeBead and failBead', () => {
     expect(results.filter(r => r === null).length).toBe(1)
   })
 
+  it('does not close bead when commitAndPush fails, but does release file locks', async () => {
+    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const releaseSpy = vi.spyOn(coord, 'releaseFiles')
+    vi.spyOn(coord, 'commitAndPush').mockRejectedValue(new Error('git commit failed'))
+
+    coord.reserveFiles('agent-0', 'b1', ['a.ts'])
+    await expect(coord.completeBead('agent-0', 'b1', ['a.ts'], false)).rejects.toThrow('git commit failed')
+
+    expect(closeSpy).not.toHaveBeenCalled()
+    expect(releaseSpy).toHaveBeenCalledWith('agent-0', 'b1')
+  })
+
   it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', () => {
     const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
     const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
