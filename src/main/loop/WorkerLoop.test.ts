@@ -186,12 +186,12 @@ describe('WorkerLoop', () => {
   })
 
   describe('gracefulStop', () => {
-    it('sets stopped without killing process', () => {
+    it('sets gracefulStopping without setting stopped or killing process', () => {
       const coord = makeCoordinator()
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.gracefulStop()
-      expect(worker.stopped).toBe(true)
+      expect(worker.stopped).toBe(false)
       expect(worker.running).toBe(false)
       expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
         type: 'stopped',
@@ -270,7 +270,7 @@ describe('WorkerLoop', () => {
       expect(worker.paused).toBe(true)
       worker.gracefulStop()
       expect(worker.paused).toBe(false)
-      expect(worker.stopped).toBe(true)
+      expect(worker.stopped).toBe(false)
     })
   })
 
@@ -1911,11 +1911,12 @@ None.
 
       const ctx = (worker as any)._stateMachineCtx
       expect(ctx).not.toBeNull()
-      expect(ctx.flags.stopped).toBe(false)
+      expect(ctx.flags.gracefulStopping).toBe(false)
 
       worker.gracefulStop()
 
-      expect(ctx.flags.stopped).toBe(true)
+      expect(ctx.flags.gracefulStopping).toBe(true)
+      expect(ctx.flags.stopped).toBe(false)
 
       claimResolve!(null)
       await startPromise

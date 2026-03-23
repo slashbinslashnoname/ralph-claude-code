@@ -58,8 +58,10 @@ export interface WorkerFlags {
   apiLimited: boolean
   /** Whether the merge phase failed */
   mergeFailed: boolean
-  /** Whether the agent has been told to stop */
+  /** Whether the agent has been told to stop (hard stop) */
   stopped: boolean
+  /** Whether the agent has been told to gracefully stop (finish current bead) */
+  gracefulStopping: boolean
   /** Files changed during merge */
   filesChanged: string[]
   /** Count of consecutive empty routing attempts */
@@ -156,7 +158,7 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
     thinkingSummary: null
   })
 
-  if (ctx.flags.stopped) return 'stopping'
+  if (ctx.flags.stopped || ctx.flags.gracefulStopping) return 'stopping'
 
   // Pause gate: wait before claiming next bead
   if (await ctx.capabilities.waitIfPaused()) return 'stopping'
@@ -168,7 +170,7 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
  * routing — Claim the best available bead.
  */
 export async function routing(ctx: WorkerContext): Promise<StateId> {
-  if (ctx.flags.stopped) return 'stopping'
+  if (ctx.flags.stopped || ctx.flags.gracefulStopping) return 'stopping'
 
   ctx.flags.loopCount++
   setPhase(ctx, 'routing')
@@ -563,6 +565,7 @@ export function createWorkerContext(
       apiLimited: false,
       mergeFailed: false,
       stopped: false,
+      gracefulStopping: false,
       filesChanged: [],
       emptyRetries: 0,
       loopCount: 0

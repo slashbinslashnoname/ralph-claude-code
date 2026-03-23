@@ -69,6 +69,7 @@ function makeFlags(overrides: Partial<WorkerFlags> = {}): WorkerFlags {
     apiLimited: false,
     mergeFailed: false,
     stopped: false,
+    gracefulStopping: false,
     filesChanged: [],
     emptyRetries: 0,
     loopCount: 0,

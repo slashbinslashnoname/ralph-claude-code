@@ -31,6 +31,7 @@ export class WorkerLoop extends EventEmitter {
   running = false
   stopped = false
   paused = false
+  private _gracefulStopping = false
   private _pauseResolve: ((stopped: boolean) => void) | null = null
   private _phaseBeforePause: string | null = null
   private childProc: ReturnType<typeof cp.spawn> | null = null
@@ -64,6 +65,7 @@ export class WorkerLoop extends EventEmitter {
     if (this.running) return
     this.running = true
     this.stopped = false
+    this._gracefulStopping = false
     this._log('INFO', `━━ Worker ${this.agentId} starting (cmd: ${this.resolvedCmd}) ━━`)
     this.coordinator.registerAgent({
       id: this.agentId, index: this.agentIndex, phase: 'idle',
@@ -103,10 +105,10 @@ export class WorkerLoop extends EventEmitter {
   gracefulStop(): void {
     // Auto-resume if paused so the worker can finish its current bead and exit
     if (this.paused) this.resume()
-    this.stopped = true
+    this._gracefulStopping = true
     this.running = false
     // Propagate to state machine context if active
-    if (this._stateMachineCtx) this._stateMachineCtx.flags.stopped = true
+    if (this._stateMachineCtx) this._stateMachineCtx.flags.gracefulStopping = true
     this._log('INFO', `[${this.agentId}] Graceful stop requested — will finish current bead`)
     this.coordinator.postActivity({ agentId: this.agentId, type: 'stopped', summary: 'Graceful stop — finishing current bead' })
   }
@@ -200,7 +202,7 @@ export class WorkerLoop extends EventEmitter {
     } finally {
       clearInterval(heartbeatTimer)
       this._stateMachineCtx = null
-      this._exit(ctx.flags.stopped ? 'stopped' : 'all_beads_done')
+      this._exit(ctx.flags.stopped || ctx.flags.gracefulStopping ? 'stopped' : 'all_beads_done')
     }
   }
 
@@ -215,7 +217,7 @@ export class WorkerLoop extends EventEmitter {
     this.emit('heartbeat')
 
     try {
-    while (this.running && !this.stopped) {
+    while (this.running && !this.stopped && !this._gracefulStopping) {
       // Pause gate: wait before claiming next bead
       if (await this._waitIfPaused()) break
       this.loopCount++
