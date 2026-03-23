@@ -360,7 +360,8 @@ export function registerIpc(
 
   ipcMain.handle('slashbot:enable', (_e, projectPath: string, opts: EnableOptions) => {
     const paths = getProjectPaths(projectPath)
-    return enableRalph(projectPath, opts, paths)
+    const result = enableRalph(projectPath, opts, paths)
+    return { ...result, storeDir: paths.storeDir }
   })
 
   ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) => {
@@ -376,6 +377,21 @@ export function registerIpc(
 
   ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) =>
     cleanupLegacyStorage(projectPath))
+
+  ipcMain.handle('slashbot:migrate-check', (_e, projectPath: string) => {
+    try {
+      const paths = getProjectPaths(projectPath)
+      const hasLegacy = detectLegacyStorage(projectPath)
+      if (!hasLegacy) {
+        ensureStoreDirs(paths)
+        return { ok: true, didMigrate: false, storeDir: paths.storeDir }
+      }
+      const result = migrateLegacyStorage(projectPath)
+      return { ok: true, didMigrate: true, storeDir: paths.storeDir, migratedFiles: result.migrated, skipped: result.skipped }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
 
   // ── Beads via bd CLI ───────────────────────────────────────────────────
 
