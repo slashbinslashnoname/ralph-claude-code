@@ -1032,9 +1032,13 @@ export class AgentCoordinator {
 
     // Commit and push first so we can capture the SHA — if this fails,
     // the bead stays in_progress and work is not silently lost.
-    const commitSha = await this.commitAndPush(agentId, beadId, autoPush)
-
-    this.releaseFiles(agentId, beadId)
+    // releaseFiles runs in finally so locks are never left stuck.
+    let commitSha: string | null
+    try {
+      commitSha = await this.commitAndPush(agentId, beadId, autoPush)
+    } finally {
+      this.releaseFiles(agentId, beadId)
+    }
 
     try {
       this.bd.close(beadId, `Completed by ${agentId}`)
