@@ -5,6 +5,7 @@ import { EventEmitter } from 'events'
 import { WorkerLoop } from './WorkerLoop'
 import { RalphConfig, Bead, SplitDecision } from '../types'
 import { ProjectPaths } from './ProjectStore'
+import * as WorkerStateMachineModule from './WorkerStateMachine'
 
 const mockProcesses: any[] = []
 
@@ -1344,11 +1345,13 @@ describe('WorkerLoop', () => {
     })
 
     it('uses let bead declaration allowing reassignment in _loop source', () => {
-      // Read the actual source to verify the const→let change
+      // Read the actual source to verify bead is mutable (let, not const)
       const workerSource = require('fs').readFileSync(
         require('path').join(__dirname, 'WorkerLoop.ts'), 'utf8'
       )
-      expect(workerSource).toContain('let bead = await this.coordinator.claimBestBead')
+      // bead is declared as let (null-initialized) then assigned inside try block
+      expect(workerSource).toContain('let bead: Bead | null = null')
+      expect(workerSource).toContain('bead = await this.coordinator.claimBestBead')
       expect(workerSource).not.toContain('const bead = await this.coordinator.claimBestBead')
     })
 
@@ -2043,15 +2046,21 @@ None.
     it('calls _exit even if runStateMachine throws (agent deregisters cleanly)', async () => {
       process.env.SLASHBOT_STATE_MACHINE = '1'
       const coord = makeCoordinator()
-      // Make claimBestBead throw to simulate an unexpected state machine error
-      coord.claimBestBead.mockRejectedValue(new Error('unexpected coordinator error'))
-      coord.hasOpenWork.mockReturnValue(true)
+
+      // Spy on runStateMachine to force an unhandled throw — tests the finally block
+      // in _loopStateMachine which must call _exit for clean deregistration.
+      // (claimBestBead errors are caught internally by routing state and do not propagate.)
+      const spy = vi.spyOn(WorkerStateMachineModule, 'runStateMachine').mockRejectedValue(
+        new Error('unexpected coordinator error')
+      )
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const exitEvents: string[] = []
       worker.on('exit', (reason: string) => exitEvents.push(reason))
 
       await expect(worker.start()).rejects.toThrow('unexpected coordinator error')
+
+      spy.mockRestore()
 
       expect(exitEvents).toHaveLength(1)
       expect(coord.deregisterAgent).toHaveBeenCalledWith('agent-0')
@@ -2154,28 +2163,33 @@ None.
         const config = makeConfig({ cbNoProgressThreshold: threshold })
         const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
 
-        // Mock _runClaude to return no-progress output (short text, no files modified)
+        // Mock _runClaude to return no-progress output: >50 chars (not "stuck"),
+        // <200 chars, no EXIT_SIGNAL/FILES_MODIFIED → triggers recordNoProgress().
+        // Must NOT start with "I am/I'm/Let me/I'll" and must be ≥50 chars to avoid
+        // isStuck branch (which calls recordError instead of recordNoProgress).
         ;(worker as any)._runClaude = vi.fn(async () =>
-          '{"type":"result","result":"I am analyzing the code"}'
+          '{"type":"result","result":"Examined the codebase but found no actionable items to implement at this time."}'
         )
-
-        const logMessages: string[] = []
-        worker.on('log', (_level: string, msg: string) => logMessages.push(msg))
 
         const startPromise = worker.start()
 
         // Advance through enough iterations for the circuit breaker to open.
-        // Each loop iteration does: think → execute → review → close, each with sleeps.
-        // We need threshold successful bead completions with no-progress, then the CB opens
-        // and the loop enters the 60s wait state.
+        // cbNoProgressThreshold=3 → HALF_OPEN after 3rd no-progress bead,
+        // OPEN after 4th (requires threshold+1 completions).
         for (let i = 0; i < 600; i++) {
           await vi.advanceTimersByTimeAsync(500)
         }
 
-        // After threshold no-progress loops, the circuit breaker should transition
-        // to HALF_OPEN (threshold reached), then OPEN on next no-progress.
-        // The worker should have processed at least threshold beads.
-        expect(claimCount).toBeGreaterThanOrEqual(threshold)
+        // Worker should have processed at least threshold+1 beads
+        expect(claimCount).toBeGreaterThanOrEqual(threshold + 1)
+
+        // CB state file must have been saved and must show HALF_OPEN or OPEN
+        const cbSaveCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+          ([filePath]) => String(filePath).includes('.circuit_breaker_state')
+        )
+        expect(cbSaveCalls.length).toBeGreaterThanOrEqual(threshold)
+        const savedStates = cbSaveCalls.map(([, data]) => JSON.parse(data as string))
+        expect(savedStates.some(s => s.state === 'HALF_OPEN' || s.state === 'OPEN')).toBe(true)
 
         // Stop the worker to exit cleanly
         worker.stop()
