@@ -7,7 +7,7 @@
  * (symlinked into each worktree).
  *
  * Environment variables:
- *   SLASHBOT_AGENT_ID  — this agent's identifier (e.g. "agent-0")
+ *   SLASHBOT_AGENT_ID  — this agent's identifier (e.g. "worker-0")
  *   SLASHBOT_STORE_DIR — absolute path to .slashbot/ directory
  */
 

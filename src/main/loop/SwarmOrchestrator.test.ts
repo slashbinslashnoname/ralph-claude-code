@@ -684,6 +684,43 @@ describe('SwarmOrchestrator — heartbeat map', () => {
   })
 })
 
+describe('SwarmOrchestrator — worker-N naming', () => {
+  beforeEach(() => {
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('startWorkers creates worker-N keys (not agent-N)', () => {
+    vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
+    vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+
+    orch.startWorkers(2)
+    const keys = [...(orch as any).workers.keys()].sort()
+    expect(keys).toEqual(['worker-0', 'worker-1'])
+  })
+
+  it('scaling down from 3 to 1 stops worker-1 and worker-2', () => {
+    vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
+    vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+
+    orch.startWorkers(3)
+    expect(orch.workerCount()).toBe(3)
+
+    orch.startWorkers(1)
+    const keys = [...(orch as any).workers.keys()].sort()
+    expect(keys).toEqual(['worker-0'])
+    expect(orch.workerCount()).toBe(1)
+  })
+})
+
 describe('SwarmOrchestrator — plan request tracking', () => {
   beforeEach(() => {
     tmpPaths = makeTmpProject()

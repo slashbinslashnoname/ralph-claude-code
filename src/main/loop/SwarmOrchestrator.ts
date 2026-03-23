@@ -117,7 +117,7 @@ export class SwarmOrchestrator extends EventEmitter {
     // Stop excess workers if reducing count
     const currentIds = [...this.workers.keys()].sort()
     for (const id of currentIds) {
-      const idx = parseInt(id.replace('agent-', ''), 10)
+      const idx = parseInt(id.replace('worker-', ''), 10)
       if (idx >= n) {
         this._log('INFO', `Stopping excess worker ${id}`)
         this.workers.get(id)?.stop()
@@ -130,7 +130,7 @@ export class SwarmOrchestrator extends EventEmitter {
 
     // Start missing workers up to n
     for (let i = 0; i < n; i++) {
-      const agentId = `agent-${i}`
+      const agentId = `worker-${i}`
       if (this.workers.has(agentId)) continue
       const worker = new WorkerLoop(agentId, i, this.projectPath, config, this.coordinator, this.paths)
       worker.on('log', (level: string, msg: string) => this._log(level, msg, agentId))
