@@ -12,8 +12,17 @@ import { ProjectPaths } from './ProjectStore'
 /** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
 ## Important
-- Do NOT run \`bd\` commands — the orchestrator manages bead lifecycle.
-- Focus only on implementing the assigned bead.
+- Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator manages bead lifecycle.
+- You CAN and SHOULD use \`bd\` read commands to gain context:
+  - \`bd show <id>\` — view bead details, description, dependencies
+  - \`bd list\` — see all open beads and their status
+  - \`bd comments <id>\` — read comments and discussion on a bead
+  - \`bd children <id>\` — list child beads of a parent
+  - \`bd search <query>\` — find related beads by text
+  - \`bd history <id>\` — view bead change history
+  - \`bd status\` — overview of the bead database
+- Use these to understand context, check what other agents are working on, and find related work.
+- Focus on implementing the assigned bead.
 - Commit your changes with a descriptive message when done.
 - If you discover new issues, note them in your output — do not try to fix everything.
 `
@@ -605,7 +614,16 @@ Base all work on files currently on disk. Do not use git history.
 ${bead.description ? `- **Description**: ${bead.description}` : ''}
 ${bead.files.length > 0 ? `- **Files**: ${bead.files.join(', ')}` : ''}
 
-${parentContext ? `${parentContext}\n` : ''}## Mandatory analysis (do this FIRST)
+${parentContext ? `${parentContext}\n` : ''}## Gather context
+Use \`bd\` to understand the bigger picture before coding:
+- \`bd show ${bead.id}\` — full details of your assigned bead
+- \`bd list\` — see all open beads and what other agents are working on
+- \`bd children ${bead.epicId || bead.id}\` — see sibling tasks in the same epic
+- \`bd comments ${bead.id}\` — read any discussion or notes on this bead
+- \`bd search <keyword>\` — find related beads for context
+Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\`.
+
+## Mandatory analysis (do this FIRST)
 1. **Read the relevant code** — understand the existing architecture, patterns, naming conventions
 2. **Identify dependencies** — what other files/modules will be affected?
 3. **Spot risks** — what could go wrong? Race conditions? Breaking changes? Edge cases?
@@ -703,7 +721,6 @@ DO NOT write any implementation code. Analysis only.`
       `\n---\n## Task`,
       `Implement this bead completely, following your analysis above.`,
       `Write tests. Commit all changes when done with a descriptive commit message.`,
-      `Do NOT run \`bd close\` — the orchestrator handles bead lifecycle automatically.`,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
   }
@@ -717,7 +734,8 @@ DO NOT write any implementation code. Analysis only.`
       `- Is the code idiomatic and consistent with the rest of the codebase?`,
       `\nIf issues are found, fix them now. If good, say so briefly.`,
       `Commit any fixes. Do NOT re-implement from scratch.`,
-      `Do NOT run any \`bd\` commands — the orchestrator handles bead lifecycle.`,
+      `You can use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
+      `Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator handles bead lifecycle.`,
     ].join('\n')
   }
 

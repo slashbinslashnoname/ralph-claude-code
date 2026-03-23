@@ -659,7 +659,8 @@ describe('WorkerLoop', () => {
       expect(prompt).toContain('sb-rev')
       expect(prompt).toContain('Review me')
       expect(prompt).toContain('Fresh-eyes Review')
-      expect(prompt).toContain('Do NOT run any `bd` commands')
+      expect(prompt).toContain('Do NOT run `bd close`')
+      expect(prompt).toContain('bd show sb-rev')
     })
   })
 
