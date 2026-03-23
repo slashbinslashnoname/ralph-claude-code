@@ -225,13 +225,3 @@ export interface PlanQueueItem {
   id: string
   request: string
 }
-
-export interface MailMessage {
-  ts: string
-  from: string
-  to: string
-  subject: string
-  body: string
-  threadId: string
-  read: boolean
-}
