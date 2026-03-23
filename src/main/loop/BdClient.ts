@@ -16,9 +16,9 @@ export class BdClient {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  private run(args: string): string {
+  private run(args: string[]): string {
     try {
-      return cp.execSync(`${this.bdCmd} ${args}`, {
+      return cp.execFileSync(this.bdCmd, args, {
         cwd: this.cwd,
         env: ENV,
         timeout: 15_000,
@@ -27,24 +27,24 @@ export class BdClient {
       }).trim()
     } catch (err) {
       const msg = err instanceof Error ? (err as { stderr?: string }).stderr || err.message : String(err)
-      throw new Error(`bd ${args.split(' ')[0]} failed: ${msg}`)
+      throw new Error(`bd ${args[0]} failed: ${msg}`)
     }
   }
 
-  private runJson<T>(args: string): T {
-    const raw = this.run(`${args} --json`)
+  private runJson<T>(args: string[]): T {
+    const raw = this.run([...args, '--json'])
     return JSON.parse(raw) as T
   }
 
-  private async runAsync(args: string): Promise<string> {
+  private async runAsync(args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
-      cp.exec(`${this.bdCmd} ${args}`, {
+      cp.execFile(this.bdCmd, args, {
         cwd: this.cwd,
         env: ENV,
         timeout: 30_000
       }, (err, stdout, stderr) => {
         if (err) {
-          reject(new Error(`bd ${args.split(' ')[0]} failed: ${stderr || err.message}`))
+          reject(new Error(`bd ${args[0]} failed: ${stderr || err.message}`))
         } else {
           resolve(stdout.trim())
         }
@@ -52,8 +52,8 @@ export class BdClient {
     })
   }
 
-  private async runJsonAsync<T>(args: string): Promise<T> {
-    const raw = await this.runAsync(`${args} --json`)
+  private async runJsonAsync<T>(args: string[]): Promise<T> {
+    const raw = await this.runAsync([...args, '--json'])
     return JSON.parse(raw) as T
   }
 
@@ -75,31 +75,28 @@ export class BdClient {
   }
 
   info(): Record<string, unknown> {
-    return this.runJson('info')
+    return this.runJson(['info'])
   }
 
   // ── Create ─────────────────────────────────────────────────────────────
 
+  private buildCreateArgs(opts: CreateBeadOpts): string[] {
+    const args = ['create', opts.title]
+    if (opts.type) args.push('-t', opts.type)
+    if (opts.priority !== undefined) args.push('-p', String(opts.priority))
+    if (opts.description) args.push('-d', opts.description)
+    if (opts.labels?.length) args.push('-l', opts.labels.join(','))
+    if (opts.parentId) args.push('--parent', opts.parentId)
+    if (opts.id) args.push('--id', opts.id)
+    return args
+  }
+
   create(opts: CreateBeadOpts): Bead {
-    let args = `create ${JSON.stringify(opts.title)}`
-    if (opts.type) args += ` -t ${opts.type}`
-    if (opts.priority !== undefined) args += ` -p ${opts.priority}`
-    if (opts.description) args += ` -d ${JSON.stringify(opts.description)}`
-    if (opts.labels?.length) args += ` -l ${opts.labels.join(',')}`
-    if (opts.parentId) args += ` --parent ${opts.parentId}`
-    if (opts.id) args += ` --id ${opts.id}`
-    return this.normalizeBead(this.runJson(args))
+    return this.normalizeBead(this.runJson(this.buildCreateArgs(opts)))
   }
 
   async createAsync(opts: CreateBeadOpts): Promise<Bead> {
-    let args = `create ${JSON.stringify(opts.title)}`
-    if (opts.type) args += ` -t ${opts.type}`
-    if (opts.priority !== undefined) args += ` -p ${opts.priority}`
-    if (opts.description) args += ` -d ${JSON.stringify(opts.description)}`
-    if (opts.labels?.length) args += ` -l ${opts.labels.join(',')}`
-    if (opts.parentId) args += ` --parent ${opts.parentId}`
-    if (opts.id) args += ` --id ${opts.id}`
-    return this.normalizeBead(await this.runJsonAsync(args))
+    return this.normalizeBead(await this.runJsonAsync(this.buildCreateArgs(opts)))
   }
 
   // ── Bulk create (for plan encoding) ────────────────────────────────────
@@ -128,19 +125,19 @@ export class BdClient {
     label?: string
     assignee?: string
   }): Bead[] {
-    let args = 'list --limit 0'
-    if (filter?.status) args += ` --status ${filter.status}`
-    if (filter?.type) args += ` --type ${filter.type}`
-    if (filter?.priority !== undefined) args += ` --priority ${filter.priority}`
-    if (filter?.label) args += ` --label ${filter.label}`
-    if (filter?.assignee) args += ` --assignee ${filter.assignee}`
+    const args = ['list', '--limit', '0']
+    if (filter?.status) args.push('--status', filter.status)
+    if (filter?.type) args.push('--type', filter.type)
+    if (filter?.priority !== undefined) args.push('--priority', String(filter.priority))
+    if (filter?.label) args.push('--label', filter.label)
+    if (filter?.assignee) args.push('--assignee', filter.assignee)
     const raw = this.runJson<unknown[]>(args)
     return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
   }
 
   listAll(): Bead[] {
     try {
-      const raw = this.runJson<unknown[]>('list --all --limit 0')
+      const raw = this.runJson<unknown[]>(['list', '--all', '--limit', '0'])
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch {
       // Fallback: merge results from all statuses when --all is not supported
@@ -167,7 +164,7 @@ export class BdClient {
   /** Get unblocked, unclaimed beads ready for work */
   ready(): Bead[] {
     try {
-      const raw = this.runJson<unknown[]>('ready')
+      const raw = this.runJson<unknown[]>(['ready'])
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch {
       return []
@@ -179,21 +176,21 @@ export class BdClient {
 
   async readyAsync(): Promise<Bead[]> {
     try {
-      const raw = await this.runJsonAsync<unknown[]>('ready')
+      const raw = await this.runJsonAsync<unknown[]>(['ready'])
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch { return [] }
   }
 
   async listByStatusAsync(status: string): Promise<Bead[]> {
     try {
-      const raw = await this.runJsonAsync<unknown[]>(`list --limit 0 --status ${status}`)
+      const raw = await this.runJsonAsync<unknown[]>(['list', '--limit', '0', '--status', status])
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch { return [] }
   }
 
   async listAllAsync(): Promise<Bead[]> {
     try {
-      const raw = await this.runJsonAsync<unknown[]>('list --all --limit 0')
+      const raw = await this.runJsonAsync<unknown[]>(['list', '--all', '--limit', '0'])
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch {
       const [open, inProgress, closed] = await Promise.all([
@@ -211,19 +208,19 @@ export class BdClient {
   }
 
   async assignToAsync(id: string, assignee: string): Promise<boolean> {
-    try { await this.runAsync(`update ${id} --claim -a ${assignee} --json`); return true }
+    try { await this.runAsync(['update', id, '--claim', '-a', assignee, '--json']); return true }
     catch { return false }
   }
 
   async showAsync(id: string): Promise<Bead | null> {
     try {
-      const raw = await this.runJsonAsync<unknown>(`show ${id}`)
+      const raw = await this.runJsonAsync<unknown>(['show', id])
       return this.normalizeBead(raw)
     } catch { return null }
   }
 
   async getStateAsync(id: string, key: string): Promise<string> {
-    try { return await this.runAsync(`state ${id} ${key}`) }
+    try { return await this.runAsync(['state', id, key]) }
     catch { return '' }
   }
 
@@ -231,7 +228,7 @@ export class BdClient {
 
   show(id: string): Bead | null {
     try {
-      return this.normalizeBead(this.runJson(`show ${id}`))
+      return this.normalizeBead(this.runJson(['show', id]))
     } catch {
       return null
     }
@@ -248,32 +245,32 @@ export class BdClient {
     labels?: { add?: string[]; remove?: string[] }
   }): void {
     if (opts.title) {
-      this.run(`update ${id} --title ${JSON.stringify(opts.title)} --json`)
+      this.run(['update', id, '--title', opts.title, '--json'])
     }
     if (opts.description !== undefined) {
-      this.run(`update ${id} --description ${JSON.stringify(opts.description)} --json`)
+      this.run(['update', id, '--description', opts.description, '--json'])
     }
     if (opts.unclaim) {
-      this.run(`update ${id} --assignee "" --json`)
+      this.run(['update', id, '--assignee', '', '--json'])
     }
     if (opts.priority !== undefined) {
-      this.run(`update ${id} --priority ${opts.priority} --json`)
+      this.run(['update', id, '--priority', String(opts.priority), '--json'])
     }
     if (opts.claim) {
-      this.run(`update ${id} --claim --json`)
+      this.run(['update', id, '--claim', '--json'])
     }
     if (opts.labels?.add) {
-      for (const l of opts.labels.add) this.run(`label add ${id} ${l} --json`)
+      for (const l of opts.labels.add) this.run(['label', 'add', id, l, '--json'])
     }
     if (opts.labels?.remove) {
-      for (const l of opts.labels.remove) this.run(`label remove ${id} ${l} --json`)
+      for (const l of opts.labels.remove) this.run(['label', 'remove', id, l, '--json'])
     }
   }
 
   /** Atomic claim — fails if already claimed by someone else */
   claim(id: string): boolean {
     try {
-      this.run(`update ${id} --claim --json`)
+      this.run(['update', id, '--claim', '--json'])
       return true
     } catch {
       return false
@@ -283,7 +280,7 @@ export class BdClient {
   /** Claim a bead for a specific agent (sets status to in_progress + assignee) */
   assignTo(id: string, assignee: string): boolean {
     try {
-      this.run(`update ${id} --claim -a ${assignee} --json`)
+      this.run(['update', id, '--claim', '-a', assignee, '--json'])
       return true
     } catch {
       return false
@@ -293,33 +290,33 @@ export class BdClient {
   // ── Close / Reopen ─────────────────────────────────────────────────────
 
   close(id: string, reason = 'Done'): void {
-    this.run(`close ${id} --reason ${JSON.stringify(reason)} --json`)
+    this.run(['close', id, '--reason', reason, '--json'])
   }
 
   reopen(id: string, reason = ''): void {
-    const args = reason
-      ? `reopen ${id} --reason ${JSON.stringify(reason)} --json`
-      : `reopen ${id} --json`
+    const args = ['reopen', id]
+    if (reason) args.push('--reason', reason)
+    args.push('--json')
     this.run(args)
     // Clear claim so agents can pick it up
-    try { this.run(`update ${id} --assignee "" --json`) } catch { /* ignore */ }
+    try { this.run(['update', id, '--assignee', '', '--json']) } catch { /* ignore */ }
     // Remove 'failed' label so normalizeBead doesn't override the open status
-    try { this.run(`label remove ${id} failed --json`) } catch { /* label may not exist */ }
+    try { this.run(['label', 'remove', id, 'failed', '--json']) } catch { /* label may not exist */ }
   }
 
   // ── Labels ─────────────────────────────────────────────────────────────
 
   addLabel(id: string, label: string): void {
-    this.run(`label add ${id} ${label} --json`)
+    this.run(['label', 'add', id, label, '--json'])
   }
 
   removeLabel(id: string, label: string): void {
-    this.run(`label remove ${id} ${label} --json`)
+    this.run(['label', 'remove', id, label, '--json'])
   }
 
   listLabels(): string[] {
     try {
-      return this.runJson<string[]>('label list-all')
+      return this.runJson<string[]>(['label', 'list-all'])
     } catch {
       return []
     }
@@ -328,27 +325,28 @@ export class BdClient {
   // ── Dependencies ───────────────────────────────────────────────────────
 
   addDep(childId: string, parentId: string, type = 'discovered-from'): void {
-    this.run(`dep add ${childId} ${parentId} --type ${type}`)
+    this.run(['dep', 'add', childId, parentId, '--type', type])
   }
 
   depTree(id: string): string {
-    return this.run(`dep tree ${id}`)
+    return this.run(['dep', 'tree', id])
   }
 
   // ── State management ──────────────────────────────────────────────────
 
   getState(id: string, dimension: string): string {
     try {
-      return this.run(`state ${id} ${dimension}`)
+      return this.run(['state', id, dimension])
     } catch {
       return ''
     }
   }
 
   setState(id: string, dimension: string, value: string, reason?: string): void {
-    let args = `set-state ${id} ${dimension}=${value}`
-    if (reason) args += ` --reason ${JSON.stringify(reason)}`
-    this.run(`${args} --json`)
+    const args = ['set-state', id, `${dimension}=${value}`]
+    if (reason) args.push('--reason', reason)
+    args.push('--json')
+    this.run(args)
   }
 
   // ── Stats (computed from list) ────────────────────────────────────────
