@@ -63,6 +63,7 @@ describe('Bead retry helpers', () => {
       agents: path.join(tmpDir, 'agents.json'),
       fileLocks: path.join(tmpDir, 'file_locks.json'),
       configDir: path.join(tmpDir, 'config'),
+      slashbotrc: path.join(tmpDir, 'config', '.slashbotrc'),
       worktreesDir: '/tmp/test-project/.worktrees',
       beadsRoot: '/tmp/test-project/.beads',
       agentMd: path.join(tmpDir, 'config', 'AGENT.md'),

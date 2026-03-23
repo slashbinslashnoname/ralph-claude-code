@@ -515,7 +515,9 @@ export function registerIpc(
 
   function getOrCreateSwarm(projectPath: string): SwarmOrchestrator {
     if (swarms.has(projectPath)) return swarms.get(projectPath)!
-    const swarm = new SwarmOrchestrator(projectPath)
+    const paths = getProjectPaths(projectPath)
+    ensureStoreDirs(paths)
+    const swarm = new SwarmOrchestrator(paths)
     swarm.on('log', (level: string, msg: string, agentId?: string) =>
       broadcast('swarm:log', projectPath, level, msg, agentId ?? null))
     swarm.on('output', (agentId: string, chunk: string) =>

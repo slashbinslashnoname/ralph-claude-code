@@ -42,6 +42,7 @@ function makeTmpPaths(projectDir: string): ProjectPaths {
     agents: path.join(storeDir, 'agents.json'),
     fileLocks: path.join(storeDir, 'file_locks.json'),
     configDir: path.join(storeDir, 'config'),
+    slashbotrc: path.join(storeDir, 'config', '.slashbotrc'),
     mail: path.join(storeDir, 'mail.jsonl'),
     worktreesDir: path.join(projectDir, '.worktrees'),
     beadsRoot: path.join(projectDir, '.beads'),

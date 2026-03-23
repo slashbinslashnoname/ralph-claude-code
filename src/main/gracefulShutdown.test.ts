@@ -14,10 +14,12 @@ import { execSync } from 'child_process'
  * SwarmOrchestrator.shutdown() integration which is the core of the handler.
  */
 import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
+import { getProjectPaths, ProjectPaths, ensureStoreDirs } from './loop/ProjectStore'
 
 let tmpDir: string
+let tmpPaths: ProjectPaths
 
-function makeTmpGitProject(): string {
+function makeTmpGitProject(): ProjectPaths {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shutdown-test-'))
   execSync('git init', { cwd: dir, stdio: 'pipe' })
   execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'pipe' })
@@ -25,9 +27,9 @@ function makeTmpGitProject(): string {
   fs.writeFileSync(path.join(dir, 'README.md'), '# test')
   execSync('git add . && git commit -m "init"', { cwd: dir, stdio: 'pipe' })
 
-  const slashbotDir = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
-  fs.writeFileSync(path.join(dir, '.slashbotrc'), JSON.stringify({
+  const paths = getProjectPaths(dir)
+  ensureStoreDirs(paths)
+  fs.writeFileSync(paths.slashbotrc, JSON.stringify({
     claudeCodeCmd: 'false',
     claudeTimeoutMinutes: 1,
     claudeOutputFormat: 'text',
@@ -36,12 +38,13 @@ function makeTmpGitProject(): string {
     continueSession: false,
   }))
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
-  return dir
+  return paths
 }
 
 describe('Graceful shutdown integration', () => {
   beforeEach(() => {
-    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpGitProject()
+    tmpDir = tmpPaths.projectRoot
   })
 
   afterEach(() => {
@@ -49,8 +52,8 @@ describe('Graceful shutdown integration', () => {
   })
 
   it('shutdown() on multiple orchestrators completes without error', async () => {
-    const orch1 = new SwarmOrchestrator(tmpDir)
-    const orch2 = new SwarmOrchestrator(tmpDir)
+    const orch1 = new SwarmOrchestrator(tmpPaths)
+    const orch2 = new SwarmOrchestrator(tmpPaths)
 
     let complete1 = false
     let complete2 = false
@@ -64,7 +67,7 @@ describe('Graceful shutdown integration', () => {
   })
 
   it('shutdown cleans up fake workers and emits event', async () => {
-    const orch = new SwarmOrchestrator(tmpDir)
+    const orch = new SwarmOrchestrator(tmpPaths)
     // Inject fake worker entries
     ;(orch as any).workers.set('agent-0', { stop: () => {} })
     ;(orch as any).workers.set('agent-1', { stop: () => {} })
@@ -82,7 +85,7 @@ describe('Graceful shutdown integration', () => {
   })
 
   it('shutdown with timeout forces completion on hanging workers', async () => {
-    const orch = new SwarmOrchestrator(tmpDir)
+    const orch = new SwarmOrchestrator(tmpPaths)
     ;(orch as any).workers.set('agent-0', { stop: () => {} })
     ;(orch as any).workerLoopPromises.set('agent-0', new Promise<void>(() => {})) // never resolves
 
@@ -96,7 +99,7 @@ describe('Graceful shutdown integration', () => {
   })
 
   it('double-quit is safe (re-entrant shutdown)', async () => {
-    const orch = new SwarmOrchestrator(tmpDir)
+    const orch = new SwarmOrchestrator(tmpPaths)
     ;(orch as any).workers.set('agent-0', { stop: () => {} })
     ;(orch as any).workerLoopPromises.set('agent-0', new Promise<void>(() => {}))
 
@@ -109,7 +112,7 @@ describe('Graceful shutdown integration', () => {
   })
 
   it('no active swarms — shutdown completes immediately', async () => {
-    const orch = new SwarmOrchestrator(tmpDir)
+    const orch = new SwarmOrchestrator(tmpPaths)
     const start = Date.now()
     await orch.shutdown()
     const elapsed = Date.now() - start
@@ -125,7 +128,8 @@ describe('Graceful shutdown integration', () => {
  */
 describe('Worktree cleanup lifecycle', () => {
   beforeEach(() => {
-    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpGitProject()
+    tmpDir = tmpPaths.projectRoot
   })
 
   afterEach(() => {

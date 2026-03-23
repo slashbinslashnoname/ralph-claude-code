@@ -5,7 +5,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { SwarmOrchestrator } from './SwarmOrchestrator'
-import { getProjectPaths } from './ProjectStore'
+import { getProjectPaths, ProjectPaths, ensureStoreDirs } from './ProjectStore'
+import * as HealthCheck from './HealthCheck'
 
 /**
  * These tests exercise SwarmOrchestrator.shutdown() by creating a real
@@ -15,33 +16,37 @@ import { getProjectPaths } from './ProjectStore'
  */
 
 let tmpDir: string
+let tmpPaths: ProjectPaths
 let orch: SwarmOrchestrator
 
-function makeTmpProject(): string {
+const RC_CONTENT = JSON.stringify({
+  claudeCodeCmd: 'false', // will fail immediately
+  claudeTimeoutMinutes: 1,
+  claudeOutputFormat: 'text',
+  allowedTools: '',
+  maxAgents: 2,
+  continueSession: false,
+})
+
+function makeTmpProject(): ProjectPaths {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-  const slashbotDir = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
+  const paths = getProjectPaths(dir)
+  ensureStoreDirs(paths)
   // Minimal .slashbotrc so loadConfig doesn't throw
-  fs.writeFileSync(path.join(dir, '.slashbotrc'), JSON.stringify({
-    claudeCodeCmd: 'false', // will fail immediately
-    claudeTimeoutMinutes: 1,
-    claudeOutputFormat: 'text',
-    allowedTools: '',
-    maxAgents: 2,
-    continueSession: false,
-  }))
+  fs.writeFileSync(paths.slashbotrc, RC_CONTENT)
   // beads dir for BdClient
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   // Slashbot files required by HealthCheck
-  fs.writeFileSync(path.join(slashbotDir, 'PROMPT.md'), '# Prompt')
-  fs.writeFileSync(path.join(slashbotDir, 'AGENT.md'), '# Agent')
-  return dir
+  fs.writeFileSync(path.join(paths.configDir, 'PROMPT.md'), '# Prompt')
+  fs.writeFileSync(path.join(paths.configDir, 'AGENT.md'), '# Agent')
+  return paths
 }
 
 describe('SwarmOrchestrator.shutdown()', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -151,48 +156,35 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
 
   it('throws when required Slashbot files are missing', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-    const slashbotDir = path.join(tmpDir, '.slashbot')
-    fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), JSON.stringify({
-      claudeCodeCmd: 'false',
-      claudeTimeoutMinutes: 1,
-      claudeOutputFormat: 'text',
-      allowedTools: '',
-      maxAgents: 2,
-      continueSession: false,
-    }))
+    tmpPaths = getProjectPaths(tmpDir)
+    ensureStoreDirs(tmpPaths)
+    fs.writeFileSync(tmpPaths.slashbotrc, RC_CONTENT)
     fs.mkdirSync(path.join(tmpDir, '.beads'), { recursive: true })
     // Deliberately omit PROMPT.md and AGENT.md
 
-    orch = new SwarmOrchestrator(tmpDir)
+    orch = new SwarmOrchestrator(tmpPaths)
     expect(() => orch.startWorkers(1)).toThrow('Health check failed')
   })
 
   it('throws when .beads directory is missing', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-test-'))
-    const slashbotDir = path.join(tmpDir, '.slashbot')
-    fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
-    fs.writeFileSync(path.join(slashbotDir, 'PROMPT.md'), '# Prompt')
-    fs.writeFileSync(path.join(slashbotDir, 'AGENT.md'), '# Agent')
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'), JSON.stringify({
-      claudeCodeCmd: 'false',
-      claudeTimeoutMinutes: 1,
-      claudeOutputFormat: 'text',
-      allowedTools: '',
-      maxAgents: 2,
-      continueSession: false,
-    }))
+    tmpPaths = getProjectPaths(tmpDir)
+    ensureStoreDirs(tmpPaths)
+    fs.writeFileSync(path.join(tmpPaths.configDir, 'PROMPT.md'), '# Prompt')
+    fs.writeFileSync(path.join(tmpPaths.configDir, 'AGENT.md'), '# Agent')
+    fs.writeFileSync(tmpPaths.slashbotrc, RC_CONTENT)
     // Deliberately omit .beads
 
-    orch = new SwarmOrchestrator(tmpDir)
+    orch = new SwarmOrchestrator(tmpPaths)
     expect(() => orch.startWorkers(1)).toThrow('Health check failed')
   })
 })
 
 describe('SwarmOrchestrator — plan queue management', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -235,8 +227,9 @@ describe('SwarmOrchestrator — plan queue management', () => {
 
 describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -289,8 +282,9 @@ describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
 
 describe('SwarmOrchestrator — pause/resume workers', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -347,8 +341,9 @@ describe('SwarmOrchestrator — pause/resume workers', () => {
 
 describe('SwarmOrchestrator — status queries', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -387,8 +382,9 @@ describe('SwarmOrchestrator — status queries', () => {
 
 describe('SwarmOrchestrator — agent output buffer', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -401,7 +397,7 @@ describe('SwarmOrchestrator — agent output buffer', () => {
   })
 
   it('getAgentOutput reads from disk log file', () => {
-    const logDir = getProjectPaths(tmpDir).logsDir
+    const logDir = tmpPaths.logsDir
     fs.writeFileSync(path.join(logDir, 'agent-0.log'), 'hello world')
     expect(orch.getAgentOutput('agent-0')).toBe('hello world')
   })
@@ -418,7 +414,7 @@ describe('SwarmOrchestrator — agent output buffer', () => {
   it('_bufferOutput also persists to disk', () => {
     const buf = (orch as any)
     buf._bufferOutput('agent-test', 'disk-check')
-    const logFile = path.join(getProjectPaths(tmpDir).logsDir, 'agent-test.log')
+    const logFile = path.join(tmpPaths.logsDir, 'agent-test.log')
     expect(fs.existsSync(logFile)).toBe(true)
     expect(fs.readFileSync(logFile, 'utf8')).toBe('disk-check')
   })
@@ -426,8 +422,9 @@ describe('SwarmOrchestrator — agent output buffer', () => {
 
 describe('SwarmOrchestrator — logging', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -437,7 +434,7 @@ describe('SwarmOrchestrator — logging', () => {
 
   it('_log writes to slashbot.log on disk', () => {
     ;(orch as any)._log('INFO', 'test message')
-    const logFile = path.join(getProjectPaths(tmpDir).logsDir, 'slashbot.log')
+    const logFile = path.join(tmpPaths.logsDir, 'slashbot.log')
     const content = fs.readFileSync(logFile, 'utf8')
     expect(content).toContain('test message')
     expect(content).toContain('[INFO]')
@@ -454,8 +451,9 @@ describe('SwarmOrchestrator — logging', () => {
 
 describe('SwarmOrchestrator — build monitor integration', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -478,7 +476,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
 
   it('toggleBuildMonitor(true) creates and starts monitor when cmd configured', () => {
     // Write config with buildMonitorCmd in KEY=VALUE format
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
     orch.toggleBuildMonitor(true)
     const status = orch.getBuildMonitorStatus()
@@ -487,7 +485,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
   })
 
   it('toggleBuildMonitor(false) stops the monitor', () => {
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
     orch.toggleBuildMonitor(true)
     expect(orch.getBuildMonitorStatus().enabled).toBe(true)
@@ -496,7 +494,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
   })
 
   it('toggleBuildMonitor(true) is idempotent when already running', () => {
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
     orch.toggleBuildMonitor(true)
     const monitor1 = (orch as any).buildMonitor
@@ -506,7 +504,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
   })
 
   it('stopWorkers stops the build monitor', () => {
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
     orch.toggleBuildMonitor(true)
     expect(orch.getBuildMonitorStatus().enabled).toBe(true)
@@ -515,7 +513,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
   })
 
   it('shutdown stops the build monitor', async () => {
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
     orch.toggleBuildMonitor(true)
     expect(orch.getBuildMonitorStatus().enabled).toBe(true)
@@ -525,12 +523,14 @@ describe('SwarmOrchestrator — build monitor integration', () => {
 
   it('build monitor lifecycle follows swarm lifecycle (created on start, destroyed on stop)', () => {
     // Configure buildMonitorCmd so startWorkers auto-creates the monitor
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
 
     // Mock bd CLI-dependent methods to avoid needing a real beads database
     vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
     vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+    // Mock health check since it still checks legacy paths
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
 
     // startWorkers should create the build monitor
     orch.startWorkers(1)
@@ -546,7 +546,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
 
   it('toggle works mid-session (enable/disable while swarm is running)', () => {
     // Configure buildMonitorCmd
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
 
     // Simulate a running swarm by injecting fake workers
@@ -572,7 +572,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
   })
 
   it('forwards build monitor status events as build-status', () => {
-    fs.writeFileSync(path.join(tmpDir, '.slashbotrc'),
+    fs.writeFileSync(tmpPaths.slashbotrc,
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
     orch.toggleBuildMonitor(true)
     const events: Array<[string, unknown]> = []
@@ -594,8 +594,9 @@ describe('SwarmOrchestrator — build monitor integration', () => {
 
 describe('SwarmOrchestrator — heartbeat map', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {
@@ -685,8 +686,9 @@ describe('SwarmOrchestrator — heartbeat map', () => {
 
 describe('SwarmOrchestrator — plan request tracking', () => {
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {

@@ -8,7 +8,7 @@ import { PlanLoop } from './PlanLoop'
 import { WorkerLoop } from './WorkerLoop'
 import { runHealthCheck, formatHealthErrors } from './HealthCheck'
 import { BuildMonitor } from './BuildMonitor'
-import { getProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { ProjectPaths, ensureStoreDirs } from './ProjectStore'
 
 export class SwarmOrchestrator extends EventEmitter {
   private workers = new Map<string, WorkerLoop>()
@@ -20,8 +20,6 @@ export class SwarmOrchestrator extends EventEmitter {
   private planQueue: PlanQueueItem[] = []
   private currentPlanRequest: string | null = null
   coordinator: AgentCoordinator
-  private slashbotDir: string
-  private logDir: string
   private agentOutputBuffers = new Map<string, string>()
   private _heartbeatMap = new Map<string, number>()
   sessionStartedAt: string | null = null
@@ -29,15 +27,13 @@ export class SwarmOrchestrator extends EventEmitter {
   stoppingGracefully = false
   private buildMonitor: BuildMonitor | null = null
 
-  private paths: ReturnType<typeof getProjectPaths>
+  readonly paths: ProjectPaths
+  get projectPath(): string { return this.paths.projectRoot }
 
-  constructor(private projectPath: string) {
+  constructor(paths: ProjectPaths) {
     super()
-    const paths = getProjectPaths(projectPath)
     ensureStoreDirs(paths)
     this.paths = paths
-    this.slashbotDir = paths.storeDir
-    this.logDir = paths.logsDir
     this.coordinator = new AgentCoordinator(paths)
   }
 
@@ -71,7 +67,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this.planning = true
     this.currentPlanRequest = next.request
     this.coordinator.planningActive = true
-    const config = loadConfig(this.projectPath)
+    const config = loadConfig(this.projectPath, this.paths.slashbotrc)
     this._log('INFO', `━━ Swarm: running plan [${next.id}] ━━`)
 
     this.planner = new PlanLoop(this.paths, config, this.coordinator)
@@ -107,7 +103,7 @@ export class SwarmOrchestrator extends EventEmitter {
       return
     }
     this.stoppingGracefully = false
-    const config = loadConfig(this.projectPath)
+    const config = loadConfig(this.projectPath, this.paths.slashbotrc)
 
     // Pre-flight health check
     const health = runHealthCheck(this.projectPath, config.claudeCodeCmd)
@@ -317,7 +313,7 @@ export class SwarmOrchestrator extends EventEmitter {
   toggleBuildMonitor(enabled: boolean): void {
     if (enabled) {
       if (this.buildMonitor) return // already running
-      const config = loadConfig(this.projectPath)
+      const config = loadConfig(this.projectPath, this.paths.slashbotrc)
       if (!config.buildMonitorCmd) {
         this._log('WARN', 'Cannot enable build monitor — no buildMonitorCmd configured')
         return
@@ -346,7 +342,7 @@ export class SwarmOrchestrator extends EventEmitter {
     // Try memory buffer first, fall back to disk log
     const mem = this.agentOutputBuffers.get(agentId)
     if (mem) return mem
-    const logFile = path.join(this.logDir, `${agentId}.log`)
+    const logFile = path.join(this.paths.logsDir, `${agentId}.log`)
     try {
       const content = fs.readFileSync(logFile, 'utf8')
       // Populate buffer from disk so subsequent reads are fast
@@ -413,7 +409,7 @@ export class SwarmOrchestrator extends EventEmitter {
 
   /** Check for agents whose heartbeat is older than 2× claudeTimeoutMinutes and reopen their beads. */
   private _detectDeadAgents(): void {
-    const config = loadConfig(this.projectPath)
+    const config = loadConfig(this.projectPath, this.paths.slashbotrc)
     const thresholdMs = 2 * config.claudeTimeoutMinutes * 60_000
     const now = Date.now()
 
@@ -461,12 +457,12 @@ export class SwarmOrchestrator extends EventEmitter {
     // Keep last 50KB per agent in memory
     this.agentOutputBuffers.set(agentId, (prev + chunk).slice(-50_000))
     // Also persist to per-agent log file on disk
-    const logFile = path.join(this.logDir, `${agentId}.log`)
+    const logFile = path.join(this.paths.logsDir, `${agentId}.log`)
     fs.appendFileSync(logFile, chunk)
   }
 
   private _log(level: string, msg: string, agentId?: string): void {
-    fs.appendFileSync(path.join(this.logDir, 'slashbot.log'),
+    fs.appendFileSync(path.join(this.paths.logsDir, 'slashbot.log'),
       `[${new Date().toISOString()}] [${level}] ${msg}\n`)
     this.emit('log', level, msg, agentId)
   }

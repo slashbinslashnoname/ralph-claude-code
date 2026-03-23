@@ -17,6 +17,7 @@ function makePaths(overrides?: Partial<ProjectPaths>): ProjectPaths {
     agents: '/home/.slashbot/projects/abc123/agents.json',
     fileLocks: '/home/.slashbot/projects/abc123/file_locks.json',
     configDir: '/home/.slashbot/projects/abc123/config',
+    slashbotrc: '/home/.slashbot/projects/abc123/config/.slashbotrc',
     worktreesDir: '/project/.worktrees',
     beadsRoot: '/project/.beads',
     agentMd: '/home/.slashbot/projects/abc123/config/AGENT.md',

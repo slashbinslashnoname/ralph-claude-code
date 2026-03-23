@@ -339,6 +339,7 @@ describe('RalphEnabler', () => {
       agents: '/home/.slashbot/projects/abc123/agents.json',
       fileLocks: '/home/.slashbot/projects/abc123/file_locks.json',
       configDir: '/home/.slashbot/projects/abc123/config',
+      slashbotrc: '/home/.slashbot/projects/abc123/config/.slashbotrc',
     }
 
     it('returns enabled:true when all config files exist in configDir', () => {
@@ -384,6 +385,7 @@ describe('RalphEnabler', () => {
       agents: '/home/.slashbot/projects/abc123/agents.json',
       fileLocks: '/home/.slashbot/projects/abc123/file_locks.json',
       configDir: '/home/.slashbot/projects/abc123/config',
+      slashbotrc: '/home/.slashbot/projects/abc123/config/.slashbotrc',
     }
     const defaultOpts = { force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: [] as string[] }
 

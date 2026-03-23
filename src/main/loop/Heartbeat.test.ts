@@ -6,7 +6,7 @@ import * as path from 'path'
 import { execSync } from 'child_process'
 import { AgentCoordinator } from './AgentCoordinator'
 import { SwarmOrchestrator } from './SwarmOrchestrator'
-import { ProjectPaths } from './ProjectStore'
+import { ProjectPaths, getProjectPaths, ensureStoreDirs } from './ProjectStore'
 
 // ── AgentCoordinator heartbeat tests ──────────────────────────────────────
 
@@ -17,6 +17,7 @@ describe('AgentCoordinator — heartbeat', () => {
   function makeTmpPaths(projectDir: string): ProjectPaths {
     const storeDir = path.join(projectDir, '.slashbot')
     fs.mkdirSync(path.join(storeDir, 'logs'), { recursive: true })
+    fs.mkdirSync(path.join(storeDir, 'config'), { recursive: true })
     return {
       id: 'test-id', projectRoot: projectDir, storeDir,
       logsDir: path.join(storeDir, 'logs'),
@@ -27,8 +28,11 @@ describe('AgentCoordinator — heartbeat', () => {
       agents: path.join(storeDir, 'agents.json'),
       fileLocks: path.join(storeDir, 'file_locks.json'),
       configDir: path.join(storeDir, 'config'),
+      slashbotrc: path.join(storeDir, 'config', '.slashbotrc'),
       worktreesDir: path.join(projectDir, '.worktrees'),
       beadsRoot: path.join(projectDir, '.beads'),
+      mail: path.join(storeDir, 'mail.jsonl'),
+      agentMd: path.join(storeDir, 'config', 'AGENT.md'),
     }
   }
 
@@ -82,29 +86,31 @@ describe('AgentCoordinator — heartbeat', () => {
 
 // ── SwarmOrchestrator dead-agent detection tests ──────────────────────────
 
-function makeTmpProject(): string {
+function makeTmpProject(): ProjectPaths {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-swarm-'))
-  const slashbotDir = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
-  fs.writeFileSync(path.join(dir, '.slashbotrc'), [
+  const paths = getProjectPaths(dir)
+  ensureStoreDirs(paths)
+  fs.writeFileSync(paths.slashbotrc, [
     'CLAUDE_CODE_CMD=false',
     'CLAUDE_TIMEOUT_MINUTES=1',
     'CLAUDE_OUTPUT_FORMAT=text',
     'ALLOWED_TOOLS=',
   ].join('\n'))
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
-  fs.writeFileSync(path.join(slashbotDir, 'PROMPT.md'), '# Prompt')
-  fs.writeFileSync(path.join(slashbotDir, 'AGENT.md'), '# Agent')
-  return dir
+  fs.writeFileSync(path.join(paths.configDir, 'PROMPT.md'), '# Prompt')
+  fs.writeFileSync(path.join(paths.configDir, 'AGENT.md'), '# Agent')
+  return paths
 }
 
 describe('SwarmOrchestrator — dead-agent detection', () => {
   let tmpDir: string
+  let tmpPaths: ProjectPaths
   let orch: SwarmOrchestrator
 
   beforeEach(() => {
-    tmpDir = makeTmpProject()
-    orch = new SwarmOrchestrator(tmpDir)
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
   })
 
   afterEach(() => {

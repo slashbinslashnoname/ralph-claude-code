@@ -28,6 +28,8 @@ export interface ProjectPaths {
   mail: string
   /** ~/.slashbot/projects/<id>/config */
   configDir: string
+  /** ~/.slashbot/projects/<id>/config/.slashbotrc */
+  slashbotrc: string
   /** <projectRoot>/.worktrees */
   worktreesDir: string
   /** <projectRoot>/.beads */
@@ -60,6 +62,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     fileLocks: path.join(storeDir, 'file_locks.json'),
     mail: path.join(storeDir, 'mail.jsonl'),
     configDir: path.join(storeDir, 'config'),
+    slashbotrc: path.join(storeDir, 'config', '.slashbotrc'),
     worktreesDir: path.join(absolute, '.worktrees'),
     beadsRoot: path.join(absolute, '.beads'),
     mail: path.join(storeDir, 'mail.jsonl'),
