@@ -236,6 +236,50 @@ describe('TelegramBridge', () => {
       expect(msg).toContain('agent-0')
       expect(msg).not.toContain('…')
     })
+
+    it('extracts readable text from JSON output chunks', () => {
+      createBridge('all')
+      const jsonChunk = [
+        '{"type":"system","sessionId":"abc"}',
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"I will fix the bug now."}]}}',
+        '{"type":"tool_use","name":"Edit","input":{}}',
+        '{"type":"tool_result","content":"ok"}',
+      ].join('\n')
+      orchestrator.emit('output', 'agent-0', jsonChunk)
+      expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('I will fix the bug now.')
+      expect(msg).not.toContain('tool_use')
+      expect(msg).not.toContain('sessionId')
+    })
+
+    it('extracts result text from JSON output', () => {
+      createBridge('all')
+      const jsonChunk = '{"type":"result","result":"All tasks completed successfully."}'
+      orchestrator.emit('output', 'agent-0', jsonChunk)
+      expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('All tasks completed successfully.')
+    })
+
+    it('skips chunks with only non-readable JSON (tool_use, system)', () => {
+      createBridge('all')
+      const jsonChunk = [
+        '{"type":"system","sessionId":"abc"}',
+        '{"type":"tool_use","name":"Read","input":{}}',
+      ].join('\n')
+      orchestrator.emit('output', 'agent-0', jsonChunk)
+      expect(bot.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('handles assistant message with string message field', () => {
+      createBridge('all')
+      const jsonChunk = '{"type":"assistant","message":"Simple text response"}'
+      orchestrator.emit('output', 'agent-0', jsonChunk)
+      expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('Simple text response')
+    })
   })
 
   // ── 30s output throttle ─────────────────────────────────────────────────

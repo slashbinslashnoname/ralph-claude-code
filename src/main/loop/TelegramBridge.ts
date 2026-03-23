@@ -30,6 +30,44 @@ const BATCH_WINDOW_MS = 1000
 const OUTPUT_CAP_CHARS = 500
 const OUTPUT_THROTTLE_MS = 30_000
 
+/**
+ * Extract human-readable text from a Claude output chunk.
+ * When --output-format json is used, Claude emits JSONL with typed objects.
+ * We extract only meaningful text content (assistant messages, results).
+ */
+function extractReadableText(chunk: string): string {
+  const lines = chunk.split('\n')
+  const textParts: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('{')) {
+      // Not JSON — pass through as-is (text-mode output or plain messages)
+      if (trimmed) textParts.push(trimmed)
+      continue
+    }
+    try {
+      const obj = JSON.parse(trimmed)
+      if (obj.type === 'assistant' && typeof obj.message === 'string') {
+        textParts.push(obj.message)
+      } else if (obj.type === 'assistant' && obj.message?.content) {
+        // assistant messages with content blocks
+        for (const block of obj.message.content) {
+          if (block.type === 'text' && block.text) textParts.push(block.text)
+        }
+      } else if (obj.type === 'result' && typeof obj.result === 'string') {
+        textParts.push(obj.result)
+      }
+      // Skip system, tool_use, tool_result, etc. — not useful for Telegram
+    } catch {
+      // Not valid JSON — include as-is if non-empty
+      if (trimmed) textParts.push(trimmed)
+    }
+  }
+
+  return textParts.join('\n')
+}
+
 /** Events considered "errors" for filtering */
 const ERROR_TYPES: Set<ActivityEvent['type']> = new Set(['failed', 'rollback'])
 
@@ -147,8 +185,11 @@ export class TelegramBridge {
     if (now - this.lastOutputTime < OUTPUT_THROTTLE_MS) return
     this.lastOutputTime = now
 
+    const readable = extractReadableText(chunk)
+    if (!readable) return // skip chunks with no human-readable content (e.g. tool_use JSON)
+
     const truncated =
-      chunk.length > OUTPUT_CAP_CHARS ? chunk.slice(0, OUTPUT_CAP_CHARS) + '…' : chunk
+      readable.length > OUTPUT_CAP_CHARS ? readable.slice(0, OUTPUT_CAP_CHARS) + '…' : readable
     this.bot.sendMessage(`📝 ${agentId}: ${truncated}`).catch((err) => {
       this.logger(`[telegram-bridge] output send failed: ${err}`)
     })
