@@ -587,29 +587,51 @@ export class AgentCoordinator {
         if (mergeNeeded) {
           try {
             execSync(`git merge "${baseBranch}" --no-edit`, {
-              cwd: worktreePath, timeout: 30000
+              cwd: worktreePath, timeout: 30000, stdio: 'pipe'
             })
           } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
-            lastError = msg
-            const isConflict = msg.includes('CONFLICT') || msg.includes('CONFLIT') || msg.includes('Merge conflict')
+            const stderr = (err as { stderr?: Buffer | string })?.stderr
+            const stdout = (err as { stdout?: Buffer | string })?.stdout
+            const fullOutput = [
+              err instanceof Error ? err.message : String(err),
+              stderr ? String(stderr) : '',
+              stdout ? String(stdout) : '',
+            ].join('\n')
+            lastError = fullOutput.slice(0, 2000)
+            const isConflict = fullOutput.includes('CONFLICT') || fullOutput.includes('CONFLIT') || fullOutput.includes('Merge conflict')
 
             if (isConflict && opts?.claudeCmd) {
               const resolved = await this._resolveConflictsWithClaude(opts.claudeCmd, opts.env, worktreePath)
               if (!resolved) {
+                // Claude couldn't resolve — accept agent's version for conflicted files
+                try {
+                  execSync('git checkout --ours .', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
+                  execSync('git add -A', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
+                  execSync('git commit --no-edit', { cwd: worktreePath, timeout: 10000, stdio: 'pipe' })
+                } catch {
+                  // Last resort: abort and retry
+                  try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+                  if (attempt >= maxRetries) break
+                  continue
+                }
+              }
+              // Conflict resolved — fall through to CAS
+            } else if (isConflict) {
+              // No Claude available — accept agent's version for conflicted files
+              try {
+                execSync('git checkout --ours .', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
+                execSync('git add -A', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
+                execSync('git commit --no-edit', { cwd: worktreePath, timeout: 10000, stdio: 'pipe' })
+              } catch {
                 try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
                 if (attempt >= maxRetries) break
                 continue
               }
-              // Conflict resolved — fall through to CAS
-            } else if (isConflict) {
-              try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+              // Fall through to CAS
+            } else {
+              // Non-conflict merge error — retry instead of giving up
               if (attempt >= maxRetries) break
               continue
-            } else {
-              // Non-conflict merge error — don't retry
-              this._cleanupWorktree(worktreePath, branch)
-              return { merged: false, filesChanged: [], error: msg }
             }
           }
         }
