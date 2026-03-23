@@ -252,7 +252,7 @@ describe('WorkerStateMachine', () => {
       const next = await routing(ctx)
 
       expect(next).toBe('routing')
-      expect(ctx.flags.emptyRetries).toBe(0) // not incremented when hasOpenWork=true
+      expect(ctx.flags.emptyRetries).toBe(1) // incremented, parks after 5
     })
 
     it('increments emptyRetries and stops after 3 when no open work', async () => {

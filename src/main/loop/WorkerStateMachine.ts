@@ -179,16 +179,28 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   const bead = await ctx.coordinator.claimBestBead(ctx.agentId, ctx.config.claudeTimeoutMinutes)
 
   if (!bead) {
-    if (!ctx.coordinator.hasOpenWork()) {
+    const hasOpen = ctx.coordinator.hasOpenWork()
+    if (!hasOpen) {
       ctx.flags.emptyRetries++
       if (ctx.flags.emptyRetries >= 3) {
         log(ctx, 'SUCCESS', `[${ctx.agentId}] No open beads — worker done`)
         return 'stopping'
       }
       log(ctx, 'INFO', `[${ctx.agentId}] No open beads detected, rechecking (${ctx.flags.emptyRetries}/3)…`)
+      setPhase(ctx, 'waiting')
+      await ctx.capabilities.sleep(3000)
+      return 'routing'
     }
+    // Work exists but nothing claimable — all beads are blocked or claimed by others.
+    // Don't spin-wait forever; park after a few retries.
+    ctx.flags.emptyRetries++
+    if (ctx.flags.emptyRetries >= 5) {
+      log(ctx, 'INFO', `[${ctx.agentId}] No claimable beads after ${ctx.flags.emptyRetries} attempts — parking worker`)
+      return 'stopping'
+    }
+    log(ctx, 'INFO', `[${ctx.agentId}] No claimable beads (work in progress by others), waiting… (${ctx.flags.emptyRetries}/5)`)
     setPhase(ctx, 'waiting')
-    await ctx.capabilities.sleep(5000)
+    await ctx.capabilities.sleep(10_000)
     return 'routing'
   }
 

@@ -226,7 +226,8 @@ export class WorkerLoop extends EventEmitter {
 
       let bead = await this.coordinator.claimBestBead(this.agentId, this.config.claudeTimeoutMinutes)
       if (!bead) {
-        if (!this.coordinator.hasOpenWork()) {
+        const hasOpen = this.coordinator.hasOpenWork()
+        if (!hasOpen) {
           this.emptyRetries++
           if (this.emptyRetries >= 3) {
             this._log('SUCCESS', `[${this.agentId}] No open beads — worker done`)
@@ -234,9 +235,23 @@ export class WorkerLoop extends EventEmitter {
             return
           }
           this._log('INFO', `[${this.agentId}] No open beads detected, rechecking (${this.emptyRetries}/3)…`)
+          this._setPhase('waiting')
+          await this._sleep(3000)
+          continue
         }
+        // There's open/in-progress work but nothing claimable for us.
+        // If all remaining claimable beads are blocked by in-progress work,
+        // don't spin-wait forever — exit after a few retries so we don't
+        // waste resources waiting for a single agent to finish.
+        this.emptyRetries++
+        if (this.emptyRetries >= 5) {
+          this._log('INFO', `[${this.agentId}] No claimable beads after ${this.emptyRetries} attempts — parking worker`)
+          this._exit('all_beads_done')
+          return
+        }
+        this._log('INFO', `[${this.agentId}] No claimable beads (work in progress by others), waiting… (${this.emptyRetries}/5)`)
         this._setPhase('waiting')
-        await this._sleep(5000)
+        await this._sleep(10_000)
         continue
       }
       this.emptyRetries = 0
