@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import { EventEmitter } from 'events'
 import { PlanLoop } from './PlanLoop'
 import { RalphConfig } from '../types'
+import type { ProjectPaths } from './ProjectStore'
 
 import * as cp from 'child_process'
 import { EventEmitter as EE } from 'events'
@@ -46,6 +47,26 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     claudeModelThink: 'sonnet',
     claudeModelExecute: 'opus',
     claudeModelReview: 'sonnet',
+    ...overrides
+  }
+}
+
+function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
+  return {
+    id: 'abc123',
+    projectRoot: '/project',
+    storeDir: '/store',
+    logsDir: '/store/logs',
+    circuitBreakerState: '/store/.circuit_breaker_state',
+    callCount: '/store/.call_count',
+    activity: '/store/activity.jsonl',
+    knowledge: '/store/knowledge.jsonl',
+    agents: '/store/agents.json',
+    fileLocks: '/store/file_locks.json',
+    configDir: '/store/config',
+    worktreesDir: '/project/.worktrees',
+    beadsRoot: '/project/.beads',
+    agentMd: '/store/config/AGENT.md',
     ...overrides
   }
 }
@@ -99,18 +120,18 @@ describe('PlanLoop', () => {
   })
 
   it('can be constructed without errors', () => {
-    const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+    const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
     expect(loop).toBeDefined()
     expect(loop.stopped).toBe(false)
   })
 
   it('creates log directory on construction', () => {
-    new PlanLoop('/project', makeConfig(), makeCoordinator())
-    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot/logs', { recursive: true })
+    new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
+    expect(fs.mkdirSync).toHaveBeenCalledWith('/store/logs', { recursive: true })
   })
 
   it('stop() sets stopped flag', () => {
-    const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+    const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
     loop.stop()
     expect(loop.stopped).toBe(true)
   })
@@ -118,7 +139,7 @@ describe('PlanLoop', () => {
   describe('run', () => {
     it('emits phase events in order: planning → encoding → done', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const phases: string[] = []
       loop.on('phase', (p: string) => phases.push(p))
 
@@ -142,7 +163,7 @@ describe('PlanLoop', () => {
     })
 
     it('emits error when plan phase fails with non-zero exit', async () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
 
       const errors: string[] = []
       loop.on('error', (e: string) => errors.push(e))
@@ -159,7 +180,7 @@ describe('PlanLoop', () => {
     })
 
     it('does not proceed to encoding when stopped after planning', async () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const phases: string[] = []
       loop.on('phase', (p: string) => phases.push(p))
 
@@ -176,7 +197,7 @@ describe('PlanLoop', () => {
 
     it('emits done with bead count on successful encoding', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       let doneCount: number | undefined
       loop.on('done', (n: number) => { doneCount = n })
@@ -199,7 +220,7 @@ describe('PlanLoop', () => {
     })
 
     it('handles invalid JSON in encode output after all retries', async () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
 
       let doneCount: number | undefined
       loop.on('done', (n: number) => { doneCount = n })
@@ -229,7 +250,7 @@ describe('PlanLoop', () => {
       })
       ;(fs.readFileSync as any).mockReturnValue('project context here')
 
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       loop.on('error', () => {}) // prevent unhandled error throw
 
       const runPromise = loop.run('test')
@@ -259,7 +280,7 @@ describe('PlanLoop', () => {
         return { created, failed: [] }
       })
 
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const runPromise = loop.run('test')
 
       // Plan
@@ -282,7 +303,7 @@ describe('PlanLoop', () => {
 
     it('posts activity when beads are created', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       const runPromise = loop.run('test')
 
@@ -316,7 +337,7 @@ describe('PlanLoop', () => {
         return { created, failed }
       })
 
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const logs: [string, string][] = []
       loop.on('log', (level: string, msg: string) => logs.push([level, msg]))
       const errors: string[] = []
@@ -347,7 +368,7 @@ describe('PlanLoop', () => {
     })
 
     it('emits output events during plan phase', async () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const outputs: string[] = []
       loop.on('output', (s: string) => outputs.push(s))
       loop.on('error', () => {}) // prevent unhandled error throw
@@ -374,7 +395,7 @@ describe('PlanLoop', () => {
     })
 
     it('writes output to log file', async () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       loop.on('error', () => {}) // prevent unhandled error throw
 
       const runPromise = loop.run('test')
@@ -396,7 +417,7 @@ describe('PlanLoop', () => {
 
     it('routes --model per phase: claudeModelThink for plan, claudeModelExecute for encode', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       const runPromise = loop.run('test')
 
@@ -423,7 +444,7 @@ describe('PlanLoop', () => {
 
     it('uses custom model values from config', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig({ claudeModelThink: 'haiku', claudeModelExecute: 'sonnet' }), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig({ claudeModelThink: 'haiku', claudeModelExecute: 'sonnet' }), coord)
 
       const runPromise = loop.run('test')
 
@@ -444,7 +465,7 @@ describe('PlanLoop', () => {
 
     it('retries encode on validation failure and succeeds on second attempt', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       let doneCount: number | undefined
       loop.on('done', (n: number) => { doneCount = n })
@@ -479,7 +500,7 @@ describe('PlanLoop', () => {
         failed: beads.map((b: any) => ({ opts: b, error: 'bd error' }))
       }))
 
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const errors: string[] = []
       loop.on('error', (e: string) => errors.push(e))
 
@@ -499,7 +520,7 @@ describe('PlanLoop', () => {
 
     it('retry prompt includes validation errors', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       const runPromise = loop.run('test')
 
@@ -528,7 +549,7 @@ describe('PlanLoop', () => {
 
     it('retries twice on validation failure then succeeds on third (final) attempt', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       let doneCount: number | undefined
       loop.on('done', (n: number) => { doneCount = n })
@@ -562,7 +583,7 @@ describe('PlanLoop', () => {
 
     it('proceeds despite validation errors after exhausting all retries', async () => {
       const coord = makeCoordinator()
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
 
       const logs: [string, string][] = []
       loop.on('log', (level: string, msg: string) => logs.push([level, msg]))
@@ -600,7 +621,7 @@ describe('PlanLoop', () => {
         failed: beads.map((b: any) => ({ opts: b, error: 'bd error' }))
       }))
 
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const errors: string[] = []
       loop.on('error', (e: string) => errors.push(e))
 
@@ -625,7 +646,7 @@ describe('PlanLoop', () => {
     })
 
     it('resolves with raw output even on non-zero exit if output exists', async () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const phases: string[] = []
       loop.on('phase', (p: string) => phases.push(p))
       loop.on('error', () => {}) // prevent unhandled error throw
@@ -658,7 +679,7 @@ describe('PlanLoop', () => {
 
   describe('_validateCandidates', () => {
     it('returns no errors for valid candidates', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: [], type: 'task' },
         { id: 'b2', title: 'Another valid', description: 'Another valid desc here', deps: ['b1'], type: 'task' }
@@ -668,7 +689,7 @@ describe('PlanLoop', () => {
     })
 
     it('flags titles with 3 or fewer chars', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', title: 'Ab', description: 'A valid description here', deps: [], type: 'task' },
         { id: 'b2', title: 'OK!', description: 'A valid description here', deps: [], type: 'task' }, // exactly 3 chars
@@ -680,7 +701,7 @@ describe('PlanLoop', () => {
     })
 
     it('flags descriptions with 10 or fewer chars', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'short', deps: [], type: 'task' },
         { id: 'b2', title: 'Another ok', description: '1234567890', deps: [], type: 'task' }, // exactly 10
@@ -691,7 +712,7 @@ describe('PlanLoop', () => {
     })
 
     it('flags unresolvable dependencies', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: ['nonexistent'], type: 'task' },
       ]
@@ -702,7 +723,7 @@ describe('PlanLoop', () => {
     })
 
     it('resolves deps against batch IDs', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: [], type: 'task' },
         { id: 'b2', title: 'Another task', description: 'Depends on b1 in batch', deps: ['b1'], type: 'task' },
@@ -716,7 +737,7 @@ describe('PlanLoop', () => {
       coord.bd.listAll.mockReturnValue([
         { id: 'live-1', status: 'ready', title: 'Live bead' }
       ])
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: ['live-1'], type: 'task' },
       ]
@@ -729,7 +750,7 @@ describe('PlanLoop', () => {
       coord.bd.listAll.mockReturnValue([
         { id: 'old-1', status: 'done', title: 'Already done task' }
       ])
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const candidates = [
         { id: 'b1', title: 'Already done task', description: 'A valid description here', deps: [], type: 'task' },
       ]
@@ -739,7 +760,7 @@ describe('PlanLoop', () => {
     })
 
     it('flags batch exceeding hard cap of 50', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = Array.from({ length: 51 }, (_, i) => ({
         id: `b${i}`, title: `Task number ${i}`, description: 'A valid description here', deps: [], type: 'task'
       }))
@@ -749,7 +770,7 @@ describe('PlanLoop', () => {
     })
 
     it('warns on batch larger than 20 (soft ratio)', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = Array.from({ length: 21 }, (_, i) => ({
         id: `b${i}`, title: `Task number ${i}`, description: 'A valid description here', deps: [], type: 'task'
       }))
@@ -759,7 +780,7 @@ describe('PlanLoop', () => {
     })
 
     it('handles missing/null title and description gracefully', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', deps: [], type: 'task' }, // no title, no description
       ]
@@ -774,7 +795,7 @@ describe('PlanLoop', () => {
       coord.bd.listAll.mockReturnValue([
         { id: 'old-1', status: 'done', title: 'Setup Database' }
       ])
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const candidates = [
         { id: 'b1', title: 'setup database', description: 'A valid description here', deps: [], type: 'task' },
         { id: 'b2', title: 'SETUP DATABASE', description: 'Another valid description', deps: [], type: 'task' },
@@ -791,7 +812,7 @@ describe('PlanLoop', () => {
         { id: 'live-1', status: 'claimed', title: 'Active bead' },
         { id: 'live-2', status: 'done', title: 'Closed bead' }
       ])
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: ['live-1'], type: 'task' }, // dep on live open
         { id: 'b2', title: 'Another task', description: 'Depends on batch sibling', deps: ['b1'], type: 'task' }, // dep on batch
@@ -807,7 +828,7 @@ describe('PlanLoop', () => {
     it('does not error when listAll throws', () => {
       const coord = makeCoordinator()
       coord.bd.listAll.mockImplementation(() => { throw new Error('bd not found') })
-      const loop = new PlanLoop('/project', makeConfig(), coord)
+      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       const candidates = [
         { id: 'b1', title: 'Valid title', description: 'A valid description here', deps: [], type: 'task' },
       ]
@@ -817,7 +838,7 @@ describe('PlanLoop', () => {
     })
 
     it('accumulates multiple errors per bead', () => {
-      const loop = new PlanLoop('/project', makeConfig(), makeCoordinator())
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const candidates = [
         { id: 'b1', title: 'Ab', description: 'x', deps: ['nope'], type: 'task' },
       ]

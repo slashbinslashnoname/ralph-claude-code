@@ -6,6 +6,7 @@ import type { ChildProcess } from 'child_process'
 import { RalphConfig } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
+import { ProjectPaths } from './ProjectStore'
 
 const MAX_ENCODE_RETRIES = 2
 const HARD_CAP = 50
@@ -24,20 +25,20 @@ interface ParseResult {
 export class PlanLoop extends EventEmitter {
   stopped = false
   private childProc: ChildProcess | null = null
-  private slashbotDir: string
+  private paths: ProjectPaths
   private logDir: string
   private env: NodeJS.ProcessEnv
   private resolvedCmd: string
 
   constructor(
-    private projectPath: string,
+    paths: ProjectPaths,
     private config: RalphConfig,
     private coordinator: AgentCoordinator,
     private agentId = 'planner'
   ) {
     super()
-    this.slashbotDir = path.join(projectPath, '.slashbot')
-    this.logDir = path.join(this.slashbotDir, 'logs')
+    this.paths = paths
+    this.logDir = paths.logsDir
     this.env = buildEnv()
     this.resolvedCmd = resolveCmd(config.claudeCodeCmd, this.env)
     fs.mkdirSync(this.logDir, { recursive: true })
@@ -145,7 +146,7 @@ export class PlanLoop extends EventEmitter {
       let proc: ChildProcess
       try {
         proc = cp.spawn(this.resolvedCmd, args, {
-          cwd: this.projectPath, env: this.env, stdio: ['ignore', 'pipe', 'pipe']
+          cwd: this.paths.projectRoot, env: this.env, stdio: ['ignore', 'pipe', 'pipe']
         })
       } catch (err) {
         reject(new Error(`PlanLoop spawn failed: ${err instanceof Error ? err.message : err}`))
@@ -187,8 +188,8 @@ export class PlanLoop extends EventEmitter {
   }
 
   private _buildPlanPrompt(request: string): string {
-    const agentMd = path.join(this.slashbotDir, 'AGENT.md')
-    const promptMd = path.join(this.slashbotDir, 'PROMPT.md')
+    const agentMd = this.paths.agentMd
+    const promptMd = path.join(this.paths.configDir, 'PROMPT.md')
     const context = [
       fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : '',
       fs.existsSync(promptMd) ? fs.readFileSync(promptMd, 'utf8') : ''
@@ -197,7 +198,7 @@ export class PlanLoop extends EventEmitter {
     let currentBranch = ''
     try {
       currentBranch = cp.execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.projectPath, timeout: 3000
+        cwd: this.paths.projectRoot, timeout: 3000
       }).toString().trim()
     } catch { /* ignore */ }
 

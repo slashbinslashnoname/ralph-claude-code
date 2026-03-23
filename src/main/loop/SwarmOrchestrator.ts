@@ -74,7 +74,7 @@ export class SwarmOrchestrator extends EventEmitter {
     const config = loadConfig(this.projectPath)
     this._log('INFO', `━━ Swarm: running plan [${next.id}] ━━`)
 
-    this.planner = new PlanLoop(this.projectPath, config, this.coordinator)
+    this.planner = new PlanLoop(this.paths, config, this.coordinator)
     this.planner.on('log', (level: string, msg: string) => this._log(level, msg, 'planner'))
     this.planner.on('output', (chunk: string) => {
       this._bufferOutput('planner', chunk)
