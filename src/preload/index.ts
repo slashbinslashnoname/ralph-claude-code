@@ -120,6 +120,15 @@ contextBridge.exposeInMainWorld('slashbot', {
     disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
   },
 
+  // ── Mail ─────────────────────────────────────────────────────────────
+  mail: {
+    list: (projectPath: string, limit?: number) =>
+      ipcRenderer.invoke('mail:list', projectPath, limit ?? 50),
+    subscribe: (projectPath: string) => ipcRenderer.invoke('mail:subscribe', projectPath),
+    unsubscribe: (projectPath: string) => ipcRenderer.invoke('mail:unsubscribe', projectPath),
+    onMessage: (cb: (...a: unknown[]) => void) => listen('mail:message', cb),
+  },
+
   // ── Shell ────────────────────────────────────────────────────────────
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
