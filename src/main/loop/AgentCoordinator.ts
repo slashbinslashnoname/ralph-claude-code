@@ -752,6 +752,9 @@ export class AgentCoordinator {
         }
       }
 
+      // Beads in_progress can satisfy deps (speculative parallel execution)
+      const inProgressIds = new Set(allBeads.filter(b => b.status === 'claimed').map(b => b.id))
+
       // Sort: retries → unresolved deps → priority → epic convergence → FIFO → ID
       candidates.sort((a, b) => {
         const retriesA = retryCount.get(a.id) ?? 0
@@ -793,9 +796,6 @@ export class AgentCoordinator {
         if (!isNaN(na) && !isNaN(nb)) return na - nb
         return a.id.localeCompare(b.id)
       })
-
-      // Beads in_progress can satisfy deps (speculative parallel execution)
-      const inProgressIds = new Set(allBeads.filter(b => b.status === 'claimed').map(b => b.id))
 
       this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${inProgressIds.size} in_progress, ${lockedFiles.size} locked files`)
 
