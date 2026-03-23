@@ -225,7 +225,7 @@ export function cleanupLegacyStorage(projectPath: string): { removed: string[]; 
       const filtered = lines.filter(line => !legacyPatterns.has(line.trim()))
       const newContent = filtered.join('\n')
       if (newContent !== content) {
-        fs.writeFileSync(gitignorePath, newContent)
+        atomicWriteFile(gitignorePath, newContent)
         removed.push('.gitignore (cleaned)')
       }
     } catch (e) {
