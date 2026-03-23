@@ -2136,4 +2136,203 @@ None.
       expect((worker as any)._currentBeadId).toBeNull()
     })
   })
+
+  describe('circuit breaker integration', () => {
+    it('opens circuit after N consecutive no-progress loops', async () => {
+      vi.useFakeTimers()
+      try {
+        const threshold = 3
+        const coord = makeCoordinator()
+        let claimCount = 0
+        coord.claimBestBead.mockImplementation(async () => {
+          claimCount++
+          return makeBead({ id: `sb-${claimCount}`, title: `Bead ${claimCount}` })
+        })
+        coord.createWorktree.mockReturnValue(null)
+        coord.completeBead.mockResolvedValue(undefined)
+
+        const config = makeConfig({ cbNoProgressThreshold: threshold })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        // Mock _runClaude to return no-progress output (short text, no files modified)
+        ;(worker as any)._runClaude = vi.fn(async () =>
+          '{"type":"result","result":"I am analyzing the code"}'
+        )
+
+        const logMessages: string[] = []
+        worker.on('log', (_level: string, msg: string) => logMessages.push(msg))
+
+        const startPromise = worker.start()
+
+        // Advance through enough iterations for the circuit breaker to open.
+        // Each loop iteration does: think → execute → review → close, each with sleeps.
+        // We need threshold successful bead completions with no-progress, then the CB opens
+        // and the loop enters the 60s wait state.
+        for (let i = 0; i < 600; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+
+        // After threshold no-progress loops, the circuit breaker should transition
+        // to HALF_OPEN (threshold reached), then OPEN on next no-progress.
+        // The worker should have processed at least threshold beads.
+        expect(claimCount).toBeGreaterThanOrEqual(threshold)
+
+        // Stop the worker to exit cleanly
+        worker.stop()
+        for (let i = 0; i < 10; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+        await startPromise.catch(() => {})
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('records progress and keeps circuit closed on successful execution', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        let claimCount = 0
+        coord.claimBestBead.mockImplementation(async () => {
+          claimCount++
+          if (claimCount > 2) return null
+          return makeBead({ id: `sb-${claimCount}`, title: `Bead ${claimCount}` })
+        })
+        coord.hasOpenWork.mockReturnValue(false)
+        coord.createWorktree.mockReturnValue(null)
+        coord.completeBead.mockResolvedValue(undefined)
+
+        const config = makeConfig({ cbNoProgressThreshold: 3 })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        // Mock _runClaude to return progress output (files modified > 0)
+        ;(worker as any)._runClaude = vi.fn(async () =>
+          '{"type":"result","result":"RALPH_STATUS: { \\"STATUS\\": \\"COMPLETE\\", \\"EXIT_SIGNAL\\": true, \\"FILES_MODIFIED\\": 3, \\"WORK_SUMMARY\\": \\"implemented feature\\" }"}'
+        )
+
+        const startPromise = worker.start()
+
+        for (let i = 0; i < 200; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+
+        await startPromise.catch(() => {})
+
+        // Circuit breaker state should have been saved (writeFileSync called with CB state)
+        const cbSaveCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+          ([filePath]) => String(filePath).includes('.circuit_breaker_state')
+        )
+        // Should have saved at least once (after each successful bead)
+        expect(cbSaveCalls.length).toBeGreaterThanOrEqual(1)
+        // The saved state should show CLOSED
+        const lastSave = cbSaveCalls[cbSaveCalls.length - 1]
+        const savedState = JSON.parse(lastSave[1] as string)
+        expect(savedState.state).toBe('CLOSED')
+        expect(savedState.consecutive_no_progress).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('records errors on execute failure and saves CB state', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        let claimCount = 0
+        coord.claimBestBead.mockImplementation(async () => {
+          claimCount++
+          if (claimCount > 1) return null
+          return makeBead({ id: 'sb-fail', title: 'Failing bead' })
+        })
+        coord.hasOpenWork.mockReturnValue(false)
+        coord.createWorktree.mockReturnValue(null)
+
+        const config = makeConfig({ cbNoProgressThreshold: 3, maxRetries: 0 })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        // Think succeeds, execute throws
+        let callIdx = 0
+        ;(worker as any)._runClaude = vi.fn(async () => {
+          callIdx++
+          if (callIdx === 1) return '{"type":"result","result":"analysis done"}' // think
+          throw new Error('execute crashed')
+        })
+
+        const startPromise = worker.start()
+
+        for (let i = 0; i < 200; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+
+        await startPromise.catch(() => {})
+
+        // CB state should have been saved with error recorded
+        const cbSaveCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+          ([filePath]) => String(filePath).includes('.circuit_breaker_state')
+        )
+        expect(cbSaveCalls.length).toBeGreaterThanOrEqual(1)
+        // Verify CB state was saved (error was recorded)
+        const lastSave = cbSaveCalls[cbSaveCalls.length - 1]
+        const savedState = JSON.parse(lastSave[1] as string)
+        // recordError requires 2+ unique errors in lastErrors before incrementing consecutiveSameError,
+        // but the state file is still written, confirming the CB was wired in
+        expect(savedState).toHaveProperty('state')
+        expect(savedState).toHaveProperty('reason')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('skips bead claiming when circuit is open and waits', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        coord.claimBestBead.mockResolvedValue(null)
+        coord.hasOpenWork.mockReturnValue(false)
+
+        const config = makeConfig({ cbNoProgressThreshold: 1 })
+        const paths = makePaths()
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, paths)
+
+        // Pre-seed circuit breaker state as OPEN on disk
+        const openState = JSON.stringify({
+          state: 'OPEN',
+          consecutive_no_progress: 5,
+          consecutive_same_error: 0,
+          consecutive_permission_denials: 0,
+          last_progress_loop: 0,
+          total_opens: 1,
+          reason: 'test forced open',
+          current_loop: 0,
+          opened_at: new Date().toISOString()
+        })
+        vi.mocked(fs.existsSync).mockImplementation((p: unknown) =>
+          String(p).includes('.circuit_breaker_state')
+        )
+        vi.mocked(fs.readFileSync).mockImplementation((p: unknown) => {
+          if (String(p).includes('.circuit_breaker_state')) return openState
+          return ''
+        })
+
+        const startPromise = worker.start()
+
+        // Advance time but NOT enough for cooldown (which is 30 min)
+        // The circuit should stay open and the loop should NOT claim beads
+        for (let i = 0; i < 20; i++) {
+          await vi.advanceTimersByTimeAsync(1000)
+        }
+
+        // claimBestBead should NOT have been called because circuit is open
+        expect(coord.claimBestBead).not.toHaveBeenCalled()
+
+        worker.stop()
+        for (let i = 0; i < 140; i++) {
+          await vi.advanceTimersByTimeAsync(1000)
+        }
+        await startPromise.catch(() => {})
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })

@@ -4,7 +4,8 @@ import * as path from 'path'
 import * as cp from 'child_process'
 import { RalphConfig, Bead, SplitDecision } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
-import { detectApiLimit, extractResultFromJsonStream } from './ResponseAnalyzer'
+import { analyze, detectApiLimit, extractResultFromJsonStream } from './ResponseAnalyzer'
+import { CircuitBreaker } from './CircuitBreaker'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 import { ProjectPaths } from './ProjectStore'
@@ -218,11 +219,25 @@ export class WorkerLoop extends EventEmitter {
     this.coordinator.heartbeat(this.agentId)
     this.emit('heartbeat')
 
+    const cb = new CircuitBreaker(this.paths.storeDir, this.config)
+    cb.load()
+
     try {
     while (this.running && !this.stopped && !this._gracefulStopping) {
       // Pause gate: wait before claiming next bead
       if (await this._waitIfPaused()) break
       this.loopCount++
+      cb.tick(this.loopCount)
+
+      // Circuit breaker: if open, wait for cooldown before claiming next bead
+      if (cb.isOpen()) {
+        this._log('WARN', `[${this.agentId}] Circuit OPEN — pausing before next bead`)
+        this._setPhase('waiting')
+        await this._sleep(60_000)
+        cb.load() // re-check cooldown state from disk
+        continue
+      }
+
       this._setPhase('routing')
       this._log('INFO', `[${this.agentId}] Routing: looking for best available bead…`)
 
@@ -284,6 +299,7 @@ export class WorkerLoop extends EventEmitter {
       let apiLimited = false
       let mergeFailed = false
       let filesChanged: string[] = []
+      let executeOutput = ''
 
       try {
         // ── Phase 1: Think — analyze before acting ──────────────────
@@ -340,7 +356,7 @@ export class WorkerLoop extends EventEmitter {
           agentId: this.agentId, type: 'executing', beadId: bead.id,
           beadTitle: bead.title, summary: 'Implementing…'
         })
-        let executeOutput = ''
+        executeOutput = ''
         try {
           executeOutput = await this._runClaude(this._buildExecutePrompt(bead, thinkingOutput), 'execute', workDir, this.config.claudeModelExecute)
         } catch (err) {
@@ -429,6 +445,12 @@ export class WorkerLoop extends EventEmitter {
       }
 
       // ── Phase 5: Close, retry, or permanently fail bead ──────────
+      // Record circuit breaker outcome for error paths (success path is below)
+      if (mergeFailed || executeFailed) {
+        cb.recordError(mergeFailed ? 'merge failed' : 'execution failed')
+        cb.save()
+      }
+
       if (mergeFailed) {
         const attempt = this._getBeadAttempt(bead.id)
         const maxRetries = this.config.maxRetries
@@ -499,6 +521,23 @@ export class WorkerLoop extends EventEmitter {
         this._log('INFO', `[${this.agentId}] Stopped — reopened bead [${bead.id}] for future pickup`)
         break
       }
+
+      // ── Circuit breaker: record outcome based on execute output ──
+      if (executeOutput) {
+        const analysis = analyze(stripAnsi(executeOutput))
+        if (analysis.hasPermissionDenials) {
+          cb.recordPermissionDenial()
+        } else if (analysis.hasProgress) {
+          cb.recordProgress(this.loopCount)
+        } else if (analysis.isStuck) {
+          cb.recordError(analysis.workSummary)
+        } else {
+          cb.recordNoProgress(analysis.askingQuestions)
+        }
+      } else {
+        cb.recordNoProgress(false)
+      }
+      cb.save()
 
       this._setPhase('closing', bead.id, bead.title)
       await this.coordinator.completeBead(this.agentId, bead.id, filesChanged, this.config.autoPush)
