@@ -211,6 +211,16 @@ export interface SplitDecision {
   children: SplitChild[]
 }
 
+export interface MailMessage {
+  ts: string
+  from: string
+  to: string
+  subject: string
+  body: string
+  threadId: string
+  read: boolean
+}
+
 export interface PlanQueueItem {
   id: string
   request: string

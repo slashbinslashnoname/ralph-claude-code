@@ -6,7 +6,8 @@ import type {
   RalphConfig,
   KnowledgeEntry,
   KnowledgeCategory,
-  KnowledgeConfidence
+  KnowledgeConfidence,
+  MailMessage
 } from './types'
 
 describe('Telegram types', () => {
@@ -116,6 +117,25 @@ describe('KnowledgeEntry types', () => {
     expect(entry.summary).toBe('Use worktrees for isolation')
     expect(entry.detail).toBe('Each agent should create a git worktree to avoid conflicts')
     expect(entry.confidence).toBe('high')
+  })
+
+  it('MailMessage accepts valid message', () => {
+    const msg: MailMessage = {
+      ts: '2026-03-23T12:00:00Z',
+      from: 'agent-0',
+      to: 'agent-1',
+      subject: 'Need help with types.ts',
+      body: 'Can you review the MailMessage interface?',
+      threadId: 'thread-abc',
+      read: false
+    }
+    expect(msg.ts).toBe('2026-03-23T12:00:00Z')
+    expect(msg.from).toBe('agent-0')
+    expect(msg.to).toBe('agent-1')
+    expect(msg.subject).toBe('Need help with types.ts')
+    expect(msg.body).toBe('Can you review the MailMessage interface?')
+    expect(msg.threadId).toBe('thread-abc')
+    expect(msg.read).toBe(false)
   })
 
   it('KnowledgeEntry works with all category values', () => {
