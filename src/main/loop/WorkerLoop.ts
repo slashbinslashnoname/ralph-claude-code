@@ -239,18 +239,13 @@ export class WorkerLoop extends EventEmitter {
           await this._sleep(3000)
           continue
         }
-        // There's open/in-progress work but nothing claimable for us.
-        // All beads are either claimed by other agents or blocked by dependencies.
-        // Park quickly — the orchestrator will restart us when new work becomes available.
+        // There's open/in-progress work but nothing claimable for us right now.
+        // Keep waiting — other agents will finish their beads and unblock ours.
         this.emptyRetries++
-        if (this.emptyRetries >= 3) {
-          this._log('INFO', `[${this.agentId}] No claimable beads after ${this.emptyRetries} attempts — parking worker (other agents have all available work)`)
-          this._exit('all_beads_done')
-          return
-        }
-        this._log('INFO', `[${this.agentId}] No claimable beads (blocked by deps or claimed by others), retrying… (${this.emptyRetries}/3)`)
+        const waitSec = Math.min(10 + this.emptyRetries * 5, 30) // 15s, 20s, 25s, 30s...
+        this._log('INFO', `[${this.agentId}] No claimable beads (blocked by deps or claimed), waiting ${waitSec}s… (attempt ${this.emptyRetries})`)
         this._setPhase('waiting')
-        await this._sleep(5_000)
+        await this._sleep(waitSec * 1000)
         continue
       }
       this.emptyRetries = 0
