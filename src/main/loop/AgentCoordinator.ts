@@ -748,8 +748,15 @@ export class AgentCoordinator {
         }
       }
 
-      // Beads in_progress can satisfy deps (speculative parallel execution)
+      // Beads in_progress can satisfy deps (speculative parallel execution).
+      // Also treat parent beads as "in progress" if any of their children are being worked on.
       const inProgressIds = new Set(allBeads.filter(b => b.status === 'claimed').map(b => b.id))
+      for (const b of allBeads) {
+        if (b.status === 'claimed' && b.epicId) {
+          // If a child is in_progress, its parent is effectively in_progress too
+          inProgressIds.add(b.epicId)
+        }
+      }
 
       // Sort: retries → unresolved deps → priority → epic convergence → FIFO → ID
       candidates.sort((a, b) => {
