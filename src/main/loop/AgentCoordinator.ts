@@ -682,7 +682,7 @@ export class AgentCoordinator {
   }
 
   async claimBestBead(agentId: string, claudeTimeoutMinutes = 15): Promise<Bead | null> {
-    await this.claimSemaphore.acquire(5000)
+    await this.claimSemaphore.acquire(30_000)
 
     try {
       try { this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }

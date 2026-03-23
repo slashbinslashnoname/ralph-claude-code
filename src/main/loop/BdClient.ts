@@ -174,23 +174,58 @@ export class BdClient {
     }
   }
 
-  // ── Async wrappers (yield to event loop between bd calls) ──────────────
-  // These delegate to the sync methods via setImmediate so that:
-  // 1. The Electron event loop is not blocked
-  // 2. Tests that mock the sync methods (ready, listByStatus, etc.) still work
+  // ── Truly async variants (cp.exec, non-blocking) ───────────────────────
+  // These use cp.exec (callback-based) to avoid blocking the Electron event loop.
 
-  private yieldThen<T>(fn: () => T): Promise<T> {
-    return new Promise((resolve, reject) => {
-      setImmediate(() => { try { resolve(fn()) } catch (e) { reject(e) } })
-    })
+  async readyAsync(): Promise<Bead[]> {
+    try {
+      const raw = await this.runJsonAsync<unknown[]>('ready')
+      return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
+    } catch { return [] }
   }
 
-  readyAsync(): Promise<Bead[]> { return this.yieldThen(() => this.ready()) }
-  listAllAsync(): Promise<Bead[]> { return this.yieldThen(() => this.listAll()) }
-  listByStatusAsync(status: string): Promise<Bead[]> { return this.yieldThen(() => this.listByStatus(status)) }
-  assignToAsync(id: string, assignee: string): Promise<boolean> { return this.yieldThen(() => this.assignTo(id, assignee)) }
-  showAsync(id: string): Promise<Bead | null> { return this.yieldThen(() => this.show(id)) }
-  getStateAsync(id: string, key: string): Promise<string> { return this.yieldThen(() => this.getState(id, key)) }
+  async listByStatusAsync(status: string): Promise<Bead[]> {
+    try {
+      const raw = await this.runJsonAsync<unknown[]>(`list --limit 0 --status ${status}`)
+      return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
+    } catch { return [] }
+  }
+
+  async listAllAsync(): Promise<Bead[]> {
+    try {
+      const raw = await this.runJsonAsync<unknown[]>('list --all --limit 0')
+      return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
+    } catch {
+      const [open, inProgress, closed] = await Promise.all([
+        this.listByStatusAsync('open'),
+        this.listByStatusAsync('in_progress'),
+        this.listByStatusAsync('closed'),
+      ])
+      const seen = new Set<string>()
+      const result: Bead[] = []
+      for (const bead of [...open, ...inProgress, ...closed]) {
+        if (!seen.has(bead.id)) { seen.add(bead.id); result.push(bead) }
+      }
+      return result
+    }
+  }
+
+  async assignToAsync(id: string, assignee: string): Promise<boolean> {
+    try { await this.runAsync(`update ${id} --claim -a ${assignee} --json`); return true }
+    catch { return false }
+  }
+
+  async showAsync(id: string): Promise<Bead | null> {
+    try {
+      const raw = await this.runJsonAsync<unknown>(`show ${id}`)
+      return this.normalizeBead(raw)
+    } catch { return null }
+  }
+
+  async getStateAsync(id: string, key: string): Promise<string> {
+    try { return await this.runAsync(`state ${id} ${key}`) }
+    catch { return '' }
+  }
 
   // ── Show ───────────────────────────────────────────────────────────────
 
