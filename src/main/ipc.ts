@@ -530,9 +530,9 @@ export function registerIpc(
     try {
       const v = validateSwarmStart(projectPath, workerCount)
       const swarm = getOrCreateSwarm(v.projectPath)
-      swarm.startWorkers(v.workerCount)
 
-      // Auto-connect Telegram bridge if configured and not already connected
+      // Connect Telegram bridge BEFORE starting workers so it captures
+      // the initial activity events (started, etc.)
       if (!telegramBots.has(v.projectPath)) {
         try {
           const config = loadConfig(v.projectPath)
@@ -559,6 +559,8 @@ export function registerIpc(
         bridge.start()
         telegramBridges.set(v.projectPath, bridge)
       }
+
+      swarm.startWorkers(v.workerCount)
 
       return { ok: true }
     } catch (e) {
