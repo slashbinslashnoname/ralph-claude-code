@@ -987,6 +987,9 @@ describe('AgentCoordinator — bead claiming with contention', () => {
   it('claimBestBead exhausts Plan 1 beads before Plan 2 beads in multi-plan scenario', async () => {
     const plan1Time = '2026-03-22T10:00:00Z'
     const plan2Time = '2026-03-22T11:00:00Z'
+    // Register the claiming agents as live so their beads are respected
+    coord.registerAgent({ id: 'agent-1', index: 1, phase: 'executing', currentBeadId: '1', currentBeadTitle: '', loopCount: 1, lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null })
+    coord.registerAgent({ id: 'agent-2', index: 2, phase: 'executing', currentBeadId: '2', currentBeadTitle: '', loopCount: 1, lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null })
     // Plan 1 beads are all claimed/locked except id '3', Plan 2 has id '4' available
     const beads = [
       makeBead({ id: '1', priority: 2, createdAt: plan1Time, claimedBy: 'agent-1' }),

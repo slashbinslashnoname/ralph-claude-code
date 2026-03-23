@@ -33,6 +33,14 @@ export class AgentCoordinator {
 
   private paths: ProjectPaths
 
+  /** Simple debug logger — writes to slashbot.log if logsDir exists */
+  private _log(level: string, msg: string): void {
+    try {
+      const logFile = path.join(this.paths.logsDir, 'slashbot.log')
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] [${level}] ${msg}\n`)
+    } catch { /* best-effort */ }
+  }
+
   constructor(paths: ProjectPaths) {
     this.paths = paths
     this.lockFile = paths.fileLocks
@@ -675,21 +683,26 @@ export class AgentCoordinator {
 
   async claimBestBead(agentId: string, claudeTimeoutMinutes = 15): Promise<Bead | null> {
     await this.claimSemaphore.acquire(5000)
+    const yield_ = () => new Promise<void>(r => setImmediate(r))
 
     try {
       try { this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
       let candidates = this.bd.ready()
+      await yield_() // unblock event loop between bd calls
       if (candidates.length === 0) {
         candidates = this.bd.listByStatus('open')
+        await yield_()
       }
       // Build sets for dependency resolution
       const closedBeads = this.bd.listByStatus('closed')
+      await yield_()
       const doneIds = new Set(closedBeads.map(b => b.id))
 
       // Count non-closed children per parent (epics/tasks with open children should wait)
       const allBeads = this.bd.listAll()
+      await yield_()
       const openChildCount = new Map<string, number>()
       for (const b of allBeads) {
         if (b.epicId && !doneIds.has(b.id)) {
@@ -768,28 +781,50 @@ export class AgentCoordinator {
         return a.id.localeCompare(b.id)
       })
 
+      this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${lockedFiles.size} locked files`)
+
       for (const bead of candidates) {
         // Never pick up epics — they are containers, not work items.
-        // Epics close automatically when all children are done.
-        if (bead.type === 'epic') continue
+        if (bead.type === 'epic') {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: epic`)
+          continue
+        }
 
         // Hard-skip beads whose dependencies are not yet closed
         const unresolvedDeps = bead.deps.filter(d => !doneIds.has(d)).length
         const openChildren = openChildCount.get(bead.id) ?? 0
-        if (unresolvedDeps > 0 || openChildren > 0) continue
+        if (unresolvedDeps > 0 || openChildren > 0) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${unresolvedDeps} unresolved deps, ${openChildren} open children`)
+          continue
+        }
 
-        if (bead.files.some(f => lockedFiles.has(f))) continue
+        if (bead.files.some(f => lockedFiles.has(f))) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: file locked`)
+          continue
+        }
 
-        // Skip if already claimed by another agent
-        if (bead.claimedBy && bead.claimedBy.startsWith('agent-') && bead.claimedBy !== agentId) continue
+        // Skip if actively claimed by another LIVE agent (check agent registry, not just claimedBy field)
+        if (bead.claimedBy && bead.claimedBy !== agentId) {
+          const liveAgents = this.getAgents().map(a => a.id)
+          if (liveAgents.includes(bead.claimedBy)) {
+            this._log('DEBUG', `[${agentId}] skip ${bead.id}: claimed by live agent ${bead.claimedBy}`)
+            continue
+          }
+          // claimedBy is set but agent is not live — stale claim, try to take it
+          this._log('DEBUG', `[${agentId}] ${bead.id}: stale claim by ${bead.claimedBy}, attempting takeover`)
+        }
 
         // Assign directly to this agent
-        if (!this.bd.assignTo(bead.id, agentId)) continue
+        if (!this.bd.assignTo(bead.id, agentId)) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed`)
+          continue
+        }
 
         this.reserveFiles(agentId, bead.id, bead.files)
         this.postActivity({ agentId, type: 'claimed', beadId: bead.id, beadTitle: bead.title, summary: `Claimed bead [${bead.id}] ${bead.title}` })
         return this.bd.show(bead.id) ?? { ...bead, status: 'claimed', claimedBy: agentId }
       }
+      this._log('DEBUG', `[${agentId}] claimBestBead: no suitable candidate found`)
       return null
     } finally {
       this.claimSemaphore.release()
