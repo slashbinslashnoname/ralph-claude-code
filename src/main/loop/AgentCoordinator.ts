@@ -689,16 +689,30 @@ export class AgentCoordinator {
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
       // Use async bd calls to avoid blocking the Electron event loop
-      let candidates = await this.bd.readyAsync()
-      if (candidates.length === 0) {
-        candidates = await this.bd.listByStatusAsync('open')
+      let candidates: Bead[]
+      try {
+        candidates = await this.bd.readyAsync()
+        if (candidates.length === 0) {
+          candidates = await this.bd.listByStatusAsync('open')
+        }
+      } catch (err) {
+        this._log('ERROR', `[${agentId}] bd ready/list failed: ${err instanceof Error ? err.message : err}`)
+        // Fallback to sync calls if async fails
+        candidates = this.bd.ready()
+        if (candidates.length === 0) candidates = this.bd.listByStatus('open')
       }
-      // Build sets for dependency resolution
-      const closedBeads = await this.bd.listByStatusAsync('closed')
-      const doneIds = new Set(closedBeads.map(b => b.id))
 
-      // Count non-closed children per parent (epics/tasks with open children should wait)
-      const allBeads = await this.bd.listAllAsync()
+      let closedBeads: Bead[]
+      let allBeads: Bead[]
+      try {
+        closedBeads = await this.bd.listByStatusAsync('closed')
+        allBeads = await this.bd.listAllAsync()
+      } catch (err) {
+        this._log('ERROR', `[${agentId}] bd list failed, falling back to sync: ${err instanceof Error ? err.message : err}`)
+        closedBeads = this.bd.listByStatus('closed')
+        allBeads = this.bd.listAll()
+      }
+      const doneIds = new Set(closedBeads.map(b => b.id))
       const openChildCount = new Map<string, number>()
       for (const b of allBeads) {
         if (b.epicId && !doneIds.has(b.id)) {
@@ -709,9 +723,11 @@ export class AgentCoordinator {
       // Read retry attempts to deprioritize beads that keep failing
       const retryCount = new Map<string, number>()
       for (const c of candidates) {
-        const raw = await this.bd.getStateAsync(c.id, 'retry_attempt')
-        const n = parseInt(raw, 10)
-        if (!isNaN(n) && n > 0) retryCount.set(c.id, n)
+        try {
+          const raw = await this.bd.getStateAsync(c.id, 'retry_attempt')
+          const n = parseInt(raw, 10)
+          if (!isNaN(n) && n > 0) retryCount.set(c.id, n)
+        } catch { /* ignore — treat as 0 retries */ }
       }
 
       // ── Epic convergence: prefer beads in epics closest to completion ───
@@ -816,14 +832,20 @@ export class AgentCoordinator {
         }
 
         // Assign directly to this agent
-        if (!(await this.bd.assignToAsync(bead.id, agentId))) {
+        let assigned = false
+        try { assigned = await this.bd.assignToAsync(bead.id, agentId) }
+        catch { assigned = this.bd.assignTo(bead.id, agentId) }
+        if (!assigned) {
           this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed`)
           continue
         }
 
         this.reserveFiles(agentId, bead.id, bead.files)
         this.postActivity({ agentId, type: 'claimed', beadId: bead.id, beadTitle: bead.title, summary: `Claimed bead [${bead.id}] ${bead.title}` })
-        return (await this.bd.showAsync(bead.id)) ?? { ...bead, status: 'claimed', claimedBy: agentId }
+        let freshBead: Bead | null = null
+        try { freshBead = await this.bd.showAsync(bead.id) }
+        catch { freshBead = this.bd.show(bead.id) }
+        return freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
       }
       this._log('DEBUG', `[${agentId}] claimBestBead: no suitable candidate found`)
       return null

@@ -176,7 +176,15 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   setPhase(ctx, 'routing')
   log(ctx, 'INFO', `[${ctx.agentId}] Routing: looking for best available bead…`)
 
-  const bead = await ctx.coordinator.claimBestBead(ctx.agentId, ctx.config.claudeTimeoutMinutes)
+  let bead: Bead | null = null
+  try {
+    bead = await ctx.coordinator.claimBestBead(ctx.agentId, ctx.config.claudeTimeoutMinutes)
+  } catch (err) {
+    log(ctx, 'ERROR', `[${ctx.agentId}] claimBestBead failed: ${err instanceof Error ? err.message : err}`)
+    setPhase(ctx, 'waiting')
+    await ctx.capabilities.sleep(5000)
+    return 'routing'
+  }
 
   if (!bead) {
     const hasOpen = ctx.coordinator.hasOpenWork()

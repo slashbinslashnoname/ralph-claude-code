@@ -224,7 +224,15 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('routing')
       this._log('INFO', `[${this.agentId}] Routing: looking for best available bead…`)
 
-      let bead = await this.coordinator.claimBestBead(this.agentId, this.config.claudeTimeoutMinutes)
+      let bead: Bead | null = null
+      try {
+        bead = await this.coordinator.claimBestBead(this.agentId, this.config.claudeTimeoutMinutes)
+      } catch (err) {
+        this._log('ERROR', `[${this.agentId}] claimBestBead failed: ${err instanceof Error ? err.message : err}`)
+        this._setPhase('waiting')
+        await this._sleep(5000)
+        continue
+      }
       if (!bead) {
         const hasOpen = this.coordinator.hasOpenWork()
         if (!hasOpen) {
