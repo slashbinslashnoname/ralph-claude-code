@@ -23,6 +23,8 @@ describe('ProjectStore', () => {
     vi.spyOn(fs, 'existsSync').mockReturnValue(false)
     vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined)
     vi.spyOn(fs, 'copyFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'renameSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
     vi.spyOn(fs, 'readdirSync').mockReturnValue([])
     vi.spyOn(fs, 'statSync').mockReturnValue({ isDirectory: () => false } as fs.Stats)
   })
@@ -152,8 +154,13 @@ describe('ProjectStore', () => {
 
       expect(result.migrated).toContain('activity.jsonl')
       expect(result.migrated).toContain('agents.json')
+      // Atomic copy: copyFileSync writes to .tmp.PID, then renameSync moves to final
       expect(fs.copyFileSync).toHaveBeenCalledWith(
         path.join(legacyDir, 'activity.jsonl'),
+        expect.stringContaining('activity.jsonl.tmp.')
+      )
+      expect(fs.renameSync).toHaveBeenCalledWith(
+        expect.stringContaining('activity.jsonl.tmp.'),
         path.join(STORE_DIR, 'activity.jsonl')
       )
     })
@@ -204,16 +211,16 @@ describe('ProjectStore', () => {
       expect(result.migrated).toContain('logs/')
       expect(fs.copyFileSync).toHaveBeenCalledWith(
         path.join(srcLogs, 'agent-0.log'),
-        path.join(STORE_DIR, 'logs', 'agent-0.log')
+        expect.stringContaining('agent-0.log.tmp.')
       )
     })
 
-    it('returns empty arrays when no legacy files exist', () => {
+    it('returns .slashbotid as only migrated item when no legacy files exist', () => {
       ;(fs.existsSync as any).mockReturnValue(false)
 
       const result = migrateLegacyStorage(PROJECT_PATH)
 
-      expect(result.migrated).toEqual([])
+      expect(result.migrated).toEqual(['.slashbotid'])
       expect(result.skipped).toEqual([])
     })
   })

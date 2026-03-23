@@ -47,6 +47,7 @@ import {
 } from './loop/swarmValidation'
 import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
+import { cleanupLegacyStorage } from './loop/ProjectStore'
 
 const execAsync = promisify(exec)
 
@@ -334,6 +335,9 @@ export function registerIpc(
 
   ipcMain.handle('slashbot:enable', (_e, projectPath: string, opts: EnableOptions) =>
     enableRalph(projectPath, opts))
+
+  ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) =>
+    cleanupLegacyStorage(projectPath))
 
   // ── Beads via bd CLI ───────────────────────────────────────────────────
 
