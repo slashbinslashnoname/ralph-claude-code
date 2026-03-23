@@ -81,6 +81,85 @@ describe('BdClient', () => {
     })
   })
 
+  // ── listAll ────────────────────────────────────────────────────────────
+
+  describe('listAll', () => {
+    it('returns all beads when --all flag works', () => {
+      mockExecSync.mockReturnValue(JSON.stringify([
+        rawBead({ id: 'b1', status: 'open' }),
+        rawBead({ id: 'b2', status: 'in_progress' }),
+        rawBead({ id: 'b3', status: 'closed' }),
+      ]))
+
+      const result = client.listAll()
+
+      expect(result).toHaveLength(3)
+      expect(result[0]).toMatchObject({ id: 'b1', status: 'ready' })
+      expect(result[1]).toMatchObject({ id: 'b2', status: 'claimed' })
+      expect(result[2]).toMatchObject({ id: 'b3', status: 'done' })
+
+      const call = mockExecSync.mock.calls[0][0] as string
+      expect(call).toContain('list --all --limit 0')
+    })
+
+    it('falls back to merging all statuses when --all fails', () => {
+      let callCount = 0
+      mockExecSync.mockImplementation((cmd: string) => {
+        callCount++
+        if (callCount === 1) {
+          // First call: list --all fails
+          throw new Error('unknown flag --all')
+        }
+        // Subsequent calls: per-status queries
+        if (cmd.includes('--status open')) {
+          return JSON.stringify([rawBead({ id: 'b1', status: 'open' })])
+        }
+        if (cmd.includes('--status in_progress')) {
+          return JSON.stringify([rawBead({ id: 'b2', status: 'in_progress', assignee: 'agent-0' })])
+        }
+        if (cmd.includes('--status closed')) {
+          return JSON.stringify([rawBead({ id: 'b3', status: 'closed' })])
+        }
+        return '[]'
+      })
+
+      const result = client.listAll()
+
+      expect(result).toHaveLength(3)
+      expect(result[0]).toMatchObject({ id: 'b1', status: 'ready' })
+      expect(result[1]).toMatchObject({ id: 'b2', status: 'claimed' })
+      expect(result[2]).toMatchObject({ id: 'b3', status: 'done' })
+    })
+
+    it('deduplicates beads in fallback path', () => {
+      let callCount = 0
+      mockExecSync.mockImplementation((cmd: string) => {
+        callCount++
+        if (callCount === 1) throw new Error('unknown flag --all')
+        // Return the same bead from multiple queries
+        if (cmd.includes('--status open')) {
+          return JSON.stringify([rawBead({ id: 'dup-1', status: 'open' })])
+        }
+        if (cmd.includes('--status in_progress')) {
+          return JSON.stringify([rawBead({ id: 'dup-1', status: 'open' })])
+        }
+        if (cmd.includes('--status closed')) {
+          return JSON.stringify([])
+        }
+        return '[]'
+      })
+
+      const result = client.listAll()
+      expect(result).toHaveLength(1)
+      expect(result[0].id).toBe('dup-1')
+    })
+
+    it('returns empty array when --all returns non-array', () => {
+      mockExecSync.mockReturnValue(JSON.stringify({ not: 'an array' }))
+      expect(client.listAll()).toEqual([])
+    })
+  })
+
   // ── create ─────────────────────────────────────────────────────────────
 
   describe('create', () => {

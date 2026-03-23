@@ -143,7 +143,20 @@ export class BdClient {
       const raw = this.runJson<unknown[]>('list --all --limit 0')
       return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
     } catch {
-      return this.list()
+      // Fallback: merge results from all statuses when --all is not supported
+      const open = this.list({ status: 'open' })
+      const inProgress = this.list({ status: 'in_progress' })
+      const closed = this.list({ status: 'closed' })
+      // Deduplicate by id in case of overlap
+      const seen = new Set<string>()
+      const result: Bead[] = []
+      for (const bead of [...open, ...inProgress, ...closed]) {
+        if (!seen.has(bead.id)) {
+          seen.add(bead.id)
+          result.push(bead)
+        }
+      }
+      return result
     }
   }
 
