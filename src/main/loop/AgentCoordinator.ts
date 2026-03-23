@@ -311,7 +311,16 @@ export class AgentCoordinator {
       if (this._mailCache.length > AgentCoordinator.MAIL_CAP) {
         this._mailCache = this._mailCache.slice(-AgentCoordinator.MAIL_CAP)
       }
+      this._capMailIndexes()
     } catch { /* file unreadable — start with empty cache */ }
+  }
+
+  private _capMailIndexes(): void {
+    for (const [key, list] of this._mailByAgent) {
+      if (list.length > AgentCoordinator.INDEX_CAP) {
+        this._mailByAgent.set(key, list.slice(-AgentCoordinator.INDEX_CAP))
+      }
+    }
   }
 
   private _indexMail(msg: MailMessage): void {
@@ -389,10 +398,11 @@ export class AgentCoordinator {
           } catch { /* skip corrupt */ }
         }
 
-        // Cap cache
+        // Cap cache and indexes
         if (this._mailCache.length > AgentCoordinator.MAIL_CAP) {
           this._mailCache = this._mailCache.slice(-AgentCoordinator.MAIL_CAP)
         }
+        this._capMailIndexes()
 
         if (newMessages.length > 0) cb(newMessages)
       } finally {
