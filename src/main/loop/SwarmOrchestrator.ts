@@ -8,6 +8,7 @@ import { PlanLoop } from './PlanLoop'
 import { WorkerLoop } from './WorkerLoop'
 import { runHealthCheck, formatHealthErrors } from './HealthCheck'
 import { BuildMonitor } from './BuildMonitor'
+import { getProjectPaths, ensureStoreDirs } from './ProjectStore'
 
 export class SwarmOrchestrator extends EventEmitter {
   private workers = new Map<string, WorkerLoop>()
@@ -30,10 +31,11 @@ export class SwarmOrchestrator extends EventEmitter {
 
   constructor(private projectPath: string) {
     super()
-    this.slashbotDir = path.join(projectPath, '.slashbot')
-    this.logDir = path.join(this.slashbotDir, 'logs')
-    fs.mkdirSync(this.logDir, { recursive: true })
-    this.coordinator = new AgentCoordinator(this.slashbotDir, projectPath)
+    const paths = getProjectPaths(projectPath)
+    ensureStoreDirs(paths)
+    this.slashbotDir = paths.storeDir
+    this.logDir = paths.logsDir
+    this.coordinator = new AgentCoordinator(paths)
   }
 
   // ── Public API ─────────────────────────────────────────────────────────

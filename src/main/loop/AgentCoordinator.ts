@@ -4,6 +4,7 @@ import { execSync, spawn } from 'child_process'
 import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
+import { ProjectPaths } from './ProjectStore'
 
 /** Write to a temp file then rename — atomic on POSIX (prevents corruption on crash). */
 function atomicWriteSync(filePath: string, data: string): void {
@@ -30,13 +31,16 @@ export class AgentCoordinator {
   bd: BdClient
   planningActive = false
 
-  constructor(private slashbotDir: string, private projectPath: string) {
-    this.lockFile = path.join(slashbotDir, 'file_locks.json')
-    this.agentsFile = path.join(slashbotDir, 'agents.json')
-    this.activityFile = path.join(slashbotDir, 'activity.jsonl')
-    this.knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
-    fs.mkdirSync(slashbotDir, { recursive: true })
-    this.bd = new BdClient(projectPath)
+  private paths: ProjectPaths
+
+  constructor(paths: ProjectPaths) {
+    this.paths = paths
+    this.lockFile = paths.fileLocks
+    this.agentsFile = paths.agents
+    this.activityFile = paths.activity
+    this.knowledgeFile = paths.knowledge
+    fs.mkdirSync(paths.storeDir, { recursive: true })
+    this.bd = new BdClient(paths.beadsRoot)
     this._loadActivityFromDisk()
     this._loadKnowledgeFromDisk()
   }
@@ -297,48 +301,47 @@ export class AgentCoordinator {
   /** Create a git worktree for an agent's isolated work */
   createWorktree(agentId: string, beadId: string): { worktreePath: string; branch: string } | null {
     const branch = `agent/${agentId}/${beadId}`
-    const worktreePath = path.join(this.projectPath, '.worktrees', `${agentId}-${beadId}`)
+    const worktreePath = path.join(this.paths.worktreesDir, `${agentId}-${beadId}`)
 
     try {
       // Get current branch
       const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.projectPath, timeout: 5000
+        cwd: this.paths.projectRoot, timeout: 5000
       }).toString().trim()
 
       // Clean up stale worktree if exists
       if (fs.existsSync(worktreePath)) {
-        try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+        try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
         // Force-remove directory if git worktree remove didn't clean it
         try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
       }
 
       // Prune stale worktree references so git doesn't block creating new ones
-      try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
 
       // Delete branch if it exists from a previous attempt
-      try { execSync(`git branch -D "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      try { execSync(`git branch -D "${branch}"`, { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
 
       // Create worktree with new branch
       fs.mkdirSync(path.dirname(worktreePath), { recursive: true })
       execSync(`git worktree add -b "${branch}" "${worktreePath}" "${currentBranch}"`, {
-        cwd: this.projectPath, timeout: 15000
+        cwd: this.paths.projectRoot, timeout: 15000
       })
 
       // Symlink .beads into worktree so bd CLI works there
-      const beadsDir = path.join(this.projectPath, '.beads')
       const beadsLink = path.join(worktreePath, '.beads')
-      if (fs.existsSync(beadsDir) && !fs.existsSync(beadsLink)) {
-        fs.symlinkSync(beadsDir, beadsLink, 'dir')
+      if (fs.existsSync(this.paths.beadsRoot) && !fs.existsSync(beadsLink)) {
+        fs.symlinkSync(this.paths.beadsRoot, beadsLink, 'dir')
       }
 
-      // Symlink .slashbot into worktree so agent context is available
+      // Symlink .slashbot (centralized storeDir) into worktree so agent context is available
       const slashbotLink = path.join(worktreePath, '.slashbot')
-      if (fs.existsSync(this.slashbotDir) && !fs.existsSync(slashbotLink)) {
-        fs.symlinkSync(this.slashbotDir, slashbotLink, 'dir')
+      if (fs.existsSync(this.paths.storeDir) && !fs.existsSync(slashbotLink)) {
+        fs.symlinkSync(this.paths.storeDir, slashbotLink, 'dir')
       }
 
       // Symlink .slashbotrc
-      const slashbotrcSrc = path.join(this.projectPath, '.slashbotrc')
+      const slashbotrcSrc = path.join(this.paths.projectRoot, '.slashbotrc')
       const slashbotrcLink = path.join(worktreePath, '.slashbotrc')
       if (fs.existsSync(slashbotrcSrc) && !fs.existsSync(slashbotrcLink)) {
         fs.symlinkSync(slashbotrcSrc, slashbotrcLink, 'file')
@@ -388,12 +391,12 @@ export class AgentCoordinator {
 
     try {
       const baseBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.projectPath, timeout: 5000
+        cwd: this.paths.projectRoot, timeout: 5000
       }).toString().trim()
 
       // Verify agent branch is resolvable
       try {
-        execSync(`git rev-parse --verify "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+        execSync(`git rev-parse --verify "${branch}"`, { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' })
       } catch {
         // Branch doesn't resolve — nothing to merge (brand-new worktree, no commits)
         this._cleanupWorktree(worktreePath, branch)
@@ -402,7 +405,7 @@ export class AgentCoordinator {
 
       // Check if there are any new commits on the agent branch
       const diffOutput = execSync(`git log "${baseBranch}..${branch}" --oneline`, {
-        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+        cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
       }).toString().trim()
 
       if (!diffOutput) {
@@ -412,7 +415,7 @@ export class AgentCoordinator {
 
       // Get list of files changed by the agent
       const filesOutput = execSync(`git diff --name-only "${baseBranch}..${branch}"`, {
-        cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+        cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
       }).toString().trim()
       const filesChanged = filesOutput ? filesOutput.split('\n').filter(Boolean) : []
 
@@ -426,7 +429,7 @@ export class AgentCoordinator {
 
         // Step 1: Record current base ref for CAS (compare-and-swap)
         const oldBaseRef = execSync(`git rev-parse "${baseBranch}"`, {
-          cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+          cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
         }).toString().trim()
 
         // Step 2: Check if base is already an ancestor of agent branch
@@ -478,7 +481,7 @@ export class AgentCoordinator {
         // Fails if another agent moved the ref since we read oldBaseRef
         try {
           execSync(`git update-ref "refs/heads/${baseBranch}" ${newRef} ${oldBaseRef}`, {
-            cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+            cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
           })
         } catch {
           // CAS failed — another agent updated the base. Undo merge and retry.
@@ -513,7 +516,7 @@ export class AgentCoordinator {
       // Move untracked items that might conflict with the checkout
       const movedItems = this._moveConflictingItems()
       try {
-        execSync('git reset --hard', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
+        execSync('git reset --hard', { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' })
       } finally {
         this._restoreMovedItems(movedItems)
       }
@@ -526,12 +529,12 @@ export class AgentCoordinator {
   private _moveConflictingItems(): Array<{ path: string; symlinkTarget?: string }> {
     const movedItems: Array<{ path: string; symlinkTarget?: string }> = []
     for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
-      const fullPath = path.join(this.projectPath, name)
+      const fullPath = path.join(this.paths.projectRoot, name)
       let stat: fs.Stats | null = null
       try { stat = fs.lstatSync(fullPath) } catch { continue }
       // Skip tracked files — reset --hard handles those
       try {
-        execSync(`git ls-files --error-unmatch "${name}"`, { cwd: this.projectPath, timeout: 3000, stdio: 'pipe' })
+        execSync(`git ls-files --error-unmatch "${name}"`, { cwd: this.paths.projectRoot, timeout: 3000, stdio: 'pipe' })
         continue
       } catch { /* untracked */ }
       if (stat.isSymbolicLink()) {
@@ -566,7 +569,7 @@ export class AgentCoordinator {
 
   /** Use Claude to resolve merge conflicts in the given working directory */
   private async _resolveConflictsWithClaude(claudeCmd: string, env?: NodeJS.ProcessEnv, cwd?: string): Promise<boolean> {
-    const workDir = cwd ?? this.projectPath
+    const workDir = cwd ?? this.paths.projectRoot
     try {
       // Get list of conflicted files
       const conflicted = execSync('git diff --name-only --diff-filter=U', {
@@ -616,12 +619,12 @@ export class AgentCoordinator {
   }
 
   private _cleanupWorktree(worktreePath: string, branch: string): void {
-    try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+    try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
     // Force-remove directory if git worktree remove didn't clean it up
     try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
     // Prune stale worktree references so git doesn't think the worktree still exists
-    try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
-    try { execSync(`git branch -D "${branch}"`, { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+    try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+    try { execSync(`git branch -D "${branch}"`, { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
   }
 
   // ── Bead operations via bd CLI ─────────────────────────────────────────
@@ -826,18 +829,18 @@ export class AgentCoordinator {
     try {
       try {
         // Stage everything (merged code + .beads db changes)
-        execSync('git add -A', { cwd: this.projectPath, timeout: 10000, stdio: 'pipe' })
+        execSync('git add -A', { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' })
 
         // Check if there's anything to commit
         try {
-          execSync('git diff --cached --quiet', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+          execSync('git diff --cached --quiet', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' })
           return null // nothing staged
         } catch { /* has staged changes — continue */ }
 
         // Commit
         const msg = `feat: complete bead ${beadId} [${agentId}]`
         execSync(`git commit -m ${JSON.stringify(msg)}`, {
-          cwd: this.projectPath, timeout: 10000, stdio: 'pipe',
+          cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe',
           env: { ...process.env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
         })
 
@@ -845,7 +848,7 @@ export class AgentCoordinator {
         let commitSha: string | null = null
         try {
           commitSha = execSync('git rev-parse HEAD', {
-            cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+            cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
           }).toString().trim()
         } catch { /* non-fatal — SHA capture failed */ }
 
@@ -853,9 +856,9 @@ export class AgentCoordinator {
         if (autoPush) {
           try {
             const branch = execSync('git rev-parse --abbrev-ref HEAD', {
-              cwd: this.projectPath, timeout: 5000, stdio: 'pipe'
+              cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
             }).toString().trim()
-            execSync(`git push origin ${branch}`, { cwd: this.projectPath, timeout: 30000, stdio: 'pipe' })
+            execSync(`git push origin ${branch}`, { cwd: this.paths.projectRoot, timeout: 30000, stdio: 'pipe' })
           } catch (err) {
             // Push may fail if no remote or no upstream — non-fatal
             const msg = err instanceof Error ? err.message : String(err)
@@ -899,7 +902,7 @@ export class AgentCoordinator {
     // Clean up orphaned worktrees from previous session
     this.cleanOrphanedWorktrees()
     // Prune stale git worktree references
-    try { execSync('git worktree prune', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+    try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
   }
 
   /**
@@ -945,13 +948,13 @@ export class AgentCoordinator {
     for (const sha of reversedShas) {
       try {
         execSync(`git revert --no-edit ${sha}`, {
-          cwd: this.projectPath, timeout: 15000, stdio: 'pipe'
+          cwd: this.paths.projectRoot, timeout: 15000, stdio: 'pipe'
         })
         revertedShas.push(sha)
       } catch (err) {
         // Conflict during revert — abort and return error
         try {
-          execSync('git revert --abort', { cwd: this.projectPath, timeout: 5000, stdio: 'pipe' })
+          execSync('git revert --abort', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' })
         } catch { /* ignore — abort may fail if no revert in progress */ }
         const msg = err instanceof Error ? err.message : String(err)
         this.releaseFiles(agentId, beadId)
@@ -1004,7 +1007,7 @@ export class AgentCoordinator {
 
   /** Remove worktree directories not owned by any registered agent. */
   cleanOrphanedWorktrees(): string[] {
-    const worktreesDir = path.join(this.projectPath, '.worktrees')
+    const worktreesDir = this.paths.worktreesDir
     if (!fs.existsSync(worktreesDir)) return []
 
     const agents = new Set(this.readAgents().map(a => a.id))

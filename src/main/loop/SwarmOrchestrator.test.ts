@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { SwarmOrchestrator } from './SwarmOrchestrator'
+import { getProjectPaths } from './ProjectStore'
 
 /**
  * These tests exercise SwarmOrchestrator.shutdown() by creating a real
@@ -400,7 +401,7 @@ describe('SwarmOrchestrator — agent output buffer', () => {
   })
 
   it('getAgentOutput reads from disk log file', () => {
-    const logDir = path.join(tmpDir, '.slashbot', 'logs')
+    const logDir = getProjectPaths(tmpDir).logsDir
     fs.writeFileSync(path.join(logDir, 'agent-0.log'), 'hello world')
     expect(orch.getAgentOutput('agent-0')).toBe('hello world')
   })
@@ -417,7 +418,7 @@ describe('SwarmOrchestrator — agent output buffer', () => {
   it('_bufferOutput also persists to disk', () => {
     const buf = (orch as any)
     buf._bufferOutput('agent-test', 'disk-check')
-    const logFile = path.join(tmpDir, '.slashbot', 'logs', 'agent-test.log')
+    const logFile = path.join(getProjectPaths(tmpDir).logsDir, 'agent-test.log')
     expect(fs.existsSync(logFile)).toBe(true)
     expect(fs.readFileSync(logFile, 'utf8')).toBe('disk-check')
   })
@@ -436,7 +437,7 @@ describe('SwarmOrchestrator — logging', () => {
 
   it('_log writes to slashbot.log on disk', () => {
     ;(orch as any)._log('INFO', 'test message')
-    const logFile = path.join(tmpDir, '.slashbot', 'logs', 'slashbot.log')
+    const logFile = path.join(getProjectPaths(tmpDir).logsDir, 'slashbot.log')
     const content = fs.readFileSync(logFile, 'utf8')
     expect(content).toContain('test message')
     expect(content).toContain('[INFO]')

@@ -45,6 +45,7 @@ describe('ProjectStore', () => {
 
     it('returns correct sub-paths', () => {
       const paths = getProjectPaths(PROJECT_PATH)
+      expect(paths.projectRoot).toBe(PROJECT_PATH)
       expect(paths.logsDir).toBe(path.join(STORE_DIR, 'logs'))
       expect(paths.circuitBreakerState).toBe(path.join(STORE_DIR, '.circuit_breaker_state'))
       expect(paths.callCount).toBe(path.join(STORE_DIR, '.call_count'))
@@ -53,6 +54,8 @@ describe('ProjectStore', () => {
       expect(paths.agents).toBe(path.join(STORE_DIR, 'agents.json'))
       expect(paths.fileLocks).toBe(path.join(STORE_DIR, 'file_locks.json'))
       expect(paths.configDir).toBe(path.join(STORE_DIR, 'config'))
+      expect(paths.worktreesDir).toBe(path.join(PROJECT_PATH, '.worktrees'))
+      expect(paths.beadsRoot).toBe(path.join(PROJECT_PATH, '.beads'))
     })
 
     it('resolves relative paths to absolute before hashing', () => {

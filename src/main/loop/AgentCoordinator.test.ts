@@ -8,9 +8,10 @@ import * as path from 'path'
 import { execSync } from 'child_process'
 import { AgentCoordinator } from './AgentCoordinator'
 import { AgentInfo, Bead } from '../types'
+import { ProjectPaths } from './ProjectStore'
 
 let tmpDir: string
-let slashbotDir: string
+let tmpPaths: ProjectPaths
 let coord: AgentCoordinator
 
 function makeTmpGitProject(): string {
@@ -21,17 +22,36 @@ function makeTmpGitProject(): string {
   fs.writeFileSync(path.join(dir, 'README.md'), '# test')
   execSync('git add . && git commit -m "init"', { cwd: dir, stdio: 'pipe' })
 
-  const sb = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(sb, 'logs'), { recursive: true })
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   return dir
+}
+
+/** Build a ProjectPaths pointing storeDir inside the tmp project (co-located for test simplicity). */
+function makeTmpPaths(projectDir: string): ProjectPaths {
+  const storeDir = path.join(projectDir, '.slashbot')
+  fs.mkdirSync(path.join(storeDir, 'logs'), { recursive: true })
+  return {
+    id: 'test-id',
+    projectRoot: projectDir,
+    storeDir,
+    logsDir: path.join(storeDir, 'logs'),
+    circuitBreakerState: path.join(storeDir, '.circuit_breaker_state'),
+    callCount: path.join(storeDir, '.call_count'),
+    activity: path.join(storeDir, 'activity.jsonl'),
+    knowledge: path.join(storeDir, 'knowledge.jsonl'),
+    agents: path.join(storeDir, 'agents.json'),
+    fileLocks: path.join(storeDir, 'file_locks.json'),
+    configDir: path.join(storeDir, 'config'),
+    worktreesDir: path.join(projectDir, '.worktrees'),
+    beadsRoot: path.join(projectDir, '.beads'),
+  }
 }
 
 describe('AgentCoordinator — atomic writes', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -40,7 +60,7 @@ describe('AgentCoordinator — atomic writes', () => {
 
   it('writeLocks is atomic — no .tmp file left behind', () => {
     coord.writeLocks([{ file: 'a.ts', agentId: 'agent-0', beadId: 'b1', reservedAt: new Date().toISOString() }])
-    const lockFile = path.join(slashbotDir, 'file_locks.json')
+    const lockFile = tmpPaths.fileLocks
     expect(fs.existsSync(lockFile)).toBe(true)
     expect(fs.existsSync(lockFile + '.tmp')).toBe(false)
     const locks = JSON.parse(fs.readFileSync(lockFile, 'utf8'))
@@ -54,7 +74,7 @@ describe('AgentCoordinator — atomic writes', () => {
       currentBeadId: null, currentBeadTitle: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     }])
-    const agentsFile = path.join(slashbotDir, 'agents.json')
+    const agentsFile = tmpPaths.agents
     expect(fs.existsSync(agentsFile)).toBe(true)
     expect(fs.existsSync(agentsFile + '.tmp')).toBe(false)
     const agents = JSON.parse(fs.readFileSync(agentsFile, 'utf8'))
@@ -75,8 +95,8 @@ describe('AgentCoordinator — atomic writes', () => {
 describe('AgentCoordinator — atomic merge', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -312,8 +332,8 @@ describe('AgentCoordinator — atomic merge', () => {
 describe('AgentCoordinator — orphaned worktree cleanup', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -383,8 +403,8 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
 describe('AgentCoordinator — file locks and agent registry', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -460,8 +480,8 @@ describe('AgentCoordinator — file locks and agent registry', () => {
 describe('AgentCoordinator — agent registration', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -532,8 +552,8 @@ describe('AgentCoordinator — agent registration', () => {
 describe('AgentCoordinator — activity log', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -565,11 +585,11 @@ describe('AgentCoordinator — activity log', () => {
   })
 
   it('readActivity skips corrupt lines and returns valid entries', () => {
-    const activityFile = path.join(slashbotDir, 'activity.jsonl')
+    const activityFile = tmpPaths.activity
     const validEvent = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'ok' })
     fs.writeFileSync(activityFile, validEvent + '\n' + 'NOT_JSON{{{corrupt\n' + validEvent + '\n')
     // Recreate coordinator so it seeds its cache from the file (including corrupt lines)
-    const freshCoord = new AgentCoordinator(slashbotDir, tmpDir)
+    const freshCoord = new AgentCoordinator(tmpPaths)
     const events = freshCoord.readActivity()
     expect(events.length).toBe(2)
     expect(events[0].summary).toBe('ok')
@@ -577,7 +597,8 @@ describe('AgentCoordinator — activity log', () => {
   })
 
   it('postActivity does not throw when directory does not exist', () => {
-    const badCoord = new AgentCoordinator(path.join(tmpDir, 'nonexistent', '.slashbot'), tmpDir)
+    const badPaths = { ...tmpPaths, storeDir: path.join(tmpDir, 'nonexistent', '.slashbot') }
+    const badCoord = new AgentCoordinator(badPaths)
     ;(badCoord as any).activityFile = path.join(tmpDir, 'no', 'such', 'dir', 'activity.jsonl')
     expect(() => {
       badCoord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'test' })
@@ -601,8 +622,8 @@ describe('AgentCoordinator — activity log', () => {
 describe('AgentCoordinator — worktree creation', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -673,8 +694,8 @@ describe('AgentCoordinator — worktree creation', () => {
 describe('AgentCoordinator — bead claiming with contention', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
     // listAll is called inside claimBestBead to count open children per epic
     vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
   })
@@ -895,8 +916,8 @@ describe('AgentCoordinator — bead claiming with contention', () => {
 describe('AgentCoordinator — completeBead and failBead', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -983,8 +1004,8 @@ describe('AgentCoordinator — completeBead and failBead', () => {
 describe('AgentCoordinator — hasOpenWork and getStats', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -1023,7 +1044,7 @@ describe('AgentCoordinator — hasOpenWork and getStats', () => {
 describe('AgentCoordinator — activity cache', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
+    tmpPaths = makeTmpPaths(tmpDir)
   })
 
   afterEach(() => {
@@ -1031,14 +1052,14 @@ describe('AgentCoordinator — activity cache', () => {
   })
 
   it('seeds cache from existing JSONL on construction', () => {
-    const activityFile = path.join(slashbotDir, 'activity.jsonl')
+    const activityFile = tmpPaths.activity
     const entries = [
       { ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', type: 'started', summary: 'one' },
       { ts: '2026-01-01T00:01:00Z', agentId: 'agent-0', type: 'stopped', summary: 'two' },
     ]
     fs.writeFileSync(activityFile, entries.map(e => JSON.stringify(e)).join('\n') + '\n')
 
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
     const events = coord.readActivity(10)
     expect(events.length).toBe(2)
     expect(events[0].summary).toBe('one')
@@ -1046,7 +1067,7 @@ describe('AgentCoordinator — activity cache', () => {
   })
 
   it('caps cache at 1000 entries, keeping newest', () => {
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
     for (let i = 0; i < 1050; i++) {
       coord.postActivity({ agentId: 'agent-0', type: 'executing', summary: `step-${i}` })
     }
@@ -1057,7 +1078,7 @@ describe('AgentCoordinator — activity cache', () => {
   })
 
   it('cache still works when disk write fails', () => {
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
     // Point activity file to a non-existent directory so disk writes fail
     ;(coord as any).activityFile = path.join(tmpDir, 'no', 'such', 'dir', 'activity.jsonl')
 
@@ -1068,11 +1089,11 @@ describe('AgentCoordinator — activity cache', () => {
   })
 
   it('readActivity returns from cache without re-reading disk', () => {
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
     coord.postActivity({ agentId: 'agent-0', type: 'started', summary: 'hello' })
 
     // Delete the file on disk — readActivity should still return the cached entry
-    const activityFile = path.join(slashbotDir, 'activity.jsonl')
+    const activityFile = tmpPaths.activity
     if (fs.existsSync(activityFile)) fs.unlinkSync(activityFile)
 
     const events = coord.readActivity()
@@ -1084,8 +1105,8 @@ describe('AgentCoordinator — activity cache', () => {
 describe('AgentCoordinator — knowledge log', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -1138,14 +1159,14 @@ describe('AgentCoordinator — knowledge log', () => {
   })
 
   it('seeds cache from existing JSONL on construction', () => {
-    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const knowledgeFile = tmpPaths.knowledge
     const entries = [
       { ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', beadId: 'b1', category: 'risk', summary: 'one', detail: '', confidence: 'high' },
       { ts: '2026-01-01T00:01:00Z', agentId: 'agent-0', beadId: 'b2', category: 'dependency', summary: 'two', detail: '', confidence: 'medium' },
     ]
     fs.writeFileSync(knowledgeFile, entries.map(e => JSON.stringify(e)).join('\n') + '\n')
 
-    const freshCoord = new AgentCoordinator(slashbotDir, tmpDir)
+    const freshCoord = new AgentCoordinator(tmpPaths)
     const result = freshCoord.readKnowledge(10)
     expect(result.length).toBe(2)
     expect(result[0].summary).toBe('one')
@@ -1153,11 +1174,11 @@ describe('AgentCoordinator — knowledge log', () => {
   })
 
   it('skips corrupt lines when loading from disk', () => {
-    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const knowledgeFile = tmpPaths.knowledge
     const valid = JSON.stringify({ ts: '2026-01-01T00:00:00Z', agentId: 'agent-0', beadId: 'b1', category: 'pattern', summary: 'ok', detail: '', confidence: 'high' })
     fs.writeFileSync(knowledgeFile, valid + '\n' + 'CORRUPT{{{line\n' + valid + '\n')
 
-    const freshCoord = new AgentCoordinator(slashbotDir, tmpDir)
+    const freshCoord = new AgentCoordinator(tmpPaths)
     const result = freshCoord.readKnowledge()
     expect(result.length).toBe(2)
   })
@@ -1181,7 +1202,7 @@ describe('AgentCoordinator — knowledge log', () => {
       agentId: 'agent-0', beadId: 'b1', category: 'pattern',
       summary: 'test persist', detail: 'detail here', confidence: 'high'
     })
-    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const knowledgeFile = tmpPaths.knowledge
     expect(fs.existsSync(knowledgeFile)).toBe(true)
     const lines = fs.readFileSync(knowledgeFile, 'utf8').split('\n').filter(Boolean)
     expect(lines.length).toBe(1)
@@ -1206,7 +1227,7 @@ describe('AgentCoordinator — knowledge log', () => {
       expect(entries[i].summary).toBe(`rapid-${i}`)
     }
     // All entries present on disk
-    const knowledgeFile = path.join(slashbotDir, 'knowledge.jsonl')
+    const knowledgeFile = tmpPaths.knowledge
     const lines = fs.readFileSync(knowledgeFile, 'utf8').split('\n').filter(Boolean)
     expect(lines.length).toBe(count)
     // Each line is distinct and parseable
@@ -1220,8 +1241,8 @@ describe('AgentCoordinator — rollbackBead', () => {
 
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -1433,8 +1454,8 @@ describe('AgentCoordinator — rollbackBead', () => {
 describe('AgentCoordinator — idempotent bead operations', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -1572,8 +1593,8 @@ describe('AgentCoordinator — idempotent bead operations', () => {
 describe('AgentCoordinator — activity indexes', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -1664,7 +1685,7 @@ describe('AgentCoordinator — activity indexes', () => {
     coord.postActivity({ agentId: 'a0', type: 'completed', beadId: 'b1' })
 
     // Create a new coordinator that reads from the same disk file
-    const coord2 = new AgentCoordinator(slashbotDir, tmpDir)
+    const coord2 = new AgentCoordinator(tmpPaths)
 
     const b1Events = coord2.readActivityForBead('b1')
     expect(b1Events.length).toBe(2)
@@ -1704,15 +1725,15 @@ describe('AgentCoordinator — activity indexes', () => {
 describe('AgentCoordinator — activity log rotation', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  const activityFile = () => path.join(slashbotDir, 'activity.jsonl')
+  const activityFile = () => tmpPaths.activity
   const rotatedFile = () => activityFile() + '.1'
   const event = (i: number) => ({ agentId: 'a0', type: 'started' as const, beadId: `b${i}` })
 
@@ -1781,8 +1802,8 @@ describe('AgentCoordinator — activity log rotation', () => {
 describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {
@@ -1932,8 +1953,8 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
 describe('AgentCoordinator — _checkClaimTimeouts', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
   })
 
   afterEach(() => {

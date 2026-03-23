@@ -4,6 +4,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { execSync } from 'child_process'
 import { AgentCoordinator } from './AgentCoordinator'
+import { ProjectPaths } from './ProjectStore'
 
 /**
  * Integration tests for the commit mutex (commitSemaphore).
@@ -25,21 +26,35 @@ function makeTmpGitProject(): string {
   fs.writeFileSync(path.join(dir, 'README.md'), '# test')
   execSync('git add . && git commit -m "init"', { cwd: dir, stdio: 'pipe' })
 
-  const sb = path.join(dir, '.slashbot')
-  fs.mkdirSync(path.join(sb, 'logs'), { recursive: true })
   fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   return dir
 }
 
+function makeTmpPaths(projectDir: string): ProjectPaths {
+  const storeDir = path.join(projectDir, '.slashbot')
+  fs.mkdirSync(path.join(storeDir, 'logs'), { recursive: true })
+  return {
+    id: 'test-id', projectRoot: projectDir, storeDir,
+    logsDir: path.join(storeDir, 'logs'),
+    circuitBreakerState: path.join(storeDir, '.circuit_breaker_state'),
+    callCount: path.join(storeDir, '.call_count'),
+    activity: path.join(storeDir, 'activity.jsonl'),
+    knowledge: path.join(storeDir, 'knowledge.jsonl'),
+    agents: path.join(storeDir, 'agents.json'),
+    fileLocks: path.join(storeDir, 'file_locks.json'),
+    configDir: path.join(storeDir, 'config'),
+    worktreesDir: path.join(projectDir, '.worktrees'),
+    beadsRoot: path.join(projectDir, '.beads'),
+  }
+}
+
 describe('commitMutex — concurrent completeBead', () => {
   let tmpDir: string
-  let slashbotDir: string
   let coord: AgentCoordinator
 
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
-    slashbotDir = path.join(tmpDir, '.slashbot')
-    coord = new AgentCoordinator(slashbotDir, tmpDir)
+    coord = new AgentCoordinator(makeTmpPaths(tmpDir))
 
     // Mock bd.close / bd.show so completeBead doesn't need real beads
     vi.spyOn(coord.bd, 'close').mockImplementation(() => {})

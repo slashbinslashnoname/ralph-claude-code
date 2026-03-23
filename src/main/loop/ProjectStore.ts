@@ -6,6 +6,8 @@ import * as crypto from 'crypto'
 export interface ProjectPaths {
   /** SHA256 hex digest of the absolute project path */
   id: string
+  /** Absolute path to the project root */
+  projectRoot: string
   /** ~/.slashbot/projects/<id> */
   storeDir: string
   /** ~/.slashbot/projects/<id>/logs */
@@ -24,6 +26,10 @@ export interface ProjectPaths {
   fileLocks: string
   /** ~/.slashbot/projects/<id>/config */
   configDir: string
+  /** <projectRoot>/.worktrees */
+  worktreesDir: string
+  /** <projectRoot>/.beads */
+  beadsRoot: string
 }
 
 function slashbotHome(): string {
@@ -37,6 +43,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
 
   return {
     id,
+    projectRoot: absolute,
     storeDir,
     logsDir: path.join(storeDir, 'logs'),
     circuitBreakerState: path.join(storeDir, '.circuit_breaker_state'),
@@ -46,6 +53,8 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     agents: path.join(storeDir, 'agents.json'),
     fileLocks: path.join(storeDir, 'file_locks.json'),
     configDir: path.join(storeDir, 'config'),
+    worktreesDir: path.join(absolute, '.worktrees'),
+    beadsRoot: path.join(absolute, '.beads'),
   }
 }
 
