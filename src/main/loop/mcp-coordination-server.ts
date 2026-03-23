@@ -16,6 +16,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import * as fs from 'fs'
 import * as path from 'path'
+import type { MailMessage } from '../types'
 
 const agentId = process.env.SLASHBOT_AGENT_ID ?? 'unknown'
 const storeDir = process.env.SLASHBOT_STORE_DIR ?? '.slashbot'
@@ -38,8 +39,6 @@ interface FileLock {
   beadId: string
   reservedAt: string
 }
-
-import type { MailMessage } from '../types'
 
 interface ActivityEvent {
   ts: string
