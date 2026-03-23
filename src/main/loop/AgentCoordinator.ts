@@ -741,9 +741,10 @@ export class AgentCoordinator {
         const retriesA = retryCount.get(a.id) ?? 0
         const retriesB = retryCount.get(b.id) ?? 0
         if (retriesA !== retriesB) return retriesA - retriesB
-        const unresolvedA = a.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
-        const unresolvedB = b.deps.filter(d => !doneIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
-        if (unresolvedA !== unresolvedB) return unresolvedA - unresolvedB
+        // Count only truly blocked deps (not started yet) — in_progress deps are OK (speculative parallel)
+        const blockedA = a.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
+        const blockedB = b.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
+        if (blockedA !== blockedB) return blockedA - blockedB
         const priDiff = (a.priority ?? 2) - (b.priority ?? 2)
         if (priDiff !== 0) return priDiff
 
@@ -777,7 +778,10 @@ export class AgentCoordinator {
         return a.id.localeCompare(b.id)
       })
 
-      this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${lockedFiles.size} locked files`)
+      // Beads in_progress can satisfy deps (speculative parallel execution)
+      const inProgressIds = new Set(allBeads.filter(b => b.status === 'claimed').map(b => b.id))
+
+      this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${inProgressIds.size} in_progress, ${lockedFiles.size} locked files`)
 
       for (const bead of candidates) {
         // Never pick up epics — they are containers, not work items.
@@ -786,11 +790,12 @@ export class AgentCoordinator {
           continue
         }
 
-        // Hard-skip beads whose dependencies are not yet closed
-        const unresolvedDeps = bead.deps.filter(d => !doneIds.has(d)).length
+        // Skip beads whose dependencies are not yet started.
+        // Allow deps that are in_progress (speculative: they'll likely finish before this bead does)
+        const blockedDeps = bead.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length
         const openChildren = openChildCount.get(bead.id) ?? 0
-        if (unresolvedDeps > 0 || openChildren > 0) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${unresolvedDeps} unresolved deps, ${openChildren} open children`)
+        if (blockedDeps > 0 || openChildren > 0) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${blockedDeps} blocked deps (not started), ${openChildren} open children`)
           continue
         }
 
