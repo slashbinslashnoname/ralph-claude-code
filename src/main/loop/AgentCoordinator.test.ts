@@ -1792,25 +1792,25 @@ describe('AgentCoordinator — activity indexes', () => {
     expect(limited.length).toBe(5)
   })
 
-  it('per-key index is capped at 200 entries via postActivity', () => {
-    for (let i = 0; i < 210; i++) {
+  it('per-key index is capped at 500 entries via postActivity', () => {
+    for (let i = 0; i < 510; i++) {
       coord.postActivity({ agentId: 'a0', type: 'executing', beadId: 'b1', summary: `e${i}` })
     }
 
-    const events = coord.readActivityForBead('b1', 300)
-    expect(events.length).toBe(200)
+    const events = coord.readActivityForBead('b1', 600)
+    expect(events.length).toBe(500)
     // Oldest events should have been evicted — first remaining is e10
     expect(events[0].summary).toBe('e10')
-    expect(events[199].summary).toBe('e209')
+    expect(events[499].summary).toBe('e509')
   })
 
-  it('per-agent index is capped at 200 entries via postActivity', () => {
-    for (let i = 0; i < 210; i++) {
+  it('per-agent index is capped at 500 entries via postActivity', () => {
+    for (let i = 0; i < 510; i++) {
       coord.postActivity({ agentId: 'a0', type: 'executing', beadId: `b${i}` })
     }
 
-    const events = coord.readActivityForAgent('a0', 300)
-    expect(events.length).toBe(200)
+    const events = coord.readActivityForAgent('a0', 600)
+    expect(events.length).toBe(500)
   })
 
   it('indexes are populated from disk on construction', () => {
