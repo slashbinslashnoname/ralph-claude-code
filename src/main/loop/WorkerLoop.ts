@@ -351,8 +351,17 @@ export class WorkerLoop extends EventEmitter {
         }
         } // close else block from Phase 1 guard
       } finally {
-        // ── Phase 4: Always merge worktree back ─────────────────────
-        if (wt) {
+        // ── Phase 4: Merge worktree back (skip if stopped — no partial work) ──
+        if (wt && this.stopped) {
+          // Just clean up the worktree without merging
+          this._log('INFO', `[${this.agentId}] Stopped — discarding worktree ${wt.branch} (no merge)`)
+          try {
+            cp.execSync(`git worktree remove --force "${wt.worktreePath}"`, {
+              cwd: this.projectPath, timeout: 10000, stdio: 'pipe'
+            })
+          } catch { /* best-effort cleanup */ }
+          this.coordinator.reopenBead(this.agentId, bead.id)
+        } else if (wt && !this.stopped) {
           try {
             this._setPhase('merging', bead.id, bead.title)
             this._log('INFO', `[${this.agentId}] Merging worktree branch ${wt.branch}…`)
@@ -763,13 +772,18 @@ DO NOT write any implementation code. Analysis only.`
           summary.push(line)
           continue
         }
-        if (line.trim()) {
-          summary.push(line)
-        } else {
+        // Include all lines (including empty ones) until we hit a non-matching
+        // heading or a separator like ---
+        if (/^#{1,3}\s/.test(line) || /^---\s*$/.test(line.trim())) {
           inSection = false
+        } else {
+          summary.push(line)
         }
       }
     }
+
+    // Trim trailing empty lines from summary
+    while (summary.length > 0 && !summary[summary.length - 1].trim()) summary.pop()
 
     if (summary.length > 0) return summary.join('\n').slice(0, 2000)
 

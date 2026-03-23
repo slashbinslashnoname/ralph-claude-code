@@ -217,19 +217,19 @@ describe('TelegramBridge', () => {
   // ── Output cap ──────────────────────────────────────────────────────────
 
   describe('output forwarding', () => {
-    it('truncates output > 500 chars', () => {
+    it('truncates output > 3000 chars', () => {
       createBridge('all')
-      const longChunk = 'x'.repeat(600)
+      const longChunk = 'x'.repeat(4000) + '\n'
       orchestrator.emit('output', 'agent-0', longChunk)
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
       const msg = bot.sendMessage.mock.calls[0][0] as string
-      expect(msg.length).toBeLessThanOrEqual(500 + 20) // emoji prefix + agentId + ellipsis
+      expect(msg.length).toBeLessThanOrEqual(3000 + 20) // emoji prefix + agentId + ellipsis
       expect(msg).toContain('…')
     })
 
     it('does not truncate short output', () => {
       createBridge('all')
-      orchestrator.emit('output', 'agent-0', 'hello world')
+      orchestrator.emit('output', 'agent-0', 'hello world\n')
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
       const msg = bot.sendMessage.mock.calls[0][0] as string
       expect(msg).toContain('hello world')
@@ -244,6 +244,7 @@ describe('TelegramBridge', () => {
         '{"type":"assistant","message":{"content":[{"type":"text","text":"I will fix the bug now."}]}}',
         '{"type":"tool_use","name":"Edit","input":{}}',
         '{"type":"tool_result","content":"ok"}',
+        '',
       ].join('\n')
       orchestrator.emit('output', 'agent-0', jsonChunk)
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
@@ -255,7 +256,7 @@ describe('TelegramBridge', () => {
 
     it('extracts result text from JSON output', () => {
       createBridge('all')
-      const jsonChunk = '{"type":"result","result":"All tasks completed successfully."}'
+      const jsonChunk = '{"type":"result","result":"All tasks completed successfully."}\n'
       orchestrator.emit('output', 'agent-0', jsonChunk)
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
       const msg = bot.sendMessage.mock.calls[0][0] as string
@@ -267,6 +268,7 @@ describe('TelegramBridge', () => {
       const jsonChunk = [
         '{"type":"system","sessionId":"abc"}',
         '{"type":"tool_use","name":"Read","input":{}}',
+        '',
       ].join('\n')
       orchestrator.emit('output', 'agent-0', jsonChunk)
       expect(bot.sendMessage).not.toHaveBeenCalled()
@@ -274,11 +276,22 @@ describe('TelegramBridge', () => {
 
     it('handles assistant message with string message field', () => {
       createBridge('all')
-      const jsonChunk = '{"type":"assistant","message":"Simple text response"}'
+      const jsonChunk = '{"type":"assistant","message":"Simple text response"}\n'
       orchestrator.emit('output', 'agent-0', jsonChunk)
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
       const msg = bot.sendMessage.mock.calls[0][0] as string
       expect(msg).toContain('Simple text response')
+    })
+
+    it('buffers partial JSON lines across chunks', () => {
+      createBridge('all')
+      // Simulate a JSON line split across two chunks
+      orchestrator.emit('output', 'agent-0', '{"type":"result","resu')
+      expect(bot.sendMessage).not.toHaveBeenCalled()
+      orchestrator.emit('output', 'agent-0', 'lt":"Buffered result."}\n')
+      expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('Buffered result.')
     })
   })
 
@@ -287,23 +300,23 @@ describe('TelegramBridge', () => {
   describe('output throttle', () => {
     it('suppresses output within 30s window', () => {
       createBridge('all')
-      orchestrator.emit('output', 'agent-0', 'first')
+      orchestrator.emit('output', 'agent-0', 'first\n')
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
 
       // Within 30s window — should be suppressed
       vi.advanceTimersByTime(5000)
-      orchestrator.emit('output', 'agent-0', 'second')
+      orchestrator.emit('output', 'agent-0', 'second\n')
       expect(bot.sendMessage).toHaveBeenCalledTimes(1)
 
       // After 30s — should go through
       vi.advanceTimersByTime(30_000)
-      orchestrator.emit('output', 'agent-0', 'third')
+      orchestrator.emit('output', 'agent-0', 'third\n')
       expect(bot.sendMessage).toHaveBeenCalledTimes(2)
     })
 
     it('suppresses output when notifyOn is none', () => {
       createBridge('none')
-      orchestrator.emit('output', 'agent-0', 'hello')
+      orchestrator.emit('output', 'agent-0', 'hello\n')
       expect(bot.sendMessage).not.toHaveBeenCalled()
     })
   })

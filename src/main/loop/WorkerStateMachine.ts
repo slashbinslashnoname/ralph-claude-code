@@ -342,7 +342,7 @@ export async function reviewing(ctx: WorkerContext): Promise<StateId> {
 }
 
 /**
- * merging — Merge the worktree branch back to main. Always runs (like a finally block).
+ * merging — Merge the worktree branch back to main, or discard if stopped.
  */
 export async function merging(ctx: WorkerContext): Promise<StateId> {
   if (!ctx.worktreePath || !ctx.worktreeBranch) {
@@ -351,6 +351,18 @@ export async function merging(ctx: WorkerContext): Promise<StateId> {
   }
 
   const bead = ctx.currentBead!
+
+  // If stopped, discard worktree without merging partial work
+  if (ctx.flags.stopped) {
+    log(ctx, 'INFO', `[${ctx.agentId}] Stopped — discarding worktree ${ctx.worktreeBranch} (no merge)`)
+    try {
+      cp.execSync(`git worktree remove --force "${ctx.worktreePath}"`, {
+        cwd: ctx.paths.projectRoot, timeout: 10000, stdio: 'pipe'
+      })
+    } catch { /* best-effort cleanup */ }
+    ctx.coordinator.reopenBead(ctx.agentId, bead.id)
+    return 'closing'
+  }
 
   try {
     setPhase(ctx, 'merging', bead.id, bead.title)

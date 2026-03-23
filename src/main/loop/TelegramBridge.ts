@@ -27,7 +27,7 @@ const EMOJI: Record<ActivityEvent['type'], string> = {
 }
 
 const BATCH_WINDOW_MS = 1000
-const OUTPUT_CAP_CHARS = 500
+const OUTPUT_CAP_CHARS = 3000
 const OUTPUT_THROTTLE_MS = 30_000
 
 /**
@@ -117,6 +117,9 @@ export class TelegramBridge {
   // Output throttling
   private lastOutputTime = 0
 
+  // Line buffer for reassembling split stdout chunks
+  private lineBuffers = new Map<string, string>()
+
   // Bound listeners for cleanup
   private _onActivity: (event: ActivityEvent) => void
   private _onOutput: (agentId: string, chunk: string) => void
@@ -151,6 +154,7 @@ export class TelegramBridge {
       this.batchTimer = null
     }
     this.batchBuffer = []
+    this.lineBuffers.clear()
     this.logger('[telegram-bridge] stopped')
   }
 
@@ -183,11 +187,26 @@ export class TelegramBridge {
 
     const now = Date.now()
     if (now - this.lastOutputTime < OUTPUT_THROTTLE_MS) return
-    this.lastOutputTime = now
 
-    const readable = extractReadableText(chunk)
+    // Buffer chunks and process only complete lines to avoid split JSON
+    const prev = this.lineBuffers.get(agentId) ?? ''
+    const combined = prev + chunk
+    const lastNewline = combined.lastIndexOf('\n')
+
+    if (lastNewline < 0) {
+      // No complete line yet — keep buffering
+      this.lineBuffers.set(agentId, combined)
+      return
+    }
+
+    // Process complete lines, keep remainder in buffer
+    const completeLines = combined.slice(0, lastNewline)
+    this.lineBuffers.set(agentId, combined.slice(lastNewline + 1))
+
+    const readable = extractReadableText(completeLines)
     if (!readable) return // skip chunks with no human-readable content (e.g. tool_use JSON)
 
+    this.lastOutputTime = now
     const truncated =
       readable.length > OUTPUT_CAP_CHARS ? readable.slice(0, OUTPUT_CAP_CHARS) + '…' : readable
     this.bot.sendMessage(`📝 ${agentId}: ${truncated}`).catch((err) => {
