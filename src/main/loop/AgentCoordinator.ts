@@ -1269,15 +1269,13 @@ export class AgentCoordinator {
     const worktreesDir = this.paths.worktreesDir
     if (!fs.existsSync(worktreesDir)) return []
 
-    const agents = new Set(this.readAgents().map(a => a.id))
+    const activeAgents = this.readAgents()
+    const agents = new Set(activeAgents.map(a => a.id))
+    const activeBranches = new Set(activeAgents.map(a => a.worktreeBranch).filter(Boolean))
     const removed: string[] = []
 
     let entries: fs.Dirent[]
     try { entries = fs.readdirSync(worktreesDir, { withFileTypes: true }) } catch { return [] }
-
-    // Collect active worktree branches so we can skip owned entries
-    const activeAgents = this.readAgents()
-    const activeBranches = new Set(activeAgents.map(a => a.worktreeBranch).filter(Boolean))
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
