@@ -40,6 +40,17 @@ export function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
   return cmd
 }
 
+export function atomicWriteSync(dest: string, content: string): void {
+  const tmp = dest + '.tmp.' + process.pid
+  try {
+    fs.writeFileSync(tmp, content)
+    fs.renameSync(tmp, dest)
+  } catch (e) {
+    try { fs.unlinkSync(tmp) } catch { /* ignore cleanup failure */ }
+    throw e
+  }
+}
+
 export function stripAnsi(s: string): string {
   return s
     .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')

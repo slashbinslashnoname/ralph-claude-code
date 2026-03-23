@@ -2,15 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('child_process')>()) }))
 import * as cp from 'child_process'
-import type { exec as execType } from 'child_process'
 import { BdClient } from './BdClient'
 
-let mockExecSync: any
-let mockExec: any
+let mockExecFileSync: any
+let mockExecFile: any
 
 beforeEach(() => {
-  mockExecSync = vi.spyOn(cp, 'execSync').mockReturnValue('[]')
-  mockExec = vi.spyOn(cp, 'exec').mockReturnValue(undefined as any)
+  mockExecFileSync = vi.spyOn(cp, 'execFileSync').mockReturnValue('[]')
+  mockExecFile = vi.spyOn(cp, 'execFile').mockReturnValue(undefined as any)
 })
 
 afterEach(() => {
@@ -36,6 +35,16 @@ function rawBead(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** Helper: extract args array from the first execFileSync call */
+function syncArgs(callIndex = 0): string[] {
+  return mockExecFileSync.mock.calls[callIndex][1] as string[]
+}
+
+/** Helper: extract args array from the first execFile call */
+function asyncArgs(callIndex = 0): string[] {
+  return mockExecFile.mock.calls[callIndex][1] as string[]
+}
+
 describe('BdClient', () => {
   let client: BdClient
 
@@ -47,7 +56,7 @@ describe('BdClient', () => {
 
   describe('list', () => {
     it('returns normalized beads from bd list', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([
+      mockExecFileSync.mockReturnValue(JSON.stringify([
         rawBead({ id: 'b1', status: 'open' }),
         rawBead({ id: 'b2', status: 'in_progress', assignee: 'agent-0' }),
         rawBead({ id: 'b3', status: 'closed', closed_at: '2026-01-01' }),
@@ -61,22 +70,27 @@ describe('BdClient', () => {
       expect(result[2]).toMatchObject({ id: 'b3', status: 'done', completedAt: '2026-01-01' })
     })
 
-    it('passes filter arguments to bd CLI', () => {
-      mockExecSync.mockReturnValue('[]')
+    it('passes filter arguments as array elements to bd CLI', () => {
+      mockExecFileSync.mockReturnValue('[]')
       client.list({ status: 'open', type: 'task', priority: 1, label: 'urgent', assignee: 'agent-1' })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('list')
-      expect(call).toContain('--status open')
-      expect(call).toContain('--type task')
-      expect(call).toContain('--priority 1')
-      expect(call).toContain('--label urgent')
-      expect(call).toContain('--assignee agent-1')
-      expect(call).toContain('--json')
+      const args = syncArgs()
+      expect(args).toContain('list')
+      expect(args).toContain('--status')
+      expect(args[args.indexOf('--status') + 1]).toBe('open')
+      expect(args).toContain('--type')
+      expect(args[args.indexOf('--type') + 1]).toBe('task')
+      expect(args).toContain('--priority')
+      expect(args[args.indexOf('--priority') + 1]).toBe('1')
+      expect(args).toContain('--label')
+      expect(args[args.indexOf('--label') + 1]).toBe('urgent')
+      expect(args).toContain('--assignee')
+      expect(args[args.indexOf('--assignee') + 1]).toBe('agent-1')
+      expect(args).toContain('--json')
     })
 
     it('returns empty array for non-array response', () => {
-      mockExecSync.mockReturnValue(JSON.stringify({ not: 'an array' }))
+      mockExecFileSync.mockReturnValue(JSON.stringify({ not: 'an array' }))
       expect(client.list()).toEqual([])
     })
   })
@@ -85,7 +99,7 @@ describe('BdClient', () => {
 
   describe('listAll', () => {
     it('returns all beads when --all flag works', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([
+      mockExecFileSync.mockReturnValue(JSON.stringify([
         rawBead({ id: 'b1', status: 'open' }),
         rawBead({ id: 'b2', status: 'in_progress' }),
         rawBead({ id: 'b3', status: 'closed' }),
@@ -98,26 +112,26 @@ describe('BdClient', () => {
       expect(result[1]).toMatchObject({ id: 'b2', status: 'claimed' })
       expect(result[2]).toMatchObject({ id: 'b3', status: 'done' })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('list --all --limit 0')
+      const args = syncArgs()
+      expect(args).toEqual(expect.arrayContaining(['list', '--all', '--limit', '0', '--json']))
     })
 
     it('falls back to merging all statuses when --all fails', () => {
       let callCount = 0
-      mockExecSync.mockImplementation((cmd: string) => {
+      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
         callCount++
         if (callCount === 1) {
           // First call: list --all fails
           throw new Error('unknown flag --all')
         }
         // Subsequent calls: per-status queries
-        if (cmd.includes('--status open')) {
+        if (args.includes('open')) {
           return JSON.stringify([rawBead({ id: 'b1', status: 'open' })])
         }
-        if (cmd.includes('--status in_progress')) {
+        if (args.includes('in_progress')) {
           return JSON.stringify([rawBead({ id: 'b2', status: 'in_progress', assignee: 'agent-0' })])
         }
-        if (cmd.includes('--status closed')) {
+        if (args.includes('closed')) {
           return JSON.stringify([rawBead({ id: 'b3', status: 'closed' })])
         }
         return '[]'
@@ -133,17 +147,17 @@ describe('BdClient', () => {
 
     it('deduplicates beads in fallback path', () => {
       let callCount = 0
-      mockExecSync.mockImplementation((cmd: string) => {
+      mockExecFileSync.mockImplementation((_cmd: string, args: string[]) => {
         callCount++
         if (callCount === 1) throw new Error('unknown flag --all')
         // Return the same bead from multiple queries
-        if (cmd.includes('--status open')) {
+        if (args.includes('open')) {
           return JSON.stringify([rawBead({ id: 'dup-1', status: 'open' })])
         }
-        if (cmd.includes('--status in_progress')) {
+        if (args.includes('in_progress')) {
           return JSON.stringify([rawBead({ id: 'dup-1', status: 'open' })])
         }
-        if (cmd.includes('--status closed')) {
+        if (args.includes('closed')) {
           return JSON.stringify([])
         }
         return '[]'
@@ -155,7 +169,7 @@ describe('BdClient', () => {
     })
 
     it('returns empty array when --all returns non-array', () => {
-      mockExecSync.mockReturnValue(JSON.stringify({ not: 'an array' }))
+      mockExecFileSync.mockReturnValue(JSON.stringify({ not: 'an array' }))
       expect(client.listAll()).toEqual([])
     })
   })
@@ -164,18 +178,19 @@ describe('BdClient', () => {
 
   describe('create', () => {
     it('creates a bead with minimal options', () => {
-      mockExecSync.mockReturnValue(JSON.stringify(rawBead({ id: 'new-1' })))
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead({ id: 'new-1' })))
 
       const result = client.create({ title: 'New bead' })
 
       expect(result.id).toBe('new-1')
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('create "New bead"')
-      expect(call).toContain('--json')
+      const args = syncArgs()
+      expect(args[0]).toBe('create')
+      expect(args[1]).toBe('New bead')
+      expect(args).toContain('--json')
     })
 
     it('passes all optional arguments', () => {
-      mockExecSync.mockReturnValue(JSON.stringify(rawBead()))
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead()))
 
       client.create({
         title: 'Full bead',
@@ -187,13 +202,19 @@ describe('BdClient', () => {
         id: 'custom-id',
       })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('-t epic')
-      expect(call).toContain('-p 1')
-      expect(call).toContain('-d "A description"')
-      expect(call).toContain('-l alpha,beta')
-      expect(call).toContain('--parent parent-1')
-      expect(call).toContain('--id custom-id')
+      const args = syncArgs()
+      expect(args).toContain('-t')
+      expect(args[args.indexOf('-t') + 1]).toBe('epic')
+      expect(args).toContain('-p')
+      expect(args[args.indexOf('-p') + 1]).toBe('1')
+      expect(args).toContain('-d')
+      expect(args[args.indexOf('-d') + 1]).toBe('A description')
+      expect(args).toContain('-l')
+      expect(args[args.indexOf('-l') + 1]).toBe('alpha,beta')
+      expect(args).toContain('--parent')
+      expect(args[args.indexOf('--parent') + 1]).toBe('parent-1')
+      expect(args).toContain('--id')
+      expect(args[args.indexOf('--id') + 1]).toBe('custom-id')
     })
   })
 
@@ -201,9 +222,9 @@ describe('BdClient', () => {
 
   describe('createAsync', () => {
     it('creates a bead asynchronously', async () => {
-      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
-        ;(cb as Function)(null, JSON.stringify(rawBead({ id: 'async-1' })), '')
-        return {} as ReturnType<typeof execType>
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify(rawBead({ id: 'async-1' })), '')
+        return {} as any
       })
 
       const result = await client.createAsync({ title: 'Async bead' })
@@ -211,9 +232,9 @@ describe('BdClient', () => {
     })
 
     it('rejects on exec error', async () => {
-      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
-        ;(cb as Function)(new Error('spawn failed'), '', 'bd not found')
-        return {} as ReturnType<typeof execType>
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('spawn failed'), '', 'bd not found')
+        return {} as any
       })
 
       await expect(client.createAsync({ title: 'Fail' }))
@@ -226,10 +247,10 @@ describe('BdClient', () => {
   describe('createMany', () => {
     it('returns created beads and empty failed array on full success', async () => {
       let callCount = 0
-      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
         callCount++
-        ;(cb as Function)(null, JSON.stringify(rawBead({ id: `many-${callCount}` })), '')
-        return {} as ReturnType<typeof execType>
+        cb(null, JSON.stringify(rawBead({ id: `many-${callCount}` })), '')
+        return {} as any
       })
 
       const result = await client.createMany([
@@ -245,14 +266,14 @@ describe('BdClient', () => {
 
     it('returns partial results with failures on mixed outcomes', async () => {
       let callCount = 0
-      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
         callCount++
         if (callCount === 1) {
-          ;(cb as Function)(new Error('fail'), '', 'bd create failed: spawn error')
+          cb(new Error('fail'), '', 'bd create failed: spawn error')
         } else {
-          ;(cb as Function)(null, JSON.stringify(rawBead({ id: 'survived' })), '')
+          cb(null, JSON.stringify(rawBead({ id: 'survived' })), '')
         }
-        return {} as ReturnType<typeof execType>
+        return {} as any
       })
 
       const result = await client.createMany([
@@ -268,9 +289,9 @@ describe('BdClient', () => {
     })
 
     it('returns all failures when every create fails', async () => {
-      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
-        ;(cb as Function)(new Error('fail'), '', 'bd error')
-        return {} as ReturnType<typeof execType>
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('fail'), '', 'bd error')
+        return {} as any
       })
 
       const result = await client.createMany([
@@ -292,9 +313,9 @@ describe('BdClient', () => {
     })
 
     it('preserves opts reference in failed entries', async () => {
-      mockExec.mockImplementation((_cmd: any, _opts: any, cb: any) => {
-        ;(cb as Function)(new Error('fail'), '', 'error')
-        return {} as ReturnType<typeof execType>
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('fail'), '', 'error')
+        return {} as any
       })
 
       const inputOpts = { title: 'Test', priority: 1, labels: ['urgent'] }
@@ -308,17 +329,18 @@ describe('BdClient', () => {
 
   describe('show', () => {
     it('returns normalized bead', () => {
-      mockExecSync.mockReturnValue(JSON.stringify(rawBead({ id: 'show-1' })))
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead({ id: 'show-1' })))
       const result = client.show('show-1')
       expect(result).not.toBeNull()
       expect(result!.id).toBe('show-1')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('show show-1')
+      const args = syncArgs()
+      expect(args).toContain('show')
+      expect(args).toContain('show-1')
     })
 
     it('returns null on error', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('not found') })
+      mockExecFileSync.mockImplementation(() => { throw new Error('not found') })
       expect(client.show('missing')).toBeNull()
     })
   })
@@ -327,7 +349,7 @@ describe('BdClient', () => {
 
   describe('ready', () => {
     it('returns ready beads', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([
+      mockExecFileSync.mockReturnValue(JSON.stringify([
         rawBead({ id: 'r1', status: 'open' }),
       ]))
 
@@ -338,7 +360,7 @@ describe('BdClient', () => {
     })
 
     it('returns empty array on error', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('fail') })
+      mockExecFileSync.mockImplementation(() => { throw new Error('fail') })
       expect(client.ready()).toEqual([])
     })
   })
@@ -347,44 +369,44 @@ describe('BdClient', () => {
 
   describe('update', () => {
     it('updates title', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.update('u1', { title: 'New title' })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('update u1 --title "New title" --json')
+      const args = syncArgs()
+      expect(args).toEqual(['update', 'u1', '--title', 'New title', '--json'])
     })
 
     it('updates priority', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.update('u1', { priority: 3 })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('update u1 --priority 3 --json')
+      const args = syncArgs()
+      expect(args).toEqual(['update', 'u1', '--priority', '3', '--json'])
     })
 
     it('claims a bead', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.update('u1', { claim: true })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('update u1 --claim --json')
+      const args = syncArgs()
+      expect(args).toEqual(['update', 'u1', '--claim', '--json'])
     })
 
     it('unclaims a bead', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.update('u1', { unclaim: true })
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('update u1 --assignee "" --json')
+      const args = syncArgs()
+      expect(args).toEqual(['update', 'u1', '--assignee', '', '--json'])
     })
 
     it('adds and removes labels', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.update('u1', { labels: { add: ['bug'], remove: ['wip'] } })
 
-      const calls = mockExecSync.mock.calls.map((c: any) => c[0] as string)
-      expect(calls.some((c: string) => c.includes('label add u1 bug --json'))).toBe(true)
-      expect(calls.some((c: string) => c.includes('label remove u1 wip --json'))).toBe(true)
+      const allCalls = mockExecFileSync.mock.calls.map((c: any) => c[1] as string[])
+      expect(allCalls.some((a: string[]) => a[0] === 'label' && a[1] === 'add' && a[2] === 'u1' && a[3] === 'bug')).toBe(true)
+      expect(allCalls.some((a: string[]) => a[0] === 'label' && a[1] === 'remove' && a[2] === 'u1' && a[3] === 'wip')).toBe(true)
     })
   })
 
@@ -392,12 +414,12 @@ describe('BdClient', () => {
 
   describe('claim', () => {
     it('returns true on success', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       expect(client.claim('c1')).toBe(true)
     })
 
     it('returns false on failure', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('already claimed') })
+      mockExecFileSync.mockImplementation(() => { throw new Error('already claimed') })
       expect(client.claim('c1')).toBe(false)
     })
   })
@@ -405,17 +427,18 @@ describe('BdClient', () => {
   // ── assignTo ───────────────────────────────────────────────────────────
 
   describe('assignTo', () => {
-    it('unclaims then assigns', () => {
-      mockExecSync.mockReturnValue('{}')
+    it('claims and assigns', () => {
+      mockExecFileSync.mockReturnValue('{}')
       expect(client.assignTo('a1', 'agent-5')).toBe(true)
 
-      const calls = mockExecSync.mock.calls.map((c: any) => c[0] as string)
-      expect(calls[0]).toContain('--claim')
-      expect(calls[0]).toContain('-a agent-5')
+      const args = syncArgs()
+      expect(args).toContain('--claim')
+      expect(args).toContain('-a')
+      expect(args[args.indexOf('-a') + 1]).toBe('agent-5')
     })
 
     it('returns false if assign fails', () => {
-      mockExecSync.mockImplementation(() => {
+      mockExecFileSync.mockImplementation(() => {
         throw new Error('fail')
       })
       expect(client.assignTo('a1', 'agent-5')).toBe(false)
@@ -426,40 +449,41 @@ describe('BdClient', () => {
 
   describe('close', () => {
     it('closes with default reason', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.close('cl1')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('close cl1 --reason "Done" --json')
+      const args = syncArgs()
+      expect(args).toEqual(['close', 'cl1', '--reason', 'Done', '--json'])
     })
 
     it('closes with custom reason', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.close('cl1', 'Completed successfully')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('--reason "Completed successfully"')
+      const args = syncArgs()
+      expect(args).toContain('--reason')
+      expect(args[args.indexOf('--reason') + 1]).toBe('Completed successfully')
     })
   })
 
   describe('reopen', () => {
     it('reopens and clears claim and failed label', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.reopen('ro1', 'Retry')
 
-      const calls = mockExecSync.mock.calls.map((c: any) => c[0] as string)
-      expect(calls[0]).toContain('reopen ro1 --reason "Retry" --json')
-      expect(calls[1]).toContain('--assignee ""')
-      expect(calls[2]).toContain('label remove ro1 failed')
+      const allCalls = mockExecFileSync.mock.calls.map((c: any) => c[1] as string[])
+      expect(allCalls[0]).toEqual(['reopen', 'ro1', '--reason', 'Retry', '--json'])
+      expect(allCalls[1]).toEqual(['update', 'ro1', '--assignee', '', '--json'])
+      expect(allCalls[2]).toEqual(['label', 'remove', 'ro1', 'failed', '--json'])
     })
 
     it('reopens without reason', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.reopen('ro1')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('reopen ro1 --json')
-      expect(call).not.toContain('--reason')
+      const args = syncArgs()
+      expect(args).toEqual(['reopen', 'ro1', '--json'])
+      expect(args).not.toContain('--reason')
     })
   })
 
@@ -467,28 +491,28 @@ describe('BdClient', () => {
 
   describe('labels', () => {
     it('addLabel calls correct CLI args', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.addLabel('l1', 'urgent')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('label add l1 urgent --json')
+      const args = syncArgs()
+      expect(args).toEqual(['label', 'add', 'l1', 'urgent', '--json'])
     })
 
     it('removeLabel calls correct CLI args', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.removeLabel('l1', 'wip')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('label remove l1 wip --json')
+      const args = syncArgs()
+      expect(args).toEqual(['label', 'remove', 'l1', 'wip', '--json'])
     })
 
     it('listLabels returns labels array', () => {
-      mockExecSync.mockReturnValue(JSON.stringify(['bug', 'feature', 'urgent']))
+      mockExecFileSync.mockReturnValue(JSON.stringify(['bug', 'feature', 'urgent']))
       expect(client.listLabels()).toEqual(['bug', 'feature', 'urgent'])
     })
 
     it('listLabels returns empty array on error', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('fail') })
+      mockExecFileSync.mockImplementation(() => { throw new Error('fail') })
       expect(client.listLabels()).toEqual([])
     })
   })
@@ -497,23 +521,24 @@ describe('BdClient', () => {
 
   describe('dependencies', () => {
     it('addDep calls bd dep add with type', () => {
-      mockExecSync.mockReturnValue('')
+      mockExecFileSync.mockReturnValue('')
       client.addDep('child-1', 'parent-1', 'blocks')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('dep add child-1 parent-1 --type blocks')
+      const args = syncArgs()
+      expect(args).toEqual(['dep', 'add', 'child-1', 'parent-1', '--type', 'blocks'])
     })
 
     it('addDep uses default type', () => {
-      mockExecSync.mockReturnValue('')
+      mockExecFileSync.mockReturnValue('')
       client.addDep('child-1', 'parent-1')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('--type discovered-from')
+      const args = syncArgs()
+      expect(args).toContain('--type')
+      expect(args[args.indexOf('--type') + 1]).toBe('discovered-from')
     })
 
     it('depTree returns tree string', () => {
-      mockExecSync.mockReturnValue('root\n  child-1\n  child-2')
+      mockExecFileSync.mockReturnValue('root\n  child-1\n  child-2')
       expect(client.depTree('root')).toBe('root\n  child-1\n  child-2')
     })
   })
@@ -522,32 +547,30 @@ describe('BdClient', () => {
 
   describe('state management', () => {
     it('getState returns dimension value', () => {
-      mockExecSync.mockReturnValue('blocked')
+      mockExecFileSync.mockReturnValue('blocked')
       expect(client.getState('s1', 'workflow')).toBe('blocked')
     })
 
     it('getState returns empty string on error', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('fail') })
+      mockExecFileSync.mockImplementation(() => { throw new Error('fail') })
       expect(client.getState('s1', 'workflow')).toBe('')
     })
 
     it('setState calls bd set-state', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.setState('s1', 'workflow', 'active', 'Starting work')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('set-state s1 workflow=active')
-      expect(call).toContain('--reason "Starting work"')
-      expect(call).toContain('--json')
+      const args = syncArgs()
+      expect(args).toEqual(['set-state', 's1', 'workflow=active', '--reason', 'Starting work', '--json'])
     })
 
     it('setState without reason', () => {
-      mockExecSync.mockReturnValue('{}')
+      mockExecFileSync.mockReturnValue('{}')
       client.setState('s1', 'workflow', 'done')
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call).toContain('set-state s1 workflow=done')
-      expect(call).not.toContain('--reason')
+      const args = syncArgs()
+      expect(args).toEqual(['set-state', 's1', 'workflow=done', '--json'])
+      expect(args).not.toContain('--reason')
     })
   })
 
@@ -555,7 +578,7 @@ describe('BdClient', () => {
 
   describe('stats', () => {
     it('computes stats from list', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([
+      mockExecFileSync.mockReturnValue(JSON.stringify([
         rawBead({ id: '1', status: 'open' }),
         rawBead({ id: '2', status: 'open' }),
         rawBead({ id: '3', status: 'in_progress' }),
@@ -573,7 +596,7 @@ describe('BdClient', () => {
     })
 
     it('returns zero pct when no beads', () => {
-      mockExecSync.mockReturnValue('[]')
+      mockExecFileSync.mockReturnValue('[]')
       expect(client.stats().pct).toBe(0)
     })
   })
@@ -582,12 +605,12 @@ describe('BdClient', () => {
 
   describe('hasOpenWork', () => {
     it('returns true when open beads exist', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead()]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead()]))
       expect(client.hasOpenWork()).toBe(true)
     })
 
     it('returns false when no open beads', () => {
-      mockExecSync.mockReturnValue('[]')
+      mockExecFileSync.mockReturnValue('[]')
       expect(client.hasOpenWork()).toBe(false)
     })
   })
@@ -596,7 +619,8 @@ describe('BdClient', () => {
 
   describe('check', () => {
     it('returns available when bd is found and .beads exists', () => {
-      mockExecSync.mockReturnValue('/usr/local/bin/bd')
+      // check() still uses execSync for 'which bd'
+      const mockExecSync = vi.spyOn(cp, 'execSync').mockReturnValue('/usr/local/bin/bd')
 
       const fs = require('fs')
       const spy = vi.spyOn(fs, 'existsSync').mockReturnValue(true)
@@ -605,18 +629,21 @@ describe('BdClient', () => {
       expect(result).toEqual({ available: true })
 
       spy.mockRestore()
+      mockExecSync.mockRestore()
     })
 
     it('returns unavailable when bd not found', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('not found') })
+      const mockExecSync = vi.spyOn(cp, 'execSync').mockImplementation(() => { throw new Error('not found') })
 
       const result = client.check()
       expect(result.available).toBe(false)
       expect(result.reason).toContain('not found on PATH')
+
+      mockExecSync.mockRestore()
     })
 
     it('uses enriched env for which command', () => {
-      mockExecSync.mockReturnValue('/usr/local/bin/bd')
+      const mockExecSync = vi.spyOn(cp, 'execSync').mockReturnValue('/usr/local/bin/bd')
 
       const fs = require('fs')
       const spy = vi.spyOn(fs, 'existsSync').mockReturnValue(true)
@@ -630,10 +657,11 @@ describe('BdClient', () => {
       expect(env.PATH).toContain('.local/share/mise/shims')
 
       spy.mockRestore()
+      mockExecSync.mockRestore()
     })
 
     it('returns unavailable when .beads dir missing', () => {
-      mockExecSync.mockReturnValue('/usr/local/bin/bd')
+      const mockExecSync = vi.spyOn(cp, 'execSync').mockReturnValue('/usr/local/bin/bd')
 
       const fs = require('fs')
       const spy = vi.spyOn(fs, 'existsSync').mockReturnValue(false)
@@ -643,6 +671,7 @@ describe('BdClient', () => {
       expect(result.reason).toContain('No .beads directory')
 
       spy.mockRestore()
+      mockExecSync.mockRestore()
     })
   })
 
@@ -651,7 +680,7 @@ describe('BdClient', () => {
   describe('info', () => {
     it('returns parsed JSON from bd info', () => {
       const infoData = { version: '1.2.3', project: 'test' }
-      mockExecSync.mockReturnValue(JSON.stringify(infoData))
+      mockExecFileSync.mockReturnValue(JSON.stringify(infoData))
 
       expect(client.info()).toEqual(infoData)
     })
@@ -661,62 +690,62 @@ describe('BdClient', () => {
 
   describe('normalizeBead (via list/show)', () => {
     it('maps open status to ready', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ status: 'open' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ status: 'open' })]))
       expect(client.list()[0].status).toBe('ready')
     })
 
     it('maps in_progress status to claimed', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ status: 'in_progress' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ status: 'in_progress' })]))
       expect(client.list()[0].status).toBe('claimed')
     })
 
     it('maps closed status to done', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ status: 'closed' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ status: 'closed' })]))
       expect(client.list()[0].status).toBe('done')
     })
 
     it('maps unknown status to pending', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ status: 'weird' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ status: 'weird' })]))
       expect(client.list()[0].status).toBe('pending')
     })
 
     it('overrides status to failed when label present', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ status: 'open', labels: ['failed'] })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ status: 'open', labels: ['failed'] })]))
       expect(client.list()[0].status).toBe('failed')
     })
 
     it('maps issue_type to bead type', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: 'epic' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: 'epic' })]))
       expect(client.list()[0].type).toBe('epic')
 
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: 'subtask' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: 'subtask' })]))
       expect(client.list()[0].type).toBe('subtask')
 
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: 'task' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: 'task' })]))
       expect(client.list()[0].type).toBe('task')
     })
 
     it('falls back to type field when issue_type missing', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: undefined, type: 'epic' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ issue_type: undefined, type: 'epic' })]))
       expect(client.list()[0].type).toBe('epic')
     })
 
     it('handles array response (bd close returns array)', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ id: 'arr-1' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ id: 'arr-1' })]))
       const result = client.show('arr-1')
       // show wraps single object, but if bd returns array the normalizer unwraps it
       expect(result).not.toBeNull()
     })
 
     it('maps body to description when description is missing', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([
+      mockExecFileSync.mockReturnValue(JSON.stringify([
         rawBead({ description: undefined, body: 'From body field' }),
       ]))
       expect(client.list()[0].description).toBe('From body field')
     })
 
     it('maps dependencies field as fallback for deps', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([
+      mockExecFileSync.mockReturnValue(JSON.stringify([
         rawBead({ deps: undefined, dependencies: [
           { depends_on_id: 'dep-1', type: 'discovered-from' },
           { depends_on_id: 'dep-2', type: 'discovered-from' },
@@ -727,32 +756,32 @@ describe('BdClient', () => {
     })
 
     it('defaults priority to 2 for non-numeric values', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ priority: 'high' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ priority: 'high' })]))
       expect(client.list()[0].priority).toBe(2)
     })
 
     it('maps created_at to createdAt', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ created_at: '2026-03-20T10:00:00Z' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ created_at: '2026-03-20T10:00:00Z' })]))
       expect(client.list()[0].createdAt).toBe('2026-03-20T10:00:00Z')
     })
 
     it('falls back to created field when created_at is missing', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ created: '2026-03-19T08:00:00Z' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ created: '2026-03-19T08:00:00Z' })]))
       expect(client.list()[0].createdAt).toBe('2026-03-19T08:00:00Z')
     })
 
     it('prefers created_at over created fallback', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({ created_at: '2026-03-20T10:00:00Z', created: '2026-03-19T08:00:00Z' })]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ created_at: '2026-03-20T10:00:00Z', created: '2026-03-19T08:00:00Z' })]))
       expect(client.list()[0].createdAt).toBe('2026-03-20T10:00:00Z')
     })
 
     it('leaves createdAt undefined when both created_at and created are missing', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead()]))
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead()]))
       expect(client.list()[0].createdAt).toBeUndefined()
     })
 
     it('maps all optional fields', () => {
-      mockExecSync.mockReturnValue(JSON.stringify([rawBead({
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({
         created_at: '2025-12-31',
         assignee: 'agent-3',
         claimed_at: '2026-01-01',
@@ -776,34 +805,34 @@ describe('BdClient', () => {
   // ── error handling ─────────────────────────────────────────────────────
 
   describe('error handling', () => {
-    it('wraps execSync errors with command context', () => {
+    it('wraps execFileSync errors with command context', () => {
       const err = new Error('command failed') as Error & { stderr: string }
       err.stderr = 'bd: permission denied'
-      mockExecSync.mockImplementation(() => { throw err })
+      mockExecFileSync.mockImplementation(() => { throw err })
 
       expect(() => client.list()).toThrow('bd list failed: bd: permission denied')
     })
 
     it('falls back to error message when stderr missing', () => {
-      mockExecSync.mockImplementation(() => { throw new Error('ENOENT') })
+      mockExecFileSync.mockImplementation(() => { throw new Error('ENOENT') })
       expect(() => client.list()).toThrow('bd list failed: ENOENT')
     })
 
     it('handles non-Error throws', () => {
-      mockExecSync.mockImplementation(() => { throw 'string error' })
+      mockExecFileSync.mockImplementation(() => { throw 'string error' })
       expect(() => client.list()).toThrow('bd list failed: string error')
     })
 
     it('throws on invalid JSON', () => {
-      mockExecSync.mockReturnValue('not json at all')
+      mockExecFileSync.mockReturnValue('not json at all')
       expect(() => client.list()).toThrow()
     })
 
     it('passes correct exec options with enriched PATH', () => {
-      mockExecSync.mockReturnValue('[]')
+      mockExecFileSync.mockReturnValue('[]')
       client.list()
 
-      const opts = mockExecSync.mock.calls[0][1] as Record<string, unknown>
+      const opts = mockExecFileSync.mock.calls[0][2] as Record<string, unknown>
       expect(opts.cwd).toBe('/fake/project')
       expect(opts.timeout).toBe(15_000)
       expect(opts.encoding).toBe('utf8')
@@ -814,11 +843,118 @@ describe('BdClient', () => {
 
     it('uses custom bd command name', () => {
       const custom = new BdClient('/fake', 'custom-bd')
-      mockExecSync.mockReturnValue('[]')
+      mockExecFileSync.mockReturnValue('[]')
       custom.list()
 
-      const call = mockExecSync.mock.calls[0][0] as string
-      expect(call.startsWith('custom-bd ')).toBe(true)
+      // execFileSync(cmd, args, opts) — cmd is first arg
+      const cmd = mockExecFileSync.mock.calls[0][0] as string
+      expect(cmd).toBe('custom-bd')
+    })
+  })
+
+  // ── shell injection prevention ─────────────────────────────────────────
+
+  describe('shell injection prevention', () => {
+    it('passes shell metacharacters in type field as literal array elements', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead()]))
+
+      // If this were passed through a shell, the semicolon would execute 'rm -rf /'
+      client.list({ type: 'task; rm -rf /' })
+
+      // With execFileSync(cmd, args), each element is a separate argv entry — no shell parsing
+      const args = syncArgs()
+      expect(args).toContain('--type')
+      expect(args[args.indexOf('--type') + 1]).toBe('task; rm -rf /')
+      // Verify it's using execFileSync (array form), not execSync (string form)
+      expect(mockExecFileSync).toHaveBeenCalled()
+    })
+
+    it('passes shell metacharacters in create title without shell interpretation', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead()))
+
+      client.create({ title: '$(whoami) && echo pwned' })
+
+      const args = syncArgs()
+      expect(args[0]).toBe('create')
+      expect(args[1]).toBe('$(whoami) && echo pwned')
+    })
+
+    it('passes shell metacharacters in label field safely', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead()]))
+
+      client.list({ label: '`cat /etc/passwd`' })
+
+      const args = syncArgs()
+      expect(args[args.indexOf('--label') + 1]).toBe('`cat /etc/passwd`')
+    })
+
+    it('passes shell metacharacters in assignee field safely', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead()]))
+
+      client.list({ assignee: 'agent-0 | cat /etc/shadow' })
+
+      const args = syncArgs()
+      expect(args[args.indexOf('--assignee') + 1]).toBe('agent-0 | cat /etc/shadow')
+    })
+
+    it('passes shell metacharacters in description safely', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead()))
+
+      client.create({
+        title: 'test',
+        description: 'foo\n$(rm -rf /)\nbar',
+      })
+
+      const args = syncArgs()
+      expect(args[args.indexOf('-d') + 1]).toBe('foo\n$(rm -rf /)\nbar')
+    })
+
+    it('passes shell metacharacters in create id safely', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead()))
+
+      client.create({
+        title: 'test',
+        id: 'id-$(whoami)',
+      })
+
+      const args = syncArgs()
+      expect(args[args.indexOf('--id') + 1]).toBe('id-$(whoami)')
+    })
+
+    it('passes shell metacharacters in parentId safely', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead()))
+
+      client.create({
+        title: 'test',
+        parentId: 'parent; echo hacked',
+      })
+
+      const args = syncArgs()
+      expect(args[args.indexOf('--parent') + 1]).toBe('parent; echo hacked')
+    })
+
+    it('passes shell metacharacters in labels safely', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify(rawBead()))
+
+      client.create({
+        title: 'test',
+        labels: ['label$(whoami)', 'normal'],
+      })
+
+      const args = syncArgs()
+      expect(args[args.indexOf('-l') + 1]).toBe('label$(whoami),normal')
+    })
+
+    it('passes shell metacharacters in async operations safely', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify(rawBead()), '')
+        return {} as any
+      })
+
+      await client.createAsync({ title: '$(id)' })
+
+      const args = asyncArgs()
+      expect(args[1]).toBe('$(id)')
     })
   })
 })

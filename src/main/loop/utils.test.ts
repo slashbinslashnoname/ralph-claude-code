@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('child_process')>()) }))
+vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as child_process from 'child_process'
-import { stripAnsi, buildEnv, resolveCmd } from './utils'
+import * as fs from 'fs'
+import { stripAnsi, buildEnv, resolveCmd, atomicWriteSync } from './utils'
 
 let mockExecSync: any
 
@@ -145,5 +147,46 @@ describe('resolveCmd', () => {
     const env = buildEnv()
     const result = resolveCmd('sh', env)
     expect(result).toMatch(/^\/.*sh$/)
+  })
+})
+
+describe('atomicWriteSync', () => {
+  let writeSpy: any
+  let renameSpy: any
+  let unlinkSpy: any
+
+  beforeEach(() => {
+    writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    renameSpy = vi.spyOn(fs, 'renameSync').mockReturnValue(undefined)
+    unlinkSpy = vi.spyOn(fs, 'unlinkSync').mockReturnValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('writes to a temp file then renames atomically', () => {
+    atomicWriteSync('/tmp/dest.json', '{"ok":true}')
+
+    const tmpPath = `/tmp/dest.json.tmp.${process.pid}`
+    expect(writeSpy).toHaveBeenCalledWith(tmpPath, '{"ok":true}')
+    expect(renameSpy).toHaveBeenCalledWith(tmpPath, '/tmp/dest.json')
+  })
+
+  it('cleans up temp file and rethrows on writeFileSync failure', () => {
+    writeSpy.mockImplementation(() => { throw new Error('disk full') })
+
+    expect(() => atomicWriteSync('/tmp/dest.json', 'data')).toThrow('disk full')
+    const tmpPath = `/tmp/dest.json.tmp.${process.pid}`
+    expect(unlinkSpy).toHaveBeenCalledWith(tmpPath)
+    expect(renameSpy).not.toHaveBeenCalled()
+  })
+
+  it('cleans up temp file and rethrows on renameSync failure', () => {
+    renameSpy.mockImplementation(() => { throw new Error('rename failed') })
+
+    expect(() => atomicWriteSync('/tmp/dest.json', 'data')).toThrow('rename failed')
+    const tmpPath = `/tmp/dest.json.tmp.${process.pid}`
+    expect(unlinkSpy).toHaveBeenCalledWith(tmpPath)
   })
 })

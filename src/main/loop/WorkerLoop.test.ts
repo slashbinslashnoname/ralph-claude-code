@@ -1472,7 +1472,7 @@ describe('WorkerLoop', () => {
         return null
       })
       coord.hasOpenWork.mockReturnValue(true)
-      coord.createWorktree.mockReturnValue(null)
+      coord.createWorktree.mockReturnValue({ worktreePath: '/project/.worktrees/agent-0-sb-orig', branch: 'worker/sb-orig' })
 
       // _splitBead dependencies
       let createCount = 0
@@ -1540,7 +1540,7 @@ describe('WorkerLoop', () => {
         return null
       })
       coord.hasOpenWork.mockReturnValue(true)
-      coord.createWorktree.mockReturnValue(null)
+      coord.createWorktree.mockReturnValue({ worktreePath: '/project/.worktrees/agent-0-sb-orig', branch: 'worker/sb-orig' })
 
       const runClaudePrompts: { label: string; prompt: string }[] = []
 
@@ -1567,6 +1567,61 @@ describe('WorkerLoop', () => {
       expect(executeCall).toBeDefined()
       expect(executeCall!.prompt).toContain('sb-orig')
       expect(executeCall!.prompt).toContain('Original Task')
+    })
+
+    it('fails the bead and retries when worktree creation returns null', async () => {
+      const coord = makeCoordinator()
+      const bead = makeBead({ id: 'sb-wt-fail', title: 'WT Fail Bead' })
+
+      let claimCount = 0
+      let worker: WorkerLoop
+      coord.claimBestBead.mockImplementation(async () => {
+        claimCount++
+        if (claimCount === 1) return bead
+        // Stop after the first retry loop iteration
+        worker.stopped = true
+        worker.running = false
+        return null
+      })
+      coord.hasOpenWork.mockReturnValue(true)
+      // createWorktree returns null — simulating failure
+      coord.createWorktree.mockReturnValue(null)
+
+      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
+      ;(worker as any)._runClaude = vi.fn(async () => 'should not be called')
+      ;(worker as any)._sleep = vi.fn(async () => {})
+
+      const outputs: string[] = []
+      worker.on('output', (msg: string) => outputs.push(msg))
+
+      await worker.start()
+
+      // Should NOT have called _runClaude (no think/execute/review)
+      expect((worker as any)._runClaude).not.toHaveBeenCalled()
+
+      // Should have posted a failed activity
+      expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        agentId: 'agent-0',
+        type: 'failed',
+        beadId: 'sb-wt-fail',
+        summary: expect.stringContaining('Worktree creation failed')
+      }))
+
+      // Should have reopened the bead
+      expect(coord.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-wt-fail')
+
+      // Should have reset agent state
+      expect(coord.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
+        currentBeadId: null,
+        currentBeadTitle: null,
+        phase: 'idle'
+      }))
+
+      // Should have slept for 10 seconds before retrying
+      expect((worker as any)._sleep).toHaveBeenCalledWith(10_000)
+
+      // Should have emitted error output
+      expect(outputs.some(o => o.includes('ERROR') && o.includes('Worktree creation failed'))).toBe(true)
     })
 
     it('source contains split check between thinking and execute phases', () => {
@@ -2128,6 +2183,7 @@ None.
       // claimBestBead returns a bead on first call, null on second (to end the loop)
       coord.claimBestBead.mockResolvedValueOnce(bead).mockResolvedValueOnce(null)
       coord.hasOpenWork.mockReturnValue(false)
+      coord.createWorktree.mockReturnValue({ worktreePath: '/project/.worktrees/agent-0-sb-xyz', branch: 'worker/sb-xyz' })
 
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 

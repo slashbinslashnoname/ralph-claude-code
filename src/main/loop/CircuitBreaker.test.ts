@@ -7,6 +7,7 @@ import { RalphConfig } from '../types'
 
 const SLASHBOT_DIR = '/tmp/test-slashbot'
 const STATE_PATH = path.join(SLASHBOT_DIR, '.circuit_breaker_state')
+const TMP_PATH = STATE_PATH + '.tmp.' + process.pid
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
   return {
@@ -42,6 +43,8 @@ describe('CircuitBreaker', () => {
     vi.spyOn(fs, 'existsSync').mockReturnValue(false)
     vi.spyOn(fs, 'readFileSync').mockReturnValue('')
     vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'renameSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'unlinkSync').mockReturnValue(undefined)
     dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(NOW)
   })
 
@@ -177,15 +180,16 @@ describe('CircuitBreaker', () => {
   })
 
   describe('save', () => {
-    it('persists current state to file', () => {
+    it('persists current state atomically via write + rename', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.tick(7)
       cb.save()
 
       expect(fs.writeFileSync).toHaveBeenCalledWith(
-        STATE_PATH,
+        TMP_PATH,
         expect.any(String)
       )
+      expect(fs.renameSync).toHaveBeenCalledWith(TMP_PATH, STATE_PATH)
       const written = JSON.parse(
         (fs.writeFileSync as any).mock.calls[0][1] as string
       )
@@ -227,7 +231,7 @@ describe('CircuitBreaker', () => {
     it('calls save after reset', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.reset()
-      expect(fs.writeFileSync).toHaveBeenCalled()
+      expect(fs.renameSync).toHaveBeenCalledWith(TMP_PATH, STATE_PATH)
     })
   })
 
@@ -322,30 +326,29 @@ describe('CircuitBreaker', () => {
   })
 
   describe('recordError', () => {
-    it('does not increment consecutiveSameError until 2 distinct errors seen', () => {
+    it('does not increment on first occurrence of an error', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
-
       cb.recordError('error A')
       expect(cb.snapshot().consecutive_same_error).toBe(0)
-
-      cb.recordError('error B')
-      expect(cb.snapshot().consecutive_same_error).toBe(1)
     })
 
-    it('increments on repeated calls once 2 distinct errors exist', () => {
+    it('increments when a previously seen error repeats', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
-      cb.recordError('error B')
+      cb.recordError('error A') // repeat → increment
       expect(cb.snapshot().consecutive_same_error).toBe(1)
-
-      cb.recordError('error A')
+      cb.recordError('error A') // repeat → increment again
       expect(cb.snapshot().consecutive_same_error).toBe(2)
     })
 
-    it('deduplicates error strings in lastErrors', () => {
+    it('resets counter when a new unique error appears', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
-      cb.recordError('error A')
+      cb.recordError('error A') // repeat → 1
+      cb.recordError('error A') // repeat → 2
+      expect(cb.snapshot().consecutive_same_error).toBe(2)
+
+      cb.recordError('error B') // new unique → reset to 0
       expect(cb.snapshot().consecutive_same_error).toBe(0)
     })
 
@@ -353,10 +356,10 @@ describe('CircuitBreaker', () => {
       const config = makeConfig({ cbSameErrorThreshold: 3 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
-      cb.recordError('error A')
-      cb.recordError('error B') // consecutive_same_error = 1
-      cb.recordError('error C') // consecutive_same_error = 2
-      cb.recordError('error D') // consecutive_same_error = 3 — opens
+      cb.recordError('error A') // new → 0
+      cb.recordError('error A') // repeat → 1
+      cb.recordError('error A') // repeat → 2
+      cb.recordError('error A') // repeat → 3 — opens
 
       expect(cb.isOpen()).toBe(true)
       expect(cb.snapshot().reason).toContain('same error')
@@ -366,10 +369,20 @@ describe('CircuitBreaker', () => {
       const config = makeConfig({ cbSameErrorThreshold: 100 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
+      // Add 15 unique errors — only last 10 are retained
       for (let i = 0; i < 15; i++) {
         cb.recordError(`error ${i}`)
       }
-      expect(cb.snapshot().consecutive_same_error).toBe(14)
+      // All were unique, so counter resets each time
+      expect(cb.snapshot().consecutive_same_error).toBe(0)
+
+      // error 0 was evicted (only errors 5-14 remain), so it's treated as new
+      cb.recordError('error 0')
+      expect(cb.snapshot().consecutive_same_error).toBe(0)
+
+      // error 10 is still in the buffer, so it repeats
+      cb.recordError('error 10')
+      expect(cb.snapshot().consecutive_same_error).toBe(1)
     })
   })
 
@@ -461,6 +474,7 @@ describe('CircuitBreaker', () => {
       cb1.recordNoProgress(false) // HALF_OPEN
       cb1.save()
 
+      // writeFileSync writes to tmp path; content is arg [1]
       const savedJson = (fs.writeFileSync as any).mock.calls[0][1] as string
 
       ;(fs.existsSync as any).mockReturnValue(true)
