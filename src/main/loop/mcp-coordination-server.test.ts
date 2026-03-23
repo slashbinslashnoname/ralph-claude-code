@@ -87,16 +87,4 @@ describe('mcp-coordination-server beadId consumption', () => {
     })
   })
 
-  describe('env var defaulting', () => {
-    it('SLASHBOT_BEAD_ID defaults to null when not set', () => {
-      // Mirrors: const beadId = process.env.SLASHBOT_BEAD_ID ?? null
-      const beadId = undefined ?? null
-      expect(beadId).toBeNull()
-    })
-
-    it('SLASHBOT_BEAD_ID is captured when set', () => {
-      const beadId = 'sb-test.1' ?? null
-      expect(beadId).toBe('sb-test.1')
-    })
-  })
 })
