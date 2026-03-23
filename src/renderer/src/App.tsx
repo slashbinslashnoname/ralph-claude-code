@@ -8,16 +8,18 @@ import SwarmPage from './pages/SwarmPage'
 import LogViewer from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
 import SetupWizard from './pages/SetupWizard'
+import MailPage from './pages/MailPage'
 import SlashbotLogo from './components/SlashbotLogo'
 
 const sb = window.slashbot
 
-type Page = 'dashboard' | 'beads' | 'swarm' | 'logs' | 'config' | 'setup'
+type Page = 'dashboard' | 'beads' | 'swarm' | 'mail' | 'logs' | 'config' | 'setup'
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u25C9' },
   { id: 'beads', label: 'Beads', icon: '\u29BE' },
   { id: 'swarm', label: 'Swarm', icon: '\u2B21' },
+  { id: 'mail', label: 'Mail', icon: '\u2709' },
   { id: 'logs', label: 'Logs', icon: '\u2630' },
   { id: 'config', label: 'Config', icon: '\u2699' },
 ]
@@ -287,6 +289,7 @@ export default function App() {
               setActivity={setSwarmActivity}
             />
           )}
+          {current.page === 'mail' && current.isEnabled && <MailPage projectPath={current.path} />}
           {current.page === 'logs' && current.isEnabled && <LogViewer projectPath={current.path} />}
           {current.page === 'config' && current.isEnabled && <ConfigEditor projectPath={current.path} />}
         </main>
