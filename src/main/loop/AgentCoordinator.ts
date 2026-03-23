@@ -688,18 +688,14 @@ export class AgentCoordinator {
       try { this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
-      // Use async bd calls to avoid blocking the Electron event loop
+      // Get ALL open beads as candidates — we handle dep filtering ourselves.
+      // bd ready is too strict (blocks beads with in_progress deps that we allow).
       let candidates: Bead[]
       try {
-        candidates = await this.bd.readyAsync()
-        if (candidates.length === 0) {
-          candidates = await this.bd.listByStatusAsync('open')
-        }
+        candidates = await this.bd.listByStatusAsync('open')
       } catch (err) {
-        this._log('ERROR', `[${agentId}] bd ready/list failed: ${err instanceof Error ? err.message : err}`)
-        // Fallback to sync calls if async fails
-        candidates = this.bd.ready()
-        if (candidates.length === 0) candidates = this.bd.listByStatus('open')
+        this._log('ERROR', `[${agentId}] bd list failed: ${err instanceof Error ? err.message : err}`)
+        candidates = this.bd.listByStatus('open')
       }
 
       let closedBeads: Bead[]

@@ -698,9 +698,17 @@ describe('AgentCoordinator — bead claiming with contention', () => {
     coord = new AgentCoordinator(tmpPaths)
     // listAll is called inside claimBestBead to count open children per epic
     vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
-    // claimBestBead uses async bd methods — wire them to delegate to the sync mocks
+    // claimBestBead uses async bd methods — wire them to delegate to the sync mocks.
+    // claimBestBead calls listByStatus('open') for candidates, so when tests mock
+    // ready() with beads, return those for 'open' status too.
     vi.spyOn(coord.bd, 'readyAsync').mockImplementation(async () => coord.bd.ready())
-    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (s: string) => coord.bd.listByStatus(s))
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (s: string) => {
+      if (s === 'open') {
+        const readyBeads = coord.bd.ready()
+        if (readyBeads.length > 0) return readyBeads
+      }
+      return coord.bd.listByStatus(s)
+    })
     vi.spyOn(coord.bd, 'listAllAsync').mockImplementation(async () => coord.bd.listAll())
     vi.spyOn(coord.bd, 'assignToAsync').mockImplementation(async (id: string, a: string) => coord.bd.assignTo(id, a))
     vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => coord.bd.show(id))
