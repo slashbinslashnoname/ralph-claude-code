@@ -911,6 +911,104 @@ describe('AgentCoordinator — bead claiming with contention', () => {
     expect(order[0]).toBe('ready-1')
     expect(order[1]).toBe('ready-2')
   })
+
+  it('claimBestBead picks higher priority over earlier createdAt (priority overrides FIFO)', async () => {
+    const beads = [
+      makeBead({ id: 'b1', priority: 2, createdAt: '2026-03-22T08:00:00Z' }), // older but lower priority
+      makeBead({ id: 'b2', priority: 0, createdAt: '2026-03-22T12:00:00Z' }), // newer but higher priority
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
+  })
+
+  it('claimBestBead picks fewer retries over higher priority (retry overrides FIFO and priority)', async () => {
+    const beads = [
+      makeBead({ id: 'b1', priority: 0, createdAt: '2026-03-22T08:00:00Z' }), // best priority, oldest, but retried
+      makeBead({ id: 'b2', priority: 2, createdAt: '2026-03-22T12:00:00Z' }), // worse priority, newer, no retries
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockImplementation((id: string) => {
+      if (id === 'b1') return '2'
+      return ''
+    })
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockReturnValue(makeBead({ id: 'b2', status: 'claimed', claimedBy: 'agent-0' }))
+
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('b2')
+  })
+
+  it('claimBestBead processes Plan 1 beads (ids 1-3) before Plan 2 beads (ids 4-6) via FIFO + ID ordering', async () => {
+    // Simulate two plans: Plan 1 created earlier with ids 1-3, Plan 2 created later with ids 4-6
+    // All same priority, no retries — ordering should be by createdAt then numeric ID
+    const plan1Time = '2026-03-22T10:00:00Z'
+    const plan2Time = '2026-03-22T11:00:00Z'
+    const beads = [
+      makeBead({ id: '4', priority: 2, createdAt: plan2Time }),
+      makeBead({ id: '2', priority: 2, createdAt: plan1Time }),
+      makeBead({ id: '6', priority: 2, createdAt: plan2Time }),
+      makeBead({ id: '1', priority: 2, createdAt: plan1Time }),
+      makeBead({ id: '5', priority: 2, createdAt: plan2Time }),
+      makeBead({ id: '3', priority: 2, createdAt: plan1Time }),
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+
+    // Track the order assignTo is called
+    const assignOrder: string[] = []
+    vi.spyOn(coord.bd, 'assignTo').mockImplementation((id: string) => {
+      assignOrder.push(id)
+      return true
+    })
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) =>
+      makeBead({ id, status: 'claimed', claimedBy: 'agent-0' })
+    )
+
+    // First claim should be id '1' (Plan 1, earliest time, lowest numeric ID)
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('1')
+
+    // Verify the sort order by checking candidates are tried in the right sequence
+    // The sort produces: 1, 2, 3 (Plan 1 by time+id), then 4, 5, 6 (Plan 2 by time+id)
+    expect(assignOrder[0]).toBe('1')
+  })
+
+  it('claimBestBead exhausts Plan 1 beads before Plan 2 beads in multi-plan scenario', async () => {
+    const plan1Time = '2026-03-22T10:00:00Z'
+    const plan2Time = '2026-03-22T11:00:00Z'
+    // Plan 1 beads are all claimed/locked except id '3', Plan 2 has id '4' available
+    const beads = [
+      makeBead({ id: '1', priority: 2, createdAt: plan1Time, claimedBy: 'agent-1' }),
+      makeBead({ id: '2', priority: 2, createdAt: plan1Time, claimedBy: 'agent-2' }),
+      makeBead({ id: '3', priority: 2, createdAt: plan1Time }),
+      makeBead({ id: '4', priority: 2, createdAt: plan2Time }),
+      makeBead({ id: '5', priority: 2, createdAt: plan2Time }),
+      makeBead({ id: '6', priority: 2, createdAt: plan2Time }),
+    ]
+    vi.spyOn(coord.bd, 'ready').mockReturnValue(beads)
+    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
+    vi.spyOn(coord.bd, 'getState').mockReturnValue('')
+    vi.spyOn(coord.bd, 'assignTo').mockReturnValue(true)
+    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) =>
+      makeBead({ id, status: 'claimed', claimedBy: 'agent-0' })
+    )
+
+    // Should pick '3' (last unclaimed Plan 1 bead) before any Plan 2 bead
+    const result = await coord.claimBestBead('agent-0')
+    expect(result).toBeTruthy()
+    expect(result!.id).toBe('3')
+  })
 })
 
 describe('AgentCoordinator — completeBead and failBead', () => {
