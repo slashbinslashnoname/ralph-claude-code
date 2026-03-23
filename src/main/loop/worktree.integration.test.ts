@@ -11,6 +11,9 @@ import { ProjectPaths } from './ProjectStore'
  *
  * Verifies worktrees are created at paths.worktreesDir with correct symlinks
  * to centralized locations (.beads, .slashbot, .slashbotrc) and proper .gitignore.
+ *
+ * Branch naming: worker/<beadId> (bead-centric, no agent identity in branch)
+ * Dir naming: worker-<beadId> (under .worktrees/)
  */
 
 describe('AgentCoordinator.createWorktree', () => {
@@ -34,24 +37,24 @@ describe('AgentCoordinator.createWorktree', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('creates a worktree at paths.worktreesDir/<agentId>-<beadId>', () => {
+  it('creates a worktree at paths.worktreesDir/worker-<beadId>', () => {
     const result = coord.createWorktree('agent-0', 'sb-123')
 
     expect(result).not.toBeNull()
-    const expected = path.join(paths.worktreesDir, 'agent-0-sb-123')
+    const expected = path.join(paths.worktreesDir, 'worker-sb-123')
     expect(result!.worktreePath).toBe(expected)
     expect(fs.existsSync(expected)).toBe(true)
   })
 
-  it('returns the correct branch name', () => {
+  it('returns bead-centric branch name worker/<beadId>', () => {
     const result = coord.createWorktree('agent-0', 'sb-123')
 
     expect(result).not.toBeNull()
-    expect(result!.branch).toBe('agent/agent-0/sb-123')
+    expect(result!.branch).toBe('worker/sb-123')
 
     // Verify the branch actually exists
     const branches = execSync('git branch --list', { cwd: tmpDir, stdio: 'pipe' }).toString()
-    expect(branches).toContain('agent/agent-0/sb-123')
+    expect(branches).toContain('worker/sb-123')
   })
 
   it('symlinks .beads to paths.beadsRoot', () => {
@@ -123,9 +126,9 @@ describe('AgentCoordinator.createWorktree', () => {
     expect(fs.existsSync(result2!.worktreePath)).toBe(true)
   })
 
-  it('multiple agents can create worktrees concurrently', () => {
-    const r1 = coord.createWorktree('agent-0', 'sb-multi')
-    const r2 = coord.createWorktree('agent-1', 'sb-multi')
+  it('different agents working on different beads get separate worktrees', () => {
+    const r1 = coord.createWorktree('agent-0', 'sb-alpha')
+    const r2 = coord.createWorktree('agent-1', 'sb-beta')
 
     expect(r1).not.toBeNull()
     expect(r2).not.toBeNull()
@@ -133,5 +136,133 @@ describe('AgentCoordinator.createWorktree', () => {
     expect(r1!.branch).not.toBe(r2!.branch)
     expect(fs.existsSync(r1!.worktreePath)).toBe(true)
     expect(fs.existsSync(r2!.worktreePath)).toBe(true)
+  })
+
+  it('agentId is ignored in branch/path naming (bead-centric)', () => {
+    // Two different agents creating a worktree for the same bead
+    // should produce the same path — the second call cleans up the first
+    const r1 = coord.createWorktree('agent-0', 'sb-same')
+    expect(r1).not.toBeNull()
+    expect(r1!.branch).toBe('worker/sb-same')
+    expect(r1!.worktreePath).toContain('worker-sb-same')
+
+    const r2 = coord.createWorktree('agent-1', 'sb-same')
+    expect(r2).not.toBeNull()
+    expect(r2!.branch).toBe('worker/sb-same')
+    // Same path — agent identity doesn't affect naming
+    expect(r2!.worktreePath).toBe(r1!.worktreePath)
+  })
+})
+
+describe('AgentCoordinator.cleanOrphanedWorktrees — new and legacy patterns', () => {
+  let tmpDir: string
+  let paths: ProjectPaths
+  let coord: AgentCoordinator
+
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject('worktree-cleanup-')
+    paths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(paths)
+  })
+
+  afterEach(() => {
+    try { execSync('git worktree prune', { cwd: tmpDir, stdio: 'pipe' }) } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('cleans up new-pattern orphaned worktree (worker-<beadId>)', () => {
+    const worktreesDir = path.join(tmpDir, '.worktrees')
+    fs.mkdirSync(worktreesDir, { recursive: true })
+    const fakePath = path.join(worktreesDir, 'worker-sb-orphan')
+    fs.mkdirSync(fakePath)
+    fs.writeFileSync(path.join(fakePath, 'file.txt'), 'leftover')
+
+    const removed = coord.cleanOrphanedWorktrees()
+    expect(removed).toContain('worker-sb-orphan')
+    expect(fs.existsSync(fakePath)).toBe(false)
+  })
+
+  it('cleans up legacy-pattern orphaned worktree (agent-N-<beadId>)', () => {
+    const worktreesDir = path.join(tmpDir, '.worktrees')
+    fs.mkdirSync(worktreesDir, { recursive: true })
+    const fakePath = path.join(worktreesDir, 'agent-0-sb-legacy')
+    fs.mkdirSync(fakePath)
+    fs.writeFileSync(path.join(fakePath, 'file.txt'), 'leftover')
+
+    const removed = coord.cleanOrphanedWorktrees()
+    expect(removed).toContain('agent-0-sb-legacy')
+    expect(fs.existsSync(fakePath)).toBe(false)
+  })
+
+  it('preserves new-pattern worktree owned by active agent', () => {
+    // Register an agent with an active worktree branch
+    coord.registerAgent({
+      id: 'worker-0', index: 0, phase: 'executing',
+      currentBeadId: 'sb-active', currentBeadTitle: 'test', loopCount: 1,
+      lastActivity: new Date().toISOString(), worktreeBranch: 'worker/sb-active', thinkingSummary: null
+    })
+
+    const worktreesDir = path.join(tmpDir, '.worktrees')
+    fs.mkdirSync(worktreesDir, { recursive: true })
+    const ownedPath = path.join(worktreesDir, 'worker-sb-active')
+    fs.mkdirSync(ownedPath)
+    fs.writeFileSync(path.join(ownedPath, 'file.txt'), 'in-progress')
+
+    const removed = coord.cleanOrphanedWorktrees()
+    expect(removed.length).toBe(0)
+    expect(fs.existsSync(ownedPath)).toBe(true)
+  })
+
+  it('preserves legacy-pattern worktree owned by active agent', () => {
+    coord.registerAgent({
+      id: 'agent-0', index: 0, phase: 'executing',
+      currentBeadId: 'b1', currentBeadTitle: 'test', loopCount: 1,
+      lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
+    })
+
+    const worktreesDir = path.join(tmpDir, '.worktrees')
+    fs.mkdirSync(worktreesDir, { recursive: true })
+    const ownedPath = path.join(worktreesDir, 'agent-0-b1')
+    fs.mkdirSync(ownedPath)
+
+    const removed = coord.cleanOrphanedWorktrees()
+    expect(removed.length).toBe(0)
+    expect(fs.existsSync(ownedPath)).toBe(true)
+  })
+
+  it('cleans mixed new and legacy orphans while preserving owned', () => {
+    coord.registerAgent({
+      id: 'worker-0', index: 0, phase: 'executing',
+      currentBeadId: 'sb-owned', currentBeadTitle: 'test', loopCount: 1,
+      lastActivity: new Date().toISOString(), worktreeBranch: 'worker/sb-owned', thinkingSummary: null
+    })
+
+    const worktreesDir = path.join(tmpDir, '.worktrees')
+    fs.mkdirSync(worktreesDir, { recursive: true })
+
+    // Owned (new pattern)
+    const owned = path.join(worktreesDir, 'worker-sb-owned')
+    fs.mkdirSync(owned)
+
+    // Orphan (new pattern)
+    const orphanNew = path.join(worktreesDir, 'worker-sb-orphan')
+    fs.mkdirSync(orphanNew)
+
+    // Orphan (legacy pattern)
+    const orphanLegacy = path.join(worktreesDir, 'agent-1-sb-old')
+    fs.mkdirSync(orphanLegacy)
+
+    const removed = coord.cleanOrphanedWorktrees()
+    expect(removed).toContain('worker-sb-orphan')
+    expect(removed).toContain('agent-1-sb-old')
+    expect(removed).not.toContain('worker-sb-owned')
+    expect(fs.existsSync(owned)).toBe(true)
+    expect(fs.existsSync(orphanNew)).toBe(false)
+    expect(fs.existsSync(orphanLegacy)).toBe(false)
+  })
+
+  it('returns empty array when .worktrees dir does not exist', () => {
+    const removed = coord.cleanOrphanedWorktrees()
+    expect(removed).toEqual([])
   })
 })

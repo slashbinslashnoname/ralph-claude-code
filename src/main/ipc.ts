@@ -128,13 +128,21 @@ function cleanOrphanedWorktrees(projectPath: string): void {
       try { fs.rmSync(fullPath, { recursive: true, force: true }) } catch { /* ignore */ }
     }
 
-    // Clean up the corresponding agent branch
-    // Pattern: agent-0-sb-abc -> agent/agent-0/sb-abc
-    const branchMatch = entry.match(/^(agent-\d+)-(.+)$/)
-    if (branchMatch) {
-      const agentBranch = `agent/${branchMatch[1]}/${branchMatch[2]}`
+    // Clean up the corresponding branch
+    // New pattern: worker-sb-abc -> worker/sb-abc
+    // Legacy pattern: agent-0-sb-abc -> agent/agent-0/sb-abc
+    let branchToDelete: string | null = null
+    if (entry.startsWith('worker-')) {
+      branchToDelete = `worker/${entry.slice('worker-'.length)}`
+    } else {
+      const legacyMatch = entry.match(/^(agent-\d+)-(.+)$/)
+      if (legacyMatch) {
+        branchToDelete = `agent/${legacyMatch[1]}/${legacyMatch[2]}`
+      }
+    }
+    if (branchToDelete) {
       try {
-        execSync(`git branch -D "${agentBranch}"`, { cwd: projectPath, timeout: 5000, stdio: 'pipe' })
+        execSync(`git branch -D "${branchToDelete}"`, { cwd: projectPath, timeout: 5000, stdio: 'pipe' })
       } catch { /* branch may not exist */ }
     }
   }

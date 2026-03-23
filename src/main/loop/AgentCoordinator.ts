@@ -442,8 +442,8 @@ export class AgentCoordinator {
 
   /** Create a git worktree for an agent's isolated work */
   createWorktree(agentId: string, beadId: string): { worktreePath: string; branch: string } | null {
-    const branch = `agent/${agentId}/${beadId}`
-    const worktreePath = path.join(this.paths.worktreesDir, `${agentId}-${beadId}`)
+    const branch = `worker/${beadId}`
+    const worktreePath = path.join(this.paths.worktreesDir, `worker-${beadId}`)
 
     try {
       // Get current branch
@@ -1275,17 +1275,35 @@ export class AgentCoordinator {
     let entries: fs.Dirent[]
     try { entries = fs.readdirSync(worktreesDir, { withFileTypes: true }) } catch { return [] }
 
+    // Collect active worktree branches so we can skip owned entries
+    const activeAgents = this.readAgents()
+    const activeBranches = new Set(activeAgents.map(a => a.worktreeBranch).filter(Boolean))
+
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
-      // Worktree dirs are named <agentId>-<beadId>, e.g. "agent-0-sb-abc"
-      const parts = entry.name.split('-')
-      const agentId = parts.slice(0, 2).join('-') // e.g. "agent-0"
-      if (agents.has(agentId)) continue // owned by active agent
-
       const wtPath = path.join(worktreesDir, entry.name)
-      const beadId = parts.slice(2).join('-') // e.g. "sb-abc"
-      const branch = `agent/${agentId}/${beadId}`
-      this._cleanupWorktree(wtPath, branch)
+      let branch: string | null = null
+
+      // New pattern: worker-<beadId>, e.g. "worker-sb-abc"
+      if (entry.name.startsWith('worker-')) {
+        const beadId = entry.name.slice('worker-'.length)
+        branch = `worker/${beadId}`
+        if (activeBranches.has(branch)) continue
+      } else {
+        // Legacy pattern: agent-N-<beadId>, e.g. "agent-0-sb-abc"
+        const legacyMatch = entry.name.match(/^(agent-\d+)-(.+)$/)
+        if (legacyMatch) {
+          const agentId = legacyMatch[1]
+          if (agents.has(agentId)) continue // owned by active agent
+          branch = `agent/${agentId}/${legacyMatch[2]}`
+        } else {
+          // Unknown format — still clean up the directory
+        }
+      }
+
+      if (branch) {
+        this._cleanupWorktree(wtPath, branch)
+      }
       // Fallback: rm dir if git worktree remove didn't work
       try { if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true }) } catch { /* ignore */ }
       removed.push(entry.name)
