@@ -9,6 +9,7 @@
  * Environment variables:
  *   SLASHBOT_AGENT_ID  — this agent's identifier (e.g. "worker-0")
  *   SLASHBOT_STORE_DIR — absolute path to .slashbot/ directory
+ *   SLASHBOT_BEAD_ID   — current bead ID this agent is working on (optional)
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -20,6 +21,7 @@ import type { MailMessage } from '../types'
 
 const agentId = process.env.SLASHBOT_AGENT_ID ?? 'unknown'
 const storeDir = process.env.SLASHBOT_STORE_DIR ?? '.slashbot'
+const beadId = process.env.SLASHBOT_BEAD_ID ?? null
 
 // ── File helpers ─────────────────────────────────────────────────────────────
 
@@ -141,7 +143,7 @@ server.tool(
     to: z.string().describe('Recipient agent ID (e.g. "worker-1") or "all" to broadcast'),
     subject: z.string().describe('Short subject line'),
     body: z.string().describe('Message body — be concise and actionable'),
-    thread_id: z.string().optional().describe('Thread ID for grouping messages (defaults to your current bead ID)'),
+    thread_id: z.string().optional().describe('Thread ID for grouping messages (defaults to your current bead ID, or "general" if no bead is active)'),
   },
   async ({ to, subject, body, thread_id }) => {
     const msg: MailMessage = {
@@ -150,8 +152,9 @@ server.tool(
       to,
       subject,
       body,
-      threadId: thread_id ?? 'general',
+      threadId: thread_id ?? beadId ?? 'general',
       read: false,
+      ...(beadId ? { beadId } : {}),
     }
     appendJsonl('mail.jsonl', msg)
     return { content: [{ type: 'text' as const, text: `Message sent to ${to}: "${subject}"` }] }
