@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { RalphConfig, CircuitBreakerSnapshot } from '../types'
+import { atomicWriteSync } from './utils'
 
 export class CircuitBreaker {
   private state: 'CLOSED' | 'HALF_OPEN' | 'OPEN' = 'CLOSED'
@@ -56,7 +57,7 @@ export class CircuitBreaker {
       current_loop: this.currentLoop,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
-    fs.writeFileSync(
+    atomicWriteSync(
       path.join(this.slashbotDir, '.circuit_breaker_state'),
       JSON.stringify(snapshot, null, 2)
     )
@@ -99,13 +100,13 @@ export class CircuitBreaker {
   }
 
   recordError(errorLine: string): void {
-    if (!this.lastErrors.includes(errorLine)) {
-      this.lastErrors.push(errorLine)
-      if (this.lastErrors.length > 10) this.lastErrors.shift()
-    }
-    if (this.lastErrors.length >= 2) {
+    if (this.lastErrors.includes(errorLine)) {
       this.consecutiveSameError++
       this._checkThresholds()
+    } else {
+      this.consecutiveSameError = 0
+      this.lastErrors.push(errorLine)
+      if (this.lastErrors.length > 10) this.lastErrors.shift()
     }
   }
 
