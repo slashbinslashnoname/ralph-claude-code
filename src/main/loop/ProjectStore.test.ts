@@ -55,6 +55,7 @@ describe('ProjectStore', () => {
       expect(paths.knowledge).toBe(path.join(STORE_DIR, 'knowledge.jsonl'))
       expect(paths.agents).toBe(path.join(STORE_DIR, 'agents.json'))
       expect(paths.fileLocks).toBe(path.join(STORE_DIR, 'file_locks.json'))
+      expect(paths.mail).toBe(path.join(STORE_DIR, 'mail.jsonl'))
       expect(paths.configDir).toBe(path.join(STORE_DIR, 'config'))
       expect(paths.worktreesDir).toBe(path.join(PROJECT_PATH, '.worktrees'))
       expect(paths.beadsRoot).toBe(path.join(PROJECT_PATH, '.beads'))

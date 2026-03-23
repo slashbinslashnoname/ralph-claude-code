@@ -39,15 +39,7 @@ interface FileLock {
   reservedAt: string
 }
 
-interface MailMessage {
-  ts: string
-  from: string
-  to: string
-  subject: string
-  body: string
-  threadId: string
-  read: boolean
-}
+import type { MailMessage } from '../types'
 
 interface ActivityEvent {
   ts: string

@@ -24,6 +24,8 @@ export interface ProjectPaths {
   agents: string
   /** ~/.slashbot/projects/<id>/file_locks.json */
   fileLocks: string
+  /** ~/.slashbot/projects/<id>/mail.jsonl */
+  mail: string
   /** ~/.slashbot/projects/<id>/config */
   configDir: string
   /** <projectRoot>/.worktrees */
@@ -54,6 +56,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     knowledge: path.join(storeDir, 'knowledge.jsonl'),
     agents: path.join(storeDir, 'agents.json'),
     fileLocks: path.join(storeDir, 'file_locks.json'),
+    mail: path.join(storeDir, 'mail.jsonl'),
     configDir: path.join(storeDir, 'config'),
     worktreesDir: path.join(absolute, '.worktrees'),
     beadsRoot: path.join(absolute, '.beads'),
