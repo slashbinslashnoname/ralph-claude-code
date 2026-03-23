@@ -219,6 +219,7 @@ export interface MailMessage {
   body: string
   threadId: string
   read: boolean
+  beadId?: string
 }
 
 export interface PlanQueueItem {
