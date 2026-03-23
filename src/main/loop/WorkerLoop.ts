@@ -7,6 +7,7 @@ import { AgentCoordinator } from './AgentCoordinator'
 import { detectApiLimit } from './ResponseAnalyzer'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
+import { ProjectPaths } from './ProjectStore'
 
 /** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
@@ -27,7 +28,7 @@ export class WorkerLoop extends EventEmitter {
   loopCount = 0
   private emptyRetries = 0
   private sessionId?: string
-  private slashbotDir: string
+  private paths: ProjectPaths
   private logDir: string
   private env: NodeJS.ProcessEnv
   private resolvedCmd: string
@@ -39,11 +40,12 @@ export class WorkerLoop extends EventEmitter {
     private agentIndex: number,
     private projectPath: string,
     private config: RalphConfig,
-    private coordinator: AgentCoordinator
+    private coordinator: AgentCoordinator,
+    paths: ProjectPaths
   ) {
     super()
-    this.slashbotDir = path.join(projectPath, '.slashbot')
-    this.logDir = path.join(this.slashbotDir, 'logs')
+    this.paths = paths
+    this.logDir = paths.logsDir
     this.env = buildEnv()
     this.resolvedCmd = resolveCmd(config.claudeCodeCmd, this.env)
     fs.mkdirSync(this.logDir, { recursive: true })
@@ -168,7 +170,7 @@ export class WorkerLoop extends EventEmitter {
     const ctx = createWorkerContext(
       this.agentId,
       this.agentIndex,
-      this.projectPath,
+      this.paths,
       this.config,
       this.coordinator,
       capabilities
@@ -566,7 +568,7 @@ export class WorkerLoop extends EventEmitter {
 
   /** Phase 1: Think deeply before acting. Analyze the bead, understand context, plan approach. */
   private _buildThinkingPrompt(bead: Bead): string {
-    const agentMd = path.join(this.slashbotDir, 'AGENT.md')
+    const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const parentContext = this._buildParentContext(bead)
     const knowledgeContext = this._buildKnowledgeContext(bead.id)
@@ -663,7 +665,7 @@ DO NOT write any implementation code. Analysis only.`
 
   /** Phase 2: Execute with the thinking context */
   private _buildExecutePrompt(bead: Bead, thinkingContext: string): string {
-    const agentMd = path.join(this.slashbotDir, 'AGENT.md')
+    const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(thinkingContext)) : ''
     const parentContext = this._buildParentContext(bead)

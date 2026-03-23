@@ -29,10 +29,13 @@ export class SwarmOrchestrator extends EventEmitter {
   stoppingGracefully = false
   private buildMonitor: BuildMonitor | null = null
 
+  private paths: ReturnType<typeof getProjectPaths>
+
   constructor(private projectPath: string) {
     super()
     const paths = getProjectPaths(projectPath)
     ensureStoreDirs(paths)
+    this.paths = paths
     this.slashbotDir = paths.storeDir
     this.logDir = paths.logsDir
     this.coordinator = new AgentCoordinator(paths)
@@ -133,7 +136,7 @@ export class SwarmOrchestrator extends EventEmitter {
     for (let i = 0; i < n; i++) {
       const agentId = `agent-${i}`
       if (this.workers.has(agentId)) continue
-      const worker = new WorkerLoop(agentId, i, this.projectPath, config, this.coordinator)
+      const worker = new WorkerLoop(agentId, i, this.projectPath, config, this.coordinator, this.paths)
       worker.on('log', (level: string, msg: string) => this._log(level, msg, agentId))
       worker.on('output', (chunk: string) => {
         this._bufferOutput(agentId, chunk)

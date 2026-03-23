@@ -9,6 +9,7 @@ import * as cp from 'child_process'
 import { EventEmitter } from 'events'
 import { RalphConfig, Bead, AgentPhase } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
+import { ProjectPaths } from './ProjectStore'
 
 // ── State identifiers ─────────────────────────────────────────────────
 
@@ -30,8 +31,8 @@ export interface WorkerContext {
   agentId: string
   /** Numeric index of this agent */
   agentIndex: number
-  /** Project root path */
-  projectPath: string
+  /** Resolved project paths (centralized storage) */
+  paths: ProjectPaths
   /** Resolved configuration */
   config: RalphConfig
   /** Agent coordinator for bead ops, activity, file locks, worktrees */
@@ -219,7 +220,7 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
  */
 export async function thinking(ctx: WorkerContext): Promise<StateId> {
   const bead = ctx.currentBead!
-  const workDir = ctx.worktreePath ?? ctx.projectPath
+  const workDir = ctx.worktreePath ?? ctx.paths.projectRoot
 
   setPhase(ctx, 'thinking', bead.id, bead.title)
   log(ctx, 'INFO', `[${ctx.agentId}] Thinking: analyzing bead before implementing…`)
@@ -279,7 +280,7 @@ export async function thinking(ctx: WorkerContext): Promise<StateId> {
  */
 export async function executing(ctx: WorkerContext): Promise<StateId> {
   const bead = ctx.currentBead!
-  const workDir = ctx.worktreePath ?? ctx.projectPath
+  const workDir = ctx.worktreePath ?? ctx.paths.projectRoot
 
   setPhase(ctx, 'executing', bead.id, bead.title)
   log(ctx, 'INFO', `[${ctx.agentId}] Executing bead…`)
@@ -320,7 +321,7 @@ export async function executing(ctx: WorkerContext): Promise<StateId> {
  */
 export async function reviewing(ctx: WorkerContext): Promise<StateId> {
   const bead = ctx.currentBead!
-  const workDir = ctx.worktreePath ?? ctx.projectPath
+  const workDir = ctx.worktreePath ?? ctx.paths.projectRoot
 
   setPhase(ctx, 'reviewing', bead.id, bead.title)
   log(ctx, 'INFO', `[${ctx.agentId}] Review: fresh-eyes pass…`)
@@ -526,7 +527,7 @@ export async function runStateMachine(ctx: WorkerContext): Promise<StateId> {
 export function createWorkerContext(
   agentId: string,
   agentIndex: number,
-  projectPath: string,
+  paths: ProjectPaths,
   config: RalphConfig,
   coordinator: AgentCoordinator,
   capabilities: WorkerCapabilities
@@ -534,7 +535,7 @@ export function createWorkerContext(
   return {
     agentId,
     agentIndex,
-    projectPath,
+    paths,
     config,
     coordinator,
     currentBead: null,

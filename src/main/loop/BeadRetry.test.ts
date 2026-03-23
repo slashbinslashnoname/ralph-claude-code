@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 
 import * as fs from 'fs'
@@ -6,6 +6,8 @@ import * as os from 'os'
 import * as path from 'path'
 import { WorkerLoop } from './WorkerLoop'
 import { DEFAULT_CONFIG, validateConfig, parseRcFile } from './RcParser'
+import { ProjectPaths } from './ProjectStore'
+
 
 // Minimal mock coordinator with bd state tracking
 function makeMockCoordinator() {
@@ -43,13 +45,38 @@ describe('Bead retry helpers', () => {
   let worker: WorkerLoop
   let coordinator: ReturnType<typeof makeMockCoordinator>
 
+  let tmpDir: string
+
   beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bead-retry-test-'))
     coordinator = makeMockCoordinator()
+    const logsDir = path.join(tmpDir, 'logs')
+    const paths: ProjectPaths = {
+      id: 'test-id',
+      projectRoot: '/tmp/test-project',
+      storeDir: tmpDir,
+      logsDir,
+      circuitBreakerState: path.join(tmpDir, '.circuit_breaker_state'),
+      callCount: path.join(tmpDir, '.call_count'),
+      activity: path.join(tmpDir, 'activity.jsonl'),
+      knowledge: path.join(tmpDir, 'knowledge.jsonl'),
+      agents: path.join(tmpDir, 'agents.json'),
+      fileLocks: path.join(tmpDir, 'file_locks.json'),
+      configDir: path.join(tmpDir, 'config'),
+      worktreesDir: '/tmp/test-project/.worktrees',
+      beadsRoot: '/tmp/test-project/.beads',
+      agentMd: path.join(tmpDir, 'config', 'AGENT.md'),
+    }
     worker = new (WorkerLoop as any)(
       'agent-0', 0, '/tmp/test-project',
       { ...DEFAULT_CONFIG, maxRetries: 2 },
-      coordinator as any
+      coordinator as any,
+      paths
     )
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
   describe('_getBeadAttempt', () => {

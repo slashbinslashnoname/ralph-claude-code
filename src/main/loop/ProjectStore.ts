@@ -30,6 +30,8 @@ export interface ProjectPaths {
   worktreesDir: string
   /** <projectRoot>/.beads */
   beadsRoot: string
+  /** ~/.slashbot/projects/<id>/config/AGENT.md */
+  agentMd: string
 }
 
 function slashbotHome(): string {
@@ -55,6 +57,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     configDir: path.join(storeDir, 'config'),
     worktreesDir: path.join(absolute, '.worktrees'),
     beadsRoot: path.join(absolute, '.beads'),
+    agentMd: path.join(storeDir, 'config', 'AGENT.md'),
   }
 }
 

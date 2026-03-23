@@ -19,6 +19,7 @@ import {
   STATE_TABLE
 } from './WorkerStateMachine'
 import { RalphConfig, Bead } from '../types'
+import { ProjectPaths } from './ProjectStore'
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -125,11 +126,31 @@ function makeCoordinator() {
   } as any
 }
 
+function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
+  return {
+    id: 'test-id',
+    projectRoot: '/tmp/test-project',
+    storeDir: '/home/user/.slashbot/projects/test-id',
+    logsDir: '/home/user/.slashbot/projects/test-id/logs',
+    circuitBreakerState: '/home/user/.slashbot/projects/test-id/.circuit_breaker_state',
+    callCount: '/home/user/.slashbot/projects/test-id/.call_count',
+    activity: '/home/user/.slashbot/projects/test-id/activity.jsonl',
+    knowledge: '/home/user/.slashbot/projects/test-id/knowledge.jsonl',
+    agents: '/home/user/.slashbot/projects/test-id/agents.json',
+    fileLocks: '/home/user/.slashbot/projects/test-id/file_locks.json',
+    configDir: '/home/user/.slashbot/projects/test-id/config',
+    worktreesDir: '/tmp/test-project/.worktrees',
+    beadsRoot: '/tmp/test-project/.beads',
+    agentMd: '/home/user/.slashbot/projects/test-id/config/AGENT.md',
+    ...overrides
+  }
+}
+
 function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
   return {
     agentId: 'agent-0',
     agentIndex: 0,
-    projectPath: '/tmp/test-project',
+    paths: makePaths(),
     config: makeConfig(),
     coordinator: makeCoordinator(),
     currentBead: null,
@@ -159,7 +180,7 @@ describe('WorkerStateMachine', () => {
     it('creates a context with default values', () => {
       const caps = makeCapabilities()
       const coord = makeCoordinator()
-      const ctx = createWorkerContext('agent-0', 0, '/tmp', makeConfig(), coord, caps)
+      const ctx = createWorkerContext('agent-0', 0, makePaths(), makeConfig(), coord, caps)
       expect(ctx.agentId).toBe('agent-0')
       expect(ctx.currentBead).toBeNull()
       expect(ctx.flags.stopped).toBe(false)
@@ -272,7 +293,7 @@ describe('WorkerStateMachine', () => {
       const next = await thinking(ctx)
 
       expect(next).toBe('executing')
-      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('think prompt', 'think', ctx.projectPath, 'sonnet')
+      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('think prompt', 'think', ctx.paths.projectRoot, 'sonnet')
       expect(ctx.thinkingOutput).toBe('output')
       expect(ctx.coordinator.postActivity).toHaveBeenCalledWith(expect.objectContaining({ type: 'thinking' }))
     })
@@ -360,7 +381,7 @@ describe('WorkerStateMachine', () => {
       const next = await executing(ctx)
 
       expect(next).toBe('reviewing')
-      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('exec prompt', 'execute', ctx.projectPath, 'opus')
+      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('exec prompt', 'execute', ctx.paths.projectRoot, 'opus')
     })
 
     it('sets executeFailed and transitions to merging on error', async () => {
@@ -424,7 +445,7 @@ describe('WorkerStateMachine', () => {
       const next = await reviewing(ctx)
 
       expect(next).toBe('merging')
-      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('review prompt', 'review', ctx.projectPath, 'sonnet')
+      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('review prompt', 'review', ctx.paths.projectRoot, 'sonnet')
     })
 
     it('transitions to merging even if review fails', async () => {
@@ -722,12 +743,12 @@ describe('WorkerStateMachine', () => {
       )
     })
 
-    it('uses projectPath for Claude calls when no worktree', async () => {
+    it('uses projectRoot for Claude calls when no worktree', async () => {
       const caps = makeCapabilities()
       const ctx = makeCtx({
         currentBead: makeBead(),
         worktreePath: null,
-        projectPath: '/my/project',
+        paths: makePaths({ projectRoot: '/my/project' }),
         capabilities: caps
       })
 

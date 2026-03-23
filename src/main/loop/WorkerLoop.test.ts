@@ -4,6 +4,7 @@ import * as cp from 'child_process'
 import { EventEmitter } from 'events'
 import { WorkerLoop } from './WorkerLoop'
 import { RalphConfig, Bead, SplitDecision } from '../types'
+import { ProjectPaths } from './ProjectStore'
 
 const mockProcesses: any[] = []
 
@@ -82,6 +83,26 @@ function makeBead(overrides: Partial<Bead> = {}): Bead {
   }
 }
 
+function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
+  return {
+    id: 'test-id',
+    projectRoot: '/project',
+    storeDir: '/home/user/.slashbot/projects/test-id',
+    logsDir: '/home/user/.slashbot/projects/test-id/logs',
+    circuitBreakerState: '/home/user/.slashbot/projects/test-id/.circuit_breaker_state',
+    callCount: '/home/user/.slashbot/projects/test-id/.call_count',
+    activity: '/home/user/.slashbot/projects/test-id/activity.jsonl',
+    knowledge: '/home/user/.slashbot/projects/test-id/knowledge.jsonl',
+    agents: '/home/user/.slashbot/projects/test-id/agents.json',
+    fileLocks: '/home/user/.slashbot/projects/test-id/file_locks.json',
+    configDir: '/home/user/.slashbot/projects/test-id/config',
+    worktreesDir: '/project/.worktrees',
+    beadsRoot: '/project/.beads',
+    agentMd: '/home/user/.slashbot/projects/test-id/config/AGENT.md',
+    ...overrides
+  }
+}
+
 function makeCoordinator() {
   return {
     registerAgent: vi.fn(),
@@ -130,7 +151,7 @@ describe('WorkerLoop', () => {
   })
 
   it('can be constructed without errors', () => {
-    const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+    const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
     expect(worker).toBeDefined()
     expect(worker.running).toBe(false)
     expect(worker.stopped).toBe(false)
@@ -138,14 +159,14 @@ describe('WorkerLoop', () => {
   })
 
   it('creates log directory on construction', () => {
-    new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
-    expect(fs.mkdirSync).toHaveBeenCalledWith('/project/.slashbot/logs', { recursive: true })
+    new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+    expect(fs.mkdirSync).toHaveBeenCalledWith('/home/user/.slashbot/projects/test-id/logs', { recursive: true })
   })
 
   describe('stop', () => {
     it('sets stopped and running flags', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.stop()
       expect(worker.stopped).toBe(true)
@@ -154,7 +175,7 @@ describe('WorkerLoop', () => {
 
     it('releases file locks and posts stopped activity', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.stop()
       expect(coord.releaseAllForAgent).toHaveBeenCalledWith('agent-0')
       expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
@@ -167,7 +188,7 @@ describe('WorkerLoop', () => {
   describe('gracefulStop', () => {
     it('sets stopped without killing process', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.gracefulStop()
       expect(worker.stopped).toBe(true)
@@ -183,7 +204,7 @@ describe('WorkerLoop', () => {
     it('sets paused flag and posts activity', () => {
       const coord = makeCoordinator()
       coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.pause()
       expect(worker.paused).toBe(true)
@@ -197,7 +218,7 @@ describe('WorkerLoop', () => {
     it('is idempotent — second call is no-op', () => {
       const coord = makeCoordinator()
       coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.pause()
       const callCount = coord.postActivity.mock.calls.length
@@ -207,7 +228,7 @@ describe('WorkerLoop', () => {
 
     it('does nothing when stopped', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.stopped = true
       worker.pause()
       expect(worker.paused).toBe(false)
@@ -218,7 +239,7 @@ describe('WorkerLoop', () => {
     it('clears paused flag and posts activity', () => {
       const coord = makeCoordinator()
       coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.pause()
       worker.resume()
@@ -231,7 +252,7 @@ describe('WorkerLoop', () => {
 
     it('is no-op when not paused', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.resume()
       expect(coord.postActivity).not.toHaveBeenCalledWith(expect.objectContaining({
         type: 'resumed'
@@ -243,7 +264,7 @@ describe('WorkerLoop', () => {
     it('auto-resumes before stopping', () => {
       const coord = makeCoordinator()
       coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.pause()
       expect(worker.paused).toBe(true)
@@ -257,7 +278,7 @@ describe('WorkerLoop', () => {
     it('clears paused flag', () => {
       const coord = makeCoordinator()
       coord.getAgents = vi.fn(() => [{ id: 'agent-0', phase: 'executing' }])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       worker.pause()
       worker.stop()
@@ -268,27 +289,27 @@ describe('WorkerLoop', () => {
 
   describe('_backoffMs', () => {
     it('returns 3000ms for attempt 0', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       expect(worker._backoffMs(0)).toBe(3000)
     })
 
     it('returns 6000ms for attempt 1', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       expect(worker._backoffMs(1)).toBe(6000)
     })
 
     it('returns 12000ms for attempt 2', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       expect(worker._backoffMs(2)).toBe(12000)
     })
 
     it('returns 24000ms for attempt 3', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       expect(worker._backoffMs(3)).toBe(24000)
     })
 
     it('caps at 60000ms', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       expect(worker._backoffMs(10)).toBe(60000)
       expect(worker._backoffMs(100)).toBe(60000)
     })
@@ -298,21 +319,21 @@ describe('WorkerLoop', () => {
     it('returns 0 when no state set', () => {
       const coord = makeCoordinator()
       coord.bd.getState.mockReturnValue('')
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       expect(worker._getBeadAttempt('sb-abc')).toBe(0)
     })
 
     it('parses stored attempt number', () => {
       const coord = makeCoordinator()
       coord.bd.getState.mockReturnValue('3')
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       expect(worker._getBeadAttempt('sb-abc')).toBe(3)
     })
 
     it('returns 0 for NaN state', () => {
       const coord = makeCoordinator()
       coord.bd.getState.mockReturnValue('not-a-number')
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       expect(worker._getBeadAttempt('sb-abc')).toBe(0)
     })
   })
@@ -321,7 +342,7 @@ describe('WorkerLoop', () => {
     it('increments from 0 to 1', () => {
       const coord = makeCoordinator()
       coord.bd.getState.mockReturnValue('')
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker._incrementBeadAttempt('sb-abc')
       expect(coord.bd.setState).toHaveBeenCalledWith('sb-abc', 'retry_attempt', '1', 'Retry after failure')
     })
@@ -329,7 +350,7 @@ describe('WorkerLoop', () => {
     it('increments existing value', () => {
       const coord = makeCoordinator()
       coord.bd.getState.mockReturnValue('2')
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker._incrementBeadAttempt('sb-abc')
       expect(coord.bd.setState).toHaveBeenCalledWith('sb-abc', 'retry_attempt', '3', 'Retry after failure')
     })
@@ -343,7 +364,7 @@ describe('WorkerLoop', () => {
         coord.claimBestBead.mockResolvedValue(null)
         coord.hasOpenWork.mockReturnValue(false)
 
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         const exitPromise = new Promise<string>(resolve => worker.on('exit', resolve))
         const startPromise = worker.start()
@@ -373,7 +394,7 @@ describe('WorkerLoop', () => {
 
     it('does not start if already running', async () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker.running = true
       await worker.start()
       expect(coord.registerAgent).not.toHaveBeenCalled()
@@ -386,7 +407,7 @@ describe('WorkerLoop', () => {
         coord.claimBestBead.mockResolvedValue(null)
         coord.hasOpenWork.mockReturnValue(false)
 
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
         const startPromise = worker.start()
 
         for (let i = 0; i < 60; i++) {
@@ -416,7 +437,7 @@ describe('WorkerLoop', () => {
         })
         coord.hasOpenWork.mockReturnValue(true)
 
-        worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
         const startPromise = worker.start()
 
         for (let i = 0; i < 80; i++) {
@@ -434,7 +455,7 @@ describe('WorkerLoop', () => {
   describe('heartbeat emission', () => {
     it('emits heartbeat on _setPhase', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const heartbeats: number[] = []
       worker.on('heartbeat', () => heartbeats.push(Date.now()))
       ;(worker as any)._setPhase('thinking', 'sb-abc', 'Test bead')
@@ -443,7 +464,7 @@ describe('WorkerLoop', () => {
 
     it('emits heartbeat on stdout data during _runClaude', async () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const heartbeats: number[] = []
       worker.on('heartbeat', () => heartbeats.push(Date.now()))
 
@@ -465,7 +486,7 @@ describe('WorkerLoop', () => {
 
   describe('_extractThinkingSummary (via integration)', () => {
     it('extracts structured sections from thinking output', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const summary = (worker as any)._extractThinkingSummary(
         '### Understanding\nThis bead requires X\n\n### Approach\nStep 1: do Y\n\nSome other text'
       )
@@ -476,14 +497,14 @@ describe('WorkerLoop', () => {
     })
 
     it('falls back to tail of output when no structured sections found', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const text = 'Just some unstructured output about the analysis'
       const summary = (worker as any)._extractThinkingSummary(text)
       expect(summary).toBe(text)
     })
 
     it('truncates summary to 2000 chars', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const longText = '### Understanding\n' + 'x'.repeat(3000)
       const summary = (worker as any)._extractThinkingSummary(longText)
       expect(summary.length).toBeLessThanOrEqual(2000)
@@ -492,7 +513,7 @@ describe('WorkerLoop', () => {
 
   describe('_buildThinkingPrompt split analysis section', () => {
     it('includes Split Analysis section with JSON schema', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       expect(prompt).toContain('### Split Analysis')
       expect(prompt).toContain('"shouldSplit"')
@@ -501,7 +522,7 @@ describe('WorkerLoop', () => {
     })
 
     it('Split Analysis section appears after Test strategy', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       const testIdx = prompt.indexOf('### Test strategy')
       const splitIdx = prompt.indexOf('### Split Analysis')
@@ -510,7 +531,7 @@ describe('WorkerLoop', () => {
     })
 
     it('Split Analysis schema includes title, description, files, dependsOn for children', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       expect(prompt).toContain('"title"')
       expect(prompt).toContain('"description"')
@@ -521,7 +542,7 @@ describe('WorkerLoop', () => {
 
   describe('_extractThinkingSummary with Split Analysis', () => {
     it('captures Split Analysis section from thinking output', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const input = [
         '### Understanding',
         'This bead does X',
@@ -553,7 +574,7 @@ describe('WorkerLoop', () => {
     })
 
     it('captures Split Analysis with no-split JSON', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const input = [
         '### Understanding',
         'Simple change',
@@ -569,7 +590,7 @@ describe('WorkerLoop', () => {
     })
 
     it('preserves empty lines inside fenced code blocks', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const input = [
         '### Split Analysis',
         '```json',
@@ -586,7 +607,7 @@ describe('WorkerLoop', () => {
 
   describe('prompt building', () => {
     it('_buildThinkingPrompt includes bead details', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const bead = makeBead({ id: 'sb-xyz', title: 'Fix login bug', description: 'Auth fails on edge case' })
       const prompt = (worker as any)._buildThinkingPrompt(bead)
       expect(prompt).toContain('sb-xyz')
@@ -597,7 +618,7 @@ describe('WorkerLoop', () => {
     })
 
     it('_buildThinkingPrompt includes files list', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const bead = makeBead({ files: ['src/auth.ts', 'src/login.ts'] })
       const prompt = (worker as any)._buildThinkingPrompt(bead)
       expect(prompt).toContain('src/auth.ts')
@@ -610,13 +631,13 @@ describe('WorkerLoop', () => {
       )
       ;(fs.readFileSync as any).mockReturnValue('## Test\nnpm test')
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       expect(prompt).toContain('npm test')
     })
 
     it('_buildExecutePrompt includes thinking summary', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const bead = makeBead()
       const thinkingCtx = '### Understanding\nWe need to fix X\n\n### Approach\nModify file Y'
       const prompt = (worker as any)._buildExecutePrompt(bead, thinkingCtx)
@@ -626,14 +647,14 @@ describe('WorkerLoop', () => {
     })
 
     it('_buildExecutePrompt works with empty thinking context', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
       expect(prompt).toContain('sb-abc')
       expect(prompt).not.toContain('prior analysis')
     })
 
     it('_buildReviewPrompt references bead', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildReviewPrompt(makeBead({ id: 'sb-rev', title: 'Review me' }))
       expect(prompt).toContain('sb-rev')
       expect(prompt).toContain('Review me')
@@ -645,7 +666,7 @@ describe('WorkerLoop', () => {
   describe('_buildParentContext', () => {
     it('returns empty string when bead has no epicId or deps', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildParentContext(makeBead({ epicId: undefined, deps: [] }))
       expect(result).toBe('')
     })
@@ -656,7 +677,7 @@ describe('WorkerLoop', () => {
         if (id === 'sb-epic') return makeBead({ id: 'sb-epic', title: 'Big Feature', description: 'The overarching goal', type: 'epic' })
         return null
       })
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildParentContext(makeBead({ epicId: 'sb-epic' }))
       expect(result).toContain('Parent epic')
       expect(result).toContain('sb-epic')
@@ -667,7 +688,7 @@ describe('WorkerLoop', () => {
     it('handles bd.show failure gracefully for parent', () => {
       const coord = makeCoordinator()
       coord.bd.show.mockImplementation(() => { throw new Error('bd failed') })
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildParentContext(makeBead({ epicId: 'sb-epic' }))
       expect(result).toBe('')
     })
@@ -679,7 +700,7 @@ describe('WorkerLoop', () => {
         if (id === 'sb-dep2') return makeBead({ id: 'sb-dep2', title: 'Add auth', status: 'claimed' })
         return null
       })
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildParentContext(makeBead({ deps: ['sb-dep1', 'sb-dep2'] }))
       expect(result).toContain('Dependencies')
       expect(result).toContain('sb-dep1')
@@ -693,7 +714,7 @@ describe('WorkerLoop', () => {
     it('handles bd.show failure gracefully for deps', () => {
       const coord = makeCoordinator()
       coord.bd.show.mockImplementation(() => { throw new Error('bd failed') })
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       // Should not throw, just skip
       const result = (worker as any)._buildParentContext(makeBead({ deps: ['sb-dep1'] }))
       expect(result).toBe('')
@@ -704,7 +725,7 @@ describe('WorkerLoop', () => {
     it('returns empty string when no knowledge entries', () => {
       const coord = makeCoordinator()
       coord.readKnowledge.mockReturnValue([])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildKnowledgeContext('sb-abc')
       expect(result).toBe('')
     })
@@ -715,7 +736,7 @@ describe('WorkerLoop', () => {
         { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'gotcha', summary: 'Watch out for circular imports', detail: '', confidence: 'high' },
         { ts: '2026-01-01', agentId: 'agent-2', beadId: 'sb-2', category: 'pattern', summary: 'Use factory pattern for services', detail: '', confidence: 'medium' }
       ])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildKnowledgeContext('sb-abc')
       expect(result).toContain('Collective Knowledge')
       expect(result).toContain('**gotcha**')
@@ -732,7 +753,7 @@ describe('WorkerLoop', () => {
         { ts: '2026-01-01', agentId: 'agent-0', beadId: 'sb-other', category: 'pattern', summary: 'Self entry different bead', detail: '', confidence: 'high' },
         { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-abc', category: 'risk', summary: 'Other agent same bead', detail: '', confidence: 'high' }
       ])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildKnowledgeContext('sb-abc')
       expect(result).not.toContain('Self entry same bead')
       expect(result).toContain('Self entry different bead')
@@ -746,7 +767,7 @@ describe('WorkerLoop', () => {
         category: 'pattern', summary: `Entry ${i}`, detail: '', confidence: 'high'
       }))
       coord.readKnowledge.mockReturnValue(entries)
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = (worker as any)._buildKnowledgeContext('sb-abc')
       // Should contain entries 10-29 (last 20)
       const bulletCount = (result.match(/^- \*\*/gm) || []).length
@@ -756,7 +777,7 @@ describe('WorkerLoop', () => {
 
   describe('_buildThinkingPrompt Discoveries section', () => {
     it('includes ### Discoveries section with format instructions', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       expect(prompt).toContain('### Discoveries')
       expect(prompt).toContain('**category** (confidence)')
@@ -764,7 +785,7 @@ describe('WorkerLoop', () => {
     })
 
     it('Discoveries section appears before Split Analysis', () => {
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       const discoveriesIdx = prompt.indexOf('### Discoveries')
       const splitIdx = prompt.indexOf('### Split Analysis')
@@ -777,7 +798,7 @@ describe('WorkerLoop', () => {
       coord.readKnowledge.mockReturnValue([
         { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'convention', summary: 'Use snake_case', detail: '', confidence: 'high' }
       ])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       expect(prompt).toContain('## Collective Knowledge')
       expect(prompt).toContain('Use snake_case')
@@ -787,7 +808,7 @@ describe('WorkerLoop', () => {
   describe('_extractKnowledge', () => {
     it('extracts valid discoveries and posts them', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const input = [
         '### Discoveries',
         '- **gotcha** (high): Circular imports in auth module',
@@ -809,7 +830,7 @@ describe('WorkerLoop', () => {
 
     it('does nothing when "None." is the response', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const input = '### Discoveries\nNone.\n\n### Split Analysis'
       worker._extractKnowledge(input, 'sb-abc')
       expect(coord.postKnowledge).not.toHaveBeenCalled()
@@ -817,14 +838,14 @@ describe('WorkerLoop', () => {
 
     it('does nothing when ### Discoveries section is missing', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker._extractKnowledge('### Understanding\nSome analysis', 'sb-abc')
       expect(coord.postKnowledge).not.toHaveBeenCalled()
     })
 
     it('skips entries with invalid category', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const input = '### Discoveries\n- **invalid** (high): Some finding'
       worker._extractKnowledge(input, 'sb-abc')
       expect(coord.postKnowledge).not.toHaveBeenCalled()
@@ -832,7 +853,7 @@ describe('WorkerLoop', () => {
 
     it('skips entries with invalid confidence', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const input = '### Discoveries\n- **gotcha** (extreme): Some finding'
       worker._extractKnowledge(input, 'sb-abc')
       expect(coord.postKnowledge).not.toHaveBeenCalled()
@@ -840,7 +861,7 @@ describe('WorkerLoop', () => {
 
     it('processes good entries and skips malformed ones', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const input = [
         '### Discoveries',
         '- **gotcha** (high): Valid finding',
@@ -853,7 +874,7 @@ describe('WorkerLoop', () => {
 
     it('stops parsing at next heading', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const input = [
         '### Discoveries',
         '- **gotcha** (high): Before heading',
@@ -870,7 +891,7 @@ describe('WorkerLoop', () => {
 
   describe('_parseSplitDecision', () => {
     function makeWorker(overrides: Partial<RalphConfig> = {}) {
-      return new WorkerLoop('agent-0', 0, '/project', makeConfig(overrides), makeCoordinator())
+      return new WorkerLoop('agent-0', 0, '/project', makeConfig(overrides), makeCoordinator(), makePaths())
     }
 
     const validJson = JSON.stringify({
@@ -996,7 +1017,7 @@ describe('WorkerLoop', () => {
         if (id === 'sb-epic') return makeBead({ id: 'sb-epic', title: 'Epic Goal', type: 'epic' })
         return null
       })
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead({ epicId: 'sb-epic' }))
       expect(prompt).toContain('Parent epic')
       expect(prompt).toContain('Epic Goal')
@@ -1007,7 +1028,7 @@ describe('WorkerLoop', () => {
       coord.readKnowledge.mockReturnValue([
         { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'convention', summary: 'Use camelCase', detail: '', confidence: 'high' }
       ])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
       expect(prompt).toContain('Collective Knowledge')
       expect(prompt).toContain('Use camelCase')
@@ -1019,7 +1040,7 @@ describe('WorkerLoop', () => {
         if (id === 'sb-epic') return makeBead({ id: 'sb-epic', title: 'Epic Goal', type: 'epic' })
         return null
       })
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const prompt = (worker as any)._buildExecutePrompt(makeBead({ epicId: 'sb-epic' }), '')
       expect(prompt).toContain('Parent epic')
       expect(prompt).toContain('Epic Goal')
@@ -1030,7 +1051,7 @@ describe('WorkerLoop', () => {
       coord.readKnowledge.mockReturnValue([
         { ts: '2026-01-01', agentId: 'agent-1', beadId: 'sb-1', category: 'risk', summary: 'Avoid direct fs writes', detail: '', confidence: 'low' }
       ])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
       expect(prompt).toContain('Collective Knowledge')
       expect(prompt).toContain('Avoid direct fs writes')
@@ -1040,7 +1061,7 @@ describe('WorkerLoop', () => {
     it('prompts are unchanged when no parent or knowledge exists', () => {
       const coord = makeCoordinator()
       coord.readKnowledge.mockReturnValue([])
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const thinkingPrompt = (worker as any)._buildThinkingPrompt(makeBead())
       const executePrompt = (worker as any)._buildExecutePrompt(makeBead(), '')
       expect(thinkingPrompt).not.toContain('Parent epic')
@@ -1073,7 +1094,7 @@ describe('WorkerLoop', () => {
       })
       coord.bd.show.mockReturnValue(makeBead({ id: 'sb-child-1', title: 'Child A', status: 'claimed' }))
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const bead = makeBead({ id: 'sb-parent' })
       const decision = makeDecision({ beadId: 'sb-parent' })
       const result = await (worker as any)._splitBead(bead, decision)
@@ -1116,7 +1137,7 @@ describe('WorkerLoop', () => {
         return makeBead({ id: `sb-child-${callCount}`, title: 'Child' })
       })
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = await (worker as any)._splitBead(makeBead(), makeDecision())
 
       expect(result).toBeNull()
@@ -1135,7 +1156,7 @@ describe('WorkerLoop', () => {
       })
       coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1', status: 'claimed' }))
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const decision = makeDecision({
         children: [
           { title: 'A', description: 'First', files: [], deps: [] },
@@ -1162,7 +1183,7 @@ describe('WorkerLoop', () => {
       })
       coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1' }))
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       await (worker as any)._splitBead(makeBead({ id: 'sb-orig', title: 'Original' }), makeDecision({ beadId: 'sb-orig' }))
 
       expect(coord.postActivity).toHaveBeenCalledWith(expect.objectContaining({
@@ -1182,7 +1203,7 @@ describe('WorkerLoop', () => {
       })
       coord.bd.show.mockReturnValue(null)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const result = await (worker as any)._splitBead(makeBead(), makeDecision())
 
       expect(result).toBeNull()
@@ -1195,7 +1216,7 @@ describe('WorkerLoop', () => {
       coord.bd.createAsync.mockImplementation(async (opts: any) => makeBead({ id: 'sb-c1', ...opts }))
       coord.bd.show.mockReturnValue(makeBead({ id: 'sb-c1' }))
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       await (worker as any)._splitBead(makeBead({ priority: 1 }), makeDecision())
 
       expect(coord.bd.createAsync).toHaveBeenCalledWith(expect.objectContaining({ priority: 1 }))
@@ -1205,7 +1226,7 @@ describe('WorkerLoop', () => {
   describe('auto-split integration in _loop', () => {
     it('calls _parseSplitDecision with thinking output and bead', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord, makePaths())
 
       const bead = makeBead({ id: 'sb-orig', tags: [] })
       const thinkingOutput = `
@@ -1231,7 +1252,7 @@ describe('WorkerLoop', () => {
 
     it('_parseSplitDecision returns null for empty thinking output', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const bead = makeBead({ tags: [] })
 
       const result = (worker as any)._parseSplitDecision('', bead)
@@ -1247,7 +1268,7 @@ describe('WorkerLoop', () => {
       })
       coord.bd.show.mockImplementation((id: string) => makeBead({ id, title: 'Child A' }))
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const originalBead = makeBead({ id: 'sb-orig', title: 'Original' })
       const decision: SplitDecision = {
         beadId: 'sb-orig',
@@ -1283,7 +1304,7 @@ describe('WorkerLoop', () => {
       const coord = makeCoordinator()
       coord.bd.createAsync.mockRejectedValue(new Error('bd failed'))
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const originalBead = makeBead({ id: 'sb-orig', title: 'Original', tags: [] })
       const decision: SplitDecision = {
         beadId: 'sb-orig',
@@ -1307,7 +1328,7 @@ describe('WorkerLoop', () => {
 
     it('_parseSplitDecision skips beads with auto-split tag (prevents recursive split)', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord, makePaths())
 
       const bead = makeBead({ tags: ['auto-split'] })
       const thinkingOutput = `
@@ -1337,7 +1358,7 @@ describe('WorkerLoop', () => {
         return p as any
       })
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const runClaude = (worker as any)._runClaude.bind(worker)
 
       // Think phase: model = sonnet
@@ -1383,7 +1404,7 @@ describe('WorkerLoop', () => {
         claudeModelThink: 'haiku',
         claudeModelExecute: 'sonnet',
         claudeModelReview: 'haiku'
-      }), makeCoordinator())
+      }), makeCoordinator(), makePaths())
       const runClaude = (worker as any)._runClaude.bind(worker)
 
       // Think with haiku
@@ -1417,7 +1438,7 @@ describe('WorkerLoop', () => {
         return p as any
       })
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator())
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const runClaude = (worker as any)._runClaude.bind(worker)
 
       // No model argument (like probe call)
@@ -1472,7 +1493,7 @@ describe('WorkerLoop', () => {
       // Track which prompts _runClaude receives
       const runClaudePrompts: { label: string; prompt: string }[] = []
 
-      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord)
+      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 2 }), coord, makePaths())
 
       // Mock _runClaude to capture prompts and return controlled output
       ;(worker as any)._runClaude = vi.fn(async (prompt: string, label: string) => {
@@ -1518,7 +1539,7 @@ describe('WorkerLoop', () => {
 
       const runClaudePrompts: { label: string; prompt: string }[] = []
 
-      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 3 }), coord)
+      worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ autoSplitThreshold: 3 }), coord, makePaths())
 
       ;(worker as any)._runClaude = vi.fn(async (prompt: string, label: string) => {
         runClaudePrompts.push({ label, prompt })
@@ -1565,7 +1586,7 @@ describe('WorkerLoop', () => {
     describe('_extractKnowledge', () => {
       it('parses well-formatted discoveries and posts them to coordinator', () => {
         const coord = makeCoordinator()
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         const raw = `### Understanding
 Some analysis here.
@@ -1602,7 +1623,7 @@ No split needed.`
 
       it('returns empty for "None." discoveries', () => {
         const coord = makeCoordinator()
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         const raw = `### Discoveries
 None.
@@ -1615,7 +1636,7 @@ None.
 
       it('returns empty when no Discoveries heading exists', () => {
         const coord = makeCoordinator()
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         worker._extractKnowledge('### Understanding\nSome text.', 'sb-abc')
         expect(coord.postKnowledge).not.toHaveBeenCalled()
@@ -1623,7 +1644,7 @@ None.
 
       it('skips entries with invalid categories', () => {
         const coord = makeCoordinator()
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         const raw = `### Discoveries
 - **invalid_cat** (high): Should be skipped
@@ -1638,7 +1659,7 @@ None.
 
       it('skips entries with invalid confidence levels', () => {
         const coord = makeCoordinator()
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         const raw = `### Discoveries
 - **pattern** (extreme): Bad confidence
@@ -1654,7 +1675,7 @@ None.
 
       it('skips entries with empty summary when at end of section', () => {
         const coord = makeCoordinator()
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
 
         const raw = `### Discoveries
 - **gotcha** (medium): Actual content
@@ -1680,7 +1701,7 @@ None.
         ])
         vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
 
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
         const prompt = (worker as any)._buildThinkingPrompt(makeBead())
 
         expect(prompt).toContain('## Collective Knowledge')
@@ -1693,7 +1714,7 @@ None.
         coord.readKnowledge.mockReturnValue([])
         vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
 
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
         const prompt = (worker as any)._buildThinkingPrompt(makeBead())
 
         expect(prompt).not.toContain('## Collective Knowledge')
@@ -1709,7 +1730,7 @@ None.
         ])
         vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
 
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
         const prompt = (worker as any)._buildThinkingPrompt(makeBead({ id: 'sb-abc' }))
 
         expect(prompt).not.toContain('My own finding for this bead')
@@ -1723,7 +1744,7 @@ None.
         ])
         vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
 
-        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+        const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
         const prompt = (worker as any)._buildThinkingPrompt(makeBead({ id: 'sb-abc' }))
 
         expect(prompt).toContain('Finding from my other bead')
@@ -1747,7 +1768,7 @@ None.
         vi.mocked(cp.execSync).mockReturnValue(Buffer.from('feat/electron'))
 
         // Agent-0 extracts knowledge from thinking output
-        const worker0 = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord0)
+        const worker0 = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord0, makePaths())
         const thinkingOutput = `### Discoveries
 - **convention** (high): All test files use .test.ts suffix
 - **dependency** (medium): WorkerLoop depends on AgentCoordinator for file locks`
@@ -1757,7 +1778,7 @@ None.
         expect(knowledgeStore).toHaveLength(2)
 
         // Agent-1 builds thinking prompt and sees Agent-0's knowledge
-        const worker1 = new WorkerLoop('agent-1', 1, '/project', makeConfig(), coord1)
+        const worker1 = new WorkerLoop('agent-1', 1, '/project', makeConfig(), coord1, makePaths())
         const prompt = (worker1 as any)._buildThinkingPrompt(makeBead({ id: 'sb-bead-1' }))
 
         expect(prompt).toContain('## Collective Knowledge')
@@ -1788,7 +1809,7 @@ None.
       coord.claimBestBead.mockResolvedValue(null)
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       // Spy on the private _loop method to verify it's called
       const loopSpy = vi.spyOn(worker as any, '_loop')
       const smSpy = vi.spyOn(worker as any, '_loopStateMachine')
@@ -1805,7 +1826,7 @@ None.
       coord.claimBestBead.mockResolvedValue(null)
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const loopSpy = vi.spyOn(worker as any, '_loop')
       const smSpy = vi.spyOn(worker as any, '_loopStateMachine')
 
@@ -1821,7 +1842,7 @@ None.
       coord.claimBestBead.mockResolvedValue(null)
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const loopSpy = vi.spyOn(worker as any, '_loop')
       const smSpy = vi.spyOn(worker as any, '_loopStateMachine')
 
@@ -1837,7 +1858,7 @@ None.
       coord.claimBestBead.mockResolvedValue(null)
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const exitEvents: string[] = []
       worker.on('exit', (reason: string) => exitEvents.push(reason))
 
@@ -1855,7 +1876,7 @@ None.
       coord.claimBestBead.mockImplementation(() => new Promise(r => { claimResolve = r }))
       coord.hasOpenWork.mockReturnValue(true)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const startPromise = worker.start()
 
       // Wait for routing to start
@@ -1882,7 +1903,7 @@ None.
       coord.claimBestBead.mockImplementation(() => new Promise(r => { claimResolve = r }))
       coord.hasOpenWork.mockReturnValue(true)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const startPromise = worker.start()
 
       await new Promise(r => setTimeout(r, 50))
@@ -1905,7 +1926,7 @@ None.
       coord.claimBestBead.mockResolvedValue(null)
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       await worker.start()
 
       expect((worker as any)._stateMachineCtx).toBeNull()
@@ -1913,7 +1934,7 @@ None.
 
     it('_buildCapabilities returns capabilities that delegate to WorkerLoop methods', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const caps = (worker as any)._buildCapabilities()
 
       // Verify key capability fields exist and have correct types
@@ -1942,7 +1963,7 @@ None.
 
     it('capabilities.commitWorktreeChanges swallows errors', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const caps = (worker as any)._buildCapabilities()
 
       vi.mocked(cp.execSync).mockImplementation(() => { throw new Error('nothing to commit') })
@@ -1953,7 +1974,7 @@ None.
 
     it('capabilities.detectApiLimit delegates to ResponseAnalyzer', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const caps = (worker as any)._buildCapabilities()
 
       // Normal output should not trigger rate limit
@@ -1962,7 +1983,7 @@ None.
 
     it('capabilities.stripAnsi strips ANSI codes', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const caps = (worker as any)._buildCapabilities()
 
       expect(caps.stripAnsi('\x1b[31mred\x1b[0m')).toBe('red')
@@ -1970,7 +1991,7 @@ None.
 
     it('capabilities.backoffMs delegates correctly', () => {
       const coord = makeCoordinator()
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const caps = (worker as any)._buildCapabilities()
 
       expect(caps.backoffMs(0)).toBe(3000)
@@ -1983,7 +2004,7 @@ None.
       coord.claimBestBead.mockResolvedValue(null)
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       await worker.start()
 
       expect(coord.registerAgent).toHaveBeenCalledWith(expect.objectContaining({
@@ -2006,7 +2027,7 @@ None.
       })
       coord.hasOpenWork.mockReturnValue(false)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const exitEvents: string[] = []
       worker.on('exit', (reason: string) => exitEvents.push(reason))
 
@@ -2023,7 +2044,7 @@ None.
       coord.claimBestBead.mockRejectedValue(new Error('unexpected coordinator error'))
       coord.hasOpenWork.mockReturnValue(true)
 
-      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord)
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       const exitEvents: string[] = []
       worker.on('exit', (reason: string) => exitEvents.push(reason))
 
