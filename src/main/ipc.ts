@@ -12,7 +12,7 @@ import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
 import { loadConfig } from './loop/RcParser'
 import { CircuitBreaker } from './loop/CircuitBreaker'
 import { checkEnabled, detectProjectContext, enableRalph } from './loop/RalphEnabler'
-import { getProjectPaths, ensureStoreDirs, detectLegacyStorage, migrateLegacyStorage } from './loop/ProjectStore'
+import { getProjectPaths, ensureStoreDirs } from './loop/ProjectStore'
 import { BdClient } from './loop/BdClient'
 import {
   validateBeadsList,
@@ -49,7 +49,6 @@ import {
 import { validateMailList, validateMailSubscribe, validateMailUnsubscribe } from './loop/mailValidation'
 import type { TelegramNotifyLevel, MailMessage } from './types'
 import { EnableOptions } from './types'
-import { cleanupLegacyStorage } from './loop/ProjectStore'
 
 const execAsync = promisify(exec)
 
@@ -193,12 +192,7 @@ export function registerIpc(
     if (r.canceled) return null
     const selected = r.filePaths[0]
     addToStore(selected)
-    // Auto-migrate legacy .slashbot/ storage if present
-    if (detectLegacyStorage(selected)) {
-      const paths = getProjectPaths(selected)
-      ensureStoreDirs(paths)
-      migrateLegacyStorage(selected)
-    }
+    ensureStoreDirs(getProjectPaths(selected))
     return selected
   })
 
@@ -208,12 +202,7 @@ export function registerIpc(
     try {
       const validated = validateProjectPathArg(p)
       addToStore(validated)
-      // Auto-migrate legacy .slashbot/ storage if present
-      if (detectLegacyStorage(validated)) {
-        const paths = getProjectPaths(validated)
-        ensureStoreDirs(paths)
-        migrateLegacyStorage(validated)
-      }
+      ensureStoreDirs(getProjectPaths(validated))
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -364,34 +353,6 @@ export function registerIpc(
     return { ...result, storeDir: paths.storeDir }
   })
 
-  ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) => {
-    try {
-      const legacyDir = path.join(projectPath, '.slashbot')
-      if (!fs.existsSync(legacyDir)) return { ok: true, removed: false }
-      fs.rmSync(legacyDir, { recursive: true, force: true })
-      return { ok: true, removed: true }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('slashbot:cleanup-legacy', (_e, projectPath: string) =>
-    cleanupLegacyStorage(projectPath))
-
-  ipcMain.handle('slashbot:migrate-check', (_e, projectPath: string) => {
-    try {
-      const paths = getProjectPaths(projectPath)
-      const hasLegacy = detectLegacyStorage(projectPath)
-      if (!hasLegacy) {
-        ensureStoreDirs(paths)
-        return { ok: true, didMigrate: false, storeDir: paths.storeDir }
-      }
-      const result = migrateLegacyStorage(projectPath)
-      return { ok: true, didMigrate: true, storeDir: paths.storeDir, migratedFiles: result.migrated, skipped: result.skipped }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
 
   // ── Beads via bd CLI ───────────────────────────────────────────────────
 
