@@ -705,8 +705,29 @@ export class AgentCoordinator {
         if (!isNaN(n) && n > 0) retryCount.set(c.id, n)
       }
 
-      // Sort: fewest retries first, then fewest unresolved deps + open children, then priority,
-      // then earliest createdAt (FIFO), then numeric ID ascending / localeCompare fallback
+      // ── Epic convergence: prefer beads in epics closest to completion ───
+      const epicTotal = new Map<string, number>()
+      const epicRemaining = new Map<string, number>()
+      const epicHasActiveAgent = new Set<string>()
+
+      for (const b of allBeads) {
+        if (b.epicId && b.type !== 'epic') {
+          epicTotal.set(b.epicId, (epicTotal.get(b.epicId) ?? 0) + 1)
+          if (!doneIds.has(b.id)) {
+            epicRemaining.set(b.epicId, (epicRemaining.get(b.epicId) ?? 0) + 1)
+          }
+        }
+      }
+
+      // Detect which epics have a peer agent currently working in them
+      for (const agent of this.getAgents()) {
+        if (agent.id !== agentId && agent.currentBeadId) {
+          const agentBead = allBeads.find(b => b.id === agent.currentBeadId)
+          if (agentBead?.epicId) epicHasActiveAgent.add(agentBead.epicId)
+        }
+      }
+
+      // Sort: retries → unresolved deps → priority → epic convergence → FIFO → ID
       candidates.sort((a, b) => {
         const retriesA = retryCount.get(a.id) ?? 0
         const retriesB = retryCount.get(b.id) ?? 0
@@ -716,6 +737,21 @@ export class AgentCoordinator {
         if (unresolvedA !== unresolvedB) return unresolvedA - unresolvedB
         const priDiff = (a.priority ?? 2) - (b.priority ?? 2)
         if (priDiff !== 0) return priDiff
+
+        // Epic convergence: prefer beads in epics closest to completion
+        // Score = remaining/total (lower = closer to done). Orphans score 2.0.
+        const epicScoreA = a.epicId
+          ? (epicRemaining.get(a.epicId) ?? 1) / (epicTotal.get(a.epicId) ?? 1)
+          : 2.0
+        const epicScoreB = b.epicId
+          ? (epicRemaining.get(b.epicId) ?? 1) / (epicTotal.get(b.epicId) ?? 1)
+          : 2.0
+        // Peer attraction: slight bonus if another agent is already in this epic
+        const peerBonusA = (a.epicId && epicHasActiveAgent.has(a.epicId)) ? -0.1 : 0
+        const peerBonusB = (b.epicId && epicHasActiveAgent.has(b.epicId)) ? -0.1 : 0
+        const convergenceDiff = (epicScoreA + peerBonusA) - (epicScoreB + peerBonusB)
+        if (Math.abs(convergenceDiff) > 0.001) return convergenceDiff > 0 ? 1 : -1
+
         // FIFO tiebreaker: earliest createdAt first (undefined sorts last)
         const ca = a.createdAt
         const cb = b.createdAt

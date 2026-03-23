@@ -496,6 +496,26 @@ export class WorkerLoop extends EventEmitter {
         '--dangerously-skip-permissions']
       if (model) args.push('--model', model)
       if (this.config.continueSession && this.sessionId) args.push('--resume', this.sessionId)
+
+      // Attach MCP coordination server so the agent can see team status and communicate
+      const mcpServerScript = path.join(__dirname, 'mcp-coordination-server.js')
+      if (fs.existsSync(mcpServerScript)) {
+        const mcpConfig = {
+          mcpServers: {
+            coordination: {
+              command: 'node',
+              args: [mcpServerScript],
+              env: {
+                SLASHBOT_AGENT_ID: this.agentId,
+                SLASHBOT_STORE_DIR: this.paths.storeDir,
+              },
+            },
+          },
+        }
+        const mcpConfigPath = path.join(this.paths.storeDir, `mcp-${this.agentId}.json`)
+        fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig))
+        args.push('--mcp-config', mcpConfigPath)
+      }
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `${this.agentId}_${label}_${ts}.log`)
 
@@ -634,7 +654,14 @@ Use \`bd\` to understand the bigger picture before coding:
 - \`bd search <keyword>\` — find related beads for context
 Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\`.
 
-## Mandatory analysis (do this FIRST)
+## Team coordination
+You have MCP tools for coordinating with other agents. Use them:
+- \`team_status\` — see what other agents are working on (**call this FIRST**)
+- \`check_file_reservations\` — check for file conflicts before editing shared files
+- \`send_message\` — notify peers about important decisions or API changes
+- \`check_inbox\` — read messages from other agents
+
+## Mandatory analysis (do this FIRST, after checking team_status)
 1. **Read the relevant code** — understand the existing architecture, patterns, naming conventions
 2. **Identify dependencies** — what other files/modules will be affected?
 3. **Spot risks** — what could go wrong? Race conditions? Breaking changes? Edge cases?
@@ -726,6 +753,7 @@ DO NOT write any implementation code. Analysis only.`
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       parentContext ? `\n${parentContext}` : '',
       knowledgeContext ? `\n${knowledgeContext}` : '',
+      `\n### Team coordination\nUse MCP tools: \`team_status\` (check first), \`check_inbox\`, \`send_message\`, \`check_file_reservations\``,
       thinkingSummary ? `\n### Your prior analysis\n${thinkingSummary}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',

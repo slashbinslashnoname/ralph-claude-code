@@ -5,7 +5,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && npx esbuild src/main/loop/mcp-coordination-server.ts --bundle --platform=node --format=esm --packages=external --outfile=out/main/mcp-coordination-server.js",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "pack": "electron-vite build && electron-builder --dir",
@@ -29,6 +29,7 @@
   },
   "homepage": "https://github.com/frankbria/ralph-claude-code#readme",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "chokidar": "^3.6.0",
     "node-pty": "^1.0.0",
     "telegraf": "^4.16.0"
