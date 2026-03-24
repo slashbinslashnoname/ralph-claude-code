@@ -16,7 +16,8 @@ export class SwarmOrchestrator extends EventEmitter {
   private planner: PlanLoop | null = null
   private planning = false
   private activityPollTimer: ReturnType<typeof setInterval> | null = null
-  private lastActivityIndex = 0
+  private lastActivityTs: string | null = null
+  private _stoppedEmitted = false
   private planQueue: PlanQueueItem[] = []
   private currentPlanRequest: string | null = null
   coordinator: AgentCoordinator
@@ -105,6 +106,7 @@ export class SwarmOrchestrator extends EventEmitter {
       return
     }
     this.stoppingGracefully = false
+    this._stoppedEmitted = false
     const config = loadConfig(this.projectPath, this.paths.slashbotrc)
 
     // Pre-flight health check
@@ -151,7 +153,8 @@ export class SwarmOrchestrator extends EventEmitter {
         this.workers.delete(agentId)
         this._heartbeatMap.delete(agentId)
         this._broadcastAgents()
-        if (this.workers.size === 0) {
+        if (this.workers.size === 0 && !this._stoppedEmitted) {
+          this._stoppedEmitted = true
           this._stopActivityPoll()
           this.emit('stopped')
         }
@@ -186,7 +189,10 @@ export class SwarmOrchestrator extends EventEmitter {
     this._stopActivityPoll()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'All workers stopped')
-    this.emit('stopped')
+    if (!this._stoppedEmitted) {
+      this._stoppedEmitted = true
+      this.emit('stopped')
+    }
   }
 
   /** Signal all workers to stop after their current bead finishes. */
@@ -401,12 +407,17 @@ export class SwarmOrchestrator extends EventEmitter {
     if (this.activityPollTimer) return
     this.activityPollTimer = setInterval(() => {
       const events = this.coordinator.readActivity(200)
-      if (events.length > this.lastActivityIndex) {
-        for (let i = this.lastActivityIndex; i < events.length; i++) {
-          this.emit('activity', events[i])
+      if (events.length > 0) {
+        const newEvents = this.lastActivityTs
+          ? events.filter(e => e.ts > this.lastActivityTs!)
+          : events
+        if (newEvents.length > 0) {
+          for (const event of newEvents) {
+            this.emit('activity', event)
+          }
+          this.lastActivityTs = newEvents[newEvents.length - 1].ts
+          this._broadcastGraph()
         }
-        this.lastActivityIndex = events.length
-        this._broadcastGraph()
       }
 
       // Dead-agent detection: check every ~20 polls (~30s at 1500ms interval)
@@ -443,14 +454,12 @@ export class SwarmOrchestrator extends EventEmitter {
           this._log('INFO', `Reopened bead [${agentInfo.currentBeadId}] from dead agent ${agentId}`)
         }
 
-        // Stop the dead worker
+        // Stop the dead worker — do NOT delete from workers map here;
+        // the exit handler will handle cleanup and 'stopped' emission
         const worker = this.workers.get(agentId)
         if (worker) {
           worker.stop()
-          this.workers.delete(agentId)
-          this._heartbeatMap.delete(agentId)
         }
-        this._broadcastAgents()
       }
     }
   }

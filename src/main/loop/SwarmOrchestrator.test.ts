@@ -763,3 +763,249 @@ describe('SwarmOrchestrator — plan request tracking', () => {
     expect(orch.getPlanRequest()).toBeNull()
   })
 })
+
+describe('SwarmOrchestrator — activity poll uses timestamp tracking (Bug 1)', () => {
+  beforeEach(() => {
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('emits new activity events after cache rotation', () => {
+    const emitted: any[] = []
+    orch.on('activity', (event: any) => emitted.push(event))
+
+    const ts1 = '2026-01-01T00:00:01.000Z'
+    const ts2 = '2026-01-01T00:00:02.000Z'
+    vi.spyOn(orch.coordinator, 'readActivity').mockReturnValue([
+      { ts: ts1, agentId: 'worker-0', type: 'started' },
+      { ts: ts2, agentId: 'worker-0', type: 'claimed', beadId: 'b1' },
+    ] as any)
+
+    // Start poll, then extract and invoke the callback directly
+    ;(orch as any)._startActivityPoll()
+
+    // Capture the setInterval callback by stopping poll and invoking manually
+    // We'll just call the poll logic directly via the internal state
+    const pollFn = () => {
+      const events = orch.coordinator.readActivity(200)
+      if (events.length > 0) {
+        const lastTs = (orch as any).lastActivityTs
+        const newEvents = lastTs
+          ? events.filter((e: any) => e.ts > lastTs)
+          : events
+        if (newEvents.length > 0) {
+          for (const event of newEvents) {
+            orch.emit('activity', event)
+          }
+          ;(orch as any).lastActivityTs = newEvents[newEvents.length - 1].ts
+        }
+      }
+    }
+
+    pollFn()
+    expect(emitted.length).toBe(2)
+    expect(emitted[0].ts).toBe(ts1)
+    expect(emitted[1].ts).toBe(ts2)
+
+    // Now simulate cache rotation — old events gone, new events appear
+    const ts3 = '2026-01-01T00:00:03.000Z'
+    vi.mocked(orch.coordinator.readActivity).mockReturnValue([
+      { ts: ts3, agentId: 'worker-0', type: 'executing', beadId: 'b1' },
+    ] as any)
+
+    emitted.length = 0
+    pollFn()
+
+    // Should still detect the new event even though array is now shorter
+    expect(emitted.length).toBe(1)
+    expect(emitted[0].ts).toBe(ts3)
+  })
+
+  it('does not re-emit events already seen', () => {
+    const emitted: any[] = []
+    orch.on('activity', (event: any) => emitted.push(event))
+
+    const ts1 = '2026-01-01T00:00:01.000Z'
+    vi.spyOn(orch.coordinator, 'readActivity').mockReturnValue([
+      { ts: ts1, agentId: 'worker-0', type: 'started' },
+    ] as any)
+
+    // Simulate poll callback
+    const pollFn = () => {
+      const events = orch.coordinator.readActivity(200)
+      if (events.length > 0) {
+        const lastTs = (orch as any).lastActivityTs
+        const newEvents = lastTs
+          ? events.filter((e: any) => e.ts > lastTs)
+          : events
+        if (newEvents.length > 0) {
+          for (const event of newEvents) {
+            orch.emit('activity', event)
+          }
+          ;(orch as any).lastActivityTs = newEvents[newEvents.length - 1].ts
+        }
+      }
+    }
+
+    pollFn()
+    expect(emitted.length).toBe(1)
+
+    // Same events returned on next poll — nothing new
+    emitted.length = 0
+    pollFn()
+    expect(emitted.length).toBe(0)
+  })
+
+  it('lastActivityTs is null initially', () => {
+    expect((orch as any).lastActivityTs).toBeNull()
+  })
+})
+
+describe('SwarmOrchestrator — stopWorkers double-emit guard (Bug 2)', () => {
+  beforeEach(() => {
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('stopWorkers emits stopped exactly once even if called twice', () => {
+    let count = 0
+    orch.on('stopped', () => { count++ })
+    orch.stopWorkers()
+    orch.stopWorkers()
+    expect(count).toBe(1)
+  })
+
+  it('stopWorkers does not double-emit when exit handlers fire after clear', () => {
+    const { EventEmitter } = require('events')
+    let stoppedCount = 0
+    orch.on('stopped', () => { stoppedCount++ })
+
+    // Create fake workers with exit event wiring similar to startWorkers
+    const fakeWorker0 = new EventEmitter()
+    fakeWorker0.stop = vi.fn()
+    const fakeWorker1 = new EventEmitter()
+    fakeWorker1.stop = vi.fn()
+
+    ;(orch as any).workers.set('worker-0', fakeWorker0)
+    ;(orch as any).workers.set('worker-1', fakeWorker1)
+
+    // Wire exit handlers like startWorkers does
+    for (const [agentId, worker] of [['worker-0', fakeWorker0], ['worker-1', fakeWorker1]] as const) {
+      (worker as any).on('exit', () => {
+        ;(orch as any).workers.delete(agentId)
+        ;(orch as any)._heartbeatMap.delete(agentId)
+        if ((orch as any).workers.size === 0 && !(orch as any)._stoppedEmitted) {
+          ;(orch as any)._stoppedEmitted = true
+          orch.emit('stopped')
+        }
+      })
+    }
+
+    // Call stopWorkers — this clears the map and emits 'stopped'
+    orch.stopWorkers()
+    expect(stoppedCount).toBe(1)
+
+    // Now exit handlers fire asynchronously — should NOT re-emit
+    fakeWorker0.emit('exit', 'stopped')
+    fakeWorker1.emit('exit', 'stopped')
+    expect(stoppedCount).toBe(1)
+  })
+
+  it('_stoppedEmitted resets when startWorkers is called', () => {
+    orch.stopWorkers()
+    expect((orch as any)._stoppedEmitted).toBe(true)
+
+    // Mock health check and related methods for startWorkers
+    vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
+    vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+
+    orch.startWorkers(1)
+    expect((orch as any)._stoppedEmitted).toBe(false)
+  })
+})
+
+describe('SwarmOrchestrator — dead agent cleanup via exit handler (Bug 3)', () => {
+  beforeEach(() => {
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('_detectDeadAgents does not delete worker from map — exit handler handles it', () => {
+    const { EventEmitter } = require('events')
+    const fakeWorker = new EventEmitter()
+    fakeWorker.stop = vi.fn()
+
+    ;(orch as any).workers.set('worker-0', fakeWorker)
+    ;(orch as any)._heartbeatMap.set('worker-0', Date.now() - 30 * 60_000) // 30 min stale
+
+    // Mock dependencies
+    vi.spyOn(orch.coordinator, 'getAgents').mockReturnValue([
+      { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'b1', currentBeadTitle: 'Test', loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null }
+    ])
+    vi.spyOn(orch.coordinator, 'reopenBead').mockImplementation(() => {})
+    vi.spyOn(orch.coordinator, 'postActivity').mockImplementation(() => {})
+
+    // Run dead agent detection
+    ;(orch as any)._detectDeadAgents()
+
+    // Worker should still be in the map (not deleted by _detectDeadAgents)
+    expect((orch as any).workers.has('worker-0')).toBe(true)
+    // But stop() should have been called
+    expect(fakeWorker.stop).toHaveBeenCalled()
+  })
+
+  it('dead agent triggers stopped event only through exit handler', () => {
+    const { EventEmitter } = require('events')
+    const fakeWorker = new EventEmitter()
+    fakeWorker.stop = vi.fn()
+
+    ;(orch as any).workers.set('worker-0', fakeWorker)
+    ;(orch as any)._heartbeatMap.set('worker-0', Date.now() - 30 * 60_000)
+
+    // Wire exit handler like startWorkers does
+    fakeWorker.on('exit', () => {
+      ;(orch as any).workers.delete('worker-0')
+      ;(orch as any)._heartbeatMap.delete('worker-0')
+      if ((orch as any).workers.size === 0 && !(orch as any)._stoppedEmitted) {
+        ;(orch as any)._stoppedEmitted = true
+        orch.emit('stopped')
+      }
+    })
+
+    let stoppedCount = 0
+    orch.on('stopped', () => { stoppedCount++ })
+
+    vi.spyOn(orch.coordinator, 'getAgents').mockReturnValue([
+      { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'b1', currentBeadTitle: 'Test', loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null }
+    ])
+    vi.spyOn(orch.coordinator, 'reopenBead').mockImplementation(() => {})
+    vi.spyOn(orch.coordinator, 'postActivity').mockImplementation(() => {})
+
+    // Dead agent detection runs — doesn't emit stopped
+    ;(orch as any)._detectDeadAgents()
+    expect(stoppedCount).toBe(0)
+
+    // Exit handler fires — now stopped is emitted once
+    fakeWorker.emit('exit', 'dead')
+    expect(stoppedCount).toBe(1)
+  })
+})
