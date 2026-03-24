@@ -111,7 +111,7 @@ describe('AgentCoordinator — atomic merge', () => {
   const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_COMMITTER_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@test.com', GIT_COMMITTER_EMAIL: 'test@test.com' }
 
   it('merges a worktree branch successfully on first try', async () => {
-    const wt = coord.createWorktree('agent-0', 'b1')
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
 
     fs.writeFileSync(path.join(wt!.worktreePath, 'new-file.txt'), 'hello')
@@ -126,7 +126,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('merge uses update-ref — base branch ref is updated atomically', async () => {
-    const wt = coord.createWorktree('agent-0', 'b1')
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
 
     const baseBefore = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
@@ -145,7 +145,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('auto-resolves conflict with --theirs when no claudeCmd', async () => {
-    const wt = coord.createWorktree('agent-0', 'b2')
+    const wt = await coord.createWorktree('agent-0', 'b2')
     expect(wt).toBeTruthy()
 
     fs.writeFileSync(path.join(tmpDir, 'conflict.txt'), 'main version')
@@ -162,7 +162,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('auto-resolves conflict even with maxRetries=0', async () => {
-    const wt = coord.createWorktree('agent-0', 'b3')
+    const wt = await coord.createWorktree('agent-0', 'b3')
     expect(wt).toBeTruthy()
 
     fs.writeFileSync(path.join(tmpDir, 'x.txt'), 'main')
@@ -175,7 +175,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('skips retry when stoppedFn returns true', async () => {
-    const wt = coord.createWorktree('agent-0', 'b4')
+    const wt = await coord.createWorktree('agent-0', 'b4')
     expect(wt).toBeTruthy()
 
     fs.writeFileSync(path.join(tmpDir, 'y.txt'), 'main')
@@ -190,7 +190,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('cleans up worktree even on failure', async () => {
-    const wt = coord.createWorktree('agent-0', 'b5')
+    const wt = await coord.createWorktree('agent-0', 'b5')
     expect(wt).toBeTruthy()
 
     fs.writeFileSync(path.join(tmpDir, 'z.txt'), 'main')
@@ -203,7 +203,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('no-op merge — agent branch has no new commits', async () => {
-    const wt = coord.createWorktree('agent-0', 'b6')
+    const wt = await coord.createWorktree('agent-0', 'b6')
     expect(wt).toBeTruthy()
 
     // No commits on agent branch — should fast-return
@@ -214,8 +214,8 @@ describe('AgentCoordinator — atomic merge', () => {
 
   it('concurrent merge — two agents merging different files simultaneously', async () => {
     // Create two worktrees
-    const wt1 = coord.createWorktree('agent-0', 'c1')
-    const wt2 = coord.createWorktree('agent-1', 'c2')
+    const wt1 = await coord.createWorktree('agent-0', 'c1')
+    const wt2 = await coord.createWorktree('agent-1', 'c2')
     expect(wt1).toBeTruthy()
     expect(wt2).toBeTruthy()
 
@@ -244,7 +244,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('stale worktree — agent branched from old commit, base moved forward', async () => {
-    const wt = coord.createWorktree('agent-0', 's1')
+    const wt = await coord.createWorktree('agent-0', 's1')
     expect(wt).toBeTruthy()
 
     // Advance main after worktree was created
@@ -272,7 +272,7 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('no-op merge (no new commits) returns no commitSha', async () => {
-    const wt = coord.createWorktree('agent-0', 'noop1')
+    const wt = await coord.createWorktree('agent-0', 'noop1')
     expect(wt).toBeTruthy()
     // Don't make any commits in the worktree
     const result = await coord.mergeWorktree('agent-0', 'noop1', wt!.branch, wt!.worktreePath)
@@ -281,9 +281,9 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('concurrent merge — three agents merging non-overlapping files', async () => {
-    const wt1 = coord.createWorktree('agent-0', 'd1')
-    const wt2 = coord.createWorktree('agent-1', 'd2')
-    const wt3 = coord.createWorktree('agent-2', 'd3')
+    const wt1 = await coord.createWorktree('agent-0', 'd1')
+    const wt2 = await coord.createWorktree('agent-1', 'd2')
+    const wt3 = await coord.createWorktree('agent-2', 'd3')
     expect(wt1).toBeTruthy()
     expect(wt2).toBeTruthy()
     expect(wt3).toBeTruthy()
@@ -313,8 +313,8 @@ describe('AgentCoordinator — atomic merge', () => {
   })
 
   it('concurrent merge with conflict — both succeed via --theirs fallback', async () => {
-    const wt1 = coord.createWorktree('agent-0', 'e1')
-    const wt2 = coord.createWorktree('agent-1', 'e2')
+    const wt1 = await coord.createWorktree('agent-0', 'e1')
+    const wt2 = await coord.createWorktree('agent-1', 'e2')
     expect(wt1).toBeTruthy()
     expect(wt2).toBeTruthy()
 
@@ -349,19 +349,19 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('removes orphaned worktree not owned by any agent', () => {
+  it('removes orphaned worktree not owned by any agent', async () => {
     const worktreesDir = path.join(tmpDir, '.worktrees')
     fs.mkdirSync(worktreesDir, { recursive: true })
     const fakePath = path.join(worktreesDir, 'agent-0-orphan1')
     fs.mkdirSync(fakePath)
     fs.writeFileSync(path.join(fakePath, 'file.txt'), 'leftover')
 
-    const removed = coord.cleanOrphanedWorktrees()
+    const removed = await coord.cleanOrphanedWorktrees()
     expect(removed).toContain('agent-0-orphan1')
     expect(fs.existsSync(fakePath)).toBe(false)
   })
 
-  it('preserves worktree owned by an active agent', () => {
+  it('preserves worktree owned by an active agent', async () => {
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'executing',
       currentBeadId: 'b1', currentBeadTitle: 'test', loopCount: 1,
@@ -374,12 +374,12 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
     fs.mkdirSync(ownedPath)
     fs.writeFileSync(path.join(ownedPath, 'file.txt'), 'in-progress')
 
-    const removed = coord.cleanOrphanedWorktrees()
+    const removed = await coord.cleanOrphanedWorktrees()
     expect(removed.length).toBe(0)
     expect(fs.existsSync(ownedPath)).toBe(true)
   })
 
-  it('removes orphans but preserves owned in mixed set', () => {
+  it('removes orphans but preserves owned in mixed set', async () => {
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'idle',
       currentBeadId: null, currentBeadTitle: null, loopCount: 0,
@@ -395,15 +395,15 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
     const orphan = path.join(worktreesDir, 'agent-1-b2')
     fs.mkdirSync(orphan)
 
-    const removed = coord.cleanOrphanedWorktrees()
+    const removed = await coord.cleanOrphanedWorktrees()
     expect(removed).toContain('agent-1-b2')
     expect(removed).not.toContain('agent-0-b1')
     expect(fs.existsSync(owned)).toBe(true)
     expect(fs.existsSync(orphan)).toBe(false)
   })
 
-  it('returns empty array when .worktrees dir does not exist', () => {
-    const removed = coord.cleanOrphanedWorktrees()
+  it('returns empty array when .worktrees dir does not exist', async () => {
+    const removed = await coord.cleanOrphanedWorktrees()
     expect(removed).toEqual([])
   })
 })
@@ -639,41 +639,41 @@ describe('AgentCoordinator — worktree creation', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('creates worktree with correct path and branch name', () => {
-    const wt = coord.createWorktree('agent-0', 'sb-abc')
+  it('creates worktree with correct path and branch name', async () => {
+    const wt = await coord.createWorktree('agent-0', 'sb-abc')
     expect(wt).toBeTruthy()
-    expect(wt!.branch).toBe('agent/agent-0/sb-abc')
-    expect(wt!.worktreePath).toBe(path.join(tmpDir, '.worktrees', 'agent-0-sb-abc'))
+    expect(wt!.branch).toBe('worker/sb-abc')
+    expect(wt!.worktreePath).toBe(path.join(tmpDir, '.worktrees', 'worker-sb-abc'))
     expect(fs.existsSync(wt!.worktreePath)).toBe(true)
   })
 
-  it('worktree has .beads symlink when .beads dir exists', () => {
-    const wt = coord.createWorktree('agent-0', 'b1')
+  it('worktree has .beads symlink when .beads dir exists', async () => {
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const beadsLink = path.join(wt!.worktreePath, '.beads')
     expect(fs.existsSync(beadsLink)).toBe(true)
     expect(fs.lstatSync(beadsLink).isSymbolicLink()).toBe(true)
   })
 
-  it('worktree has .slashbot symlink', () => {
-    const wt = coord.createWorktree('agent-0', 'b1')
+  it('worktree has .slashbot symlink', async () => {
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const slashbotLink = path.join(wt!.worktreePath, '.slashbot')
     expect(fs.existsSync(slashbotLink)).toBe(true)
     expect(fs.lstatSync(slashbotLink).isSymbolicLink()).toBe(true)
   })
 
-  it('worktree has .slashbotrc symlink when .slashbotrc exists', () => {
+  it('worktree has .slashbotrc symlink when .slashbotrc exists', async () => {
     fs.writeFileSync(tmpPaths.slashbotrc, 'maxCallsPerHour=10')
-    const wt = coord.createWorktree('agent-0', 'b1')
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const rcLink = path.join(wt!.worktreePath, '.slashbotrc')
     expect(fs.existsSync(rcLink)).toBe(true)
     expect(fs.lstatSync(rcLink).isSymbolicLink()).toBe(true)
   })
 
-  it('worktree .gitignore contains required entries', () => {
-    const wt = coord.createWorktree('agent-0', 'b1')
+  it('worktree .gitignore contains required entries', async () => {
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const gitignore = fs.readFileSync(path.join(wt!.worktreePath, '.gitignore'), 'utf8')
     expect(gitignore).toContain('.slashbot/')
@@ -682,17 +682,17 @@ describe('AgentCoordinator — worktree creation', () => {
     expect(gitignore).toContain('.worktrees/')
   })
 
-  it('recreates worktree if path already exists (stale worktree)', () => {
-    const wt1 = coord.createWorktree('agent-0', 'b1')
+  it('recreates worktree if path already exists (stale worktree)', async () => {
+    const wt1 = await coord.createWorktree('agent-0', 'b1')
     expect(wt1).toBeTruthy()
     const wt2 = coord.createWorktree('agent-0', 'b1')
     expect(wt2).toBeTruthy()
     expect(fs.existsSync(wt2!.worktreePath)).toBe(true)
   })
 
-  it('worktree branch is on the same commit as current HEAD', () => {
+  it('worktree branch is on the same commit as current HEAD', async () => {
     const mainHead = execSync('git rev-parse HEAD', { cwd: tmpDir }).toString().trim()
-    const wt = coord.createWorktree('agent-0', 'b1')
+    const wt = await coord.createWorktree('agent-0', 'b1')
     expect(wt).toBeTruthy()
     const wtHead = execSync('git rev-parse HEAD', { cwd: wt!.worktreePath }).toString().trim()
     expect(wtHead).toBe(mainHead)
@@ -1121,12 +1121,12 @@ describe('AgentCoordinator — completeBead and failBead', () => {
     expect(releaseSpy).toHaveBeenCalledWith('agent-0', 'b1')
   })
 
-  it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', () => {
-    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+  it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', async () => {
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
-    coord.failBead('agent-0', 'b1', 'merge conflict')
+    await coord.failBead('agent-0', 'b1', 'merge conflict')
 
     expect(addLabelSpy).toHaveBeenCalledWith('b1', 'failed')
     expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
@@ -1148,32 +1148,32 @@ describe('AgentCoordinator — hasOpenWork and getStats', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('hasOpenWork returns true when open beads exist', () => {
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+  it('hasOpenWork returns true when open beads exist', async () => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'open') return [{ id: 'b1' }] as any
       return []
     })
-    expect(coord.hasOpenWork()).toBe(true)
+    expect(await coord.hasOpenWork()).toBe(true)
   })
 
-  it('hasOpenWork returns true when in_progress beads exist', () => {
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+  it('hasOpenWork returns true when in_progress beads exist', async () => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'open') return []
       if (status === 'in_progress') return [{ id: 'b1' }] as any
       return []
     })
-    expect(coord.hasOpenWork()).toBe(true)
+    expect(await coord.hasOpenWork()).toBe(true)
   })
 
-  it('hasOpenWork returns false when no open or in_progress beads', () => {
-    vi.spyOn(coord.bd, 'listByStatus').mockReturnValue([])
-    expect(coord.hasOpenWork()).toBe(false)
+  it('hasOpenWork returns false when no open or in_progress beads', async () => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockResolvedValue([])
+    expect(await coord.hasOpenWork()).toBe(false)
   })
 
-  it('getStats delegates to bd.stats()', () => {
+  it('getStats delegates to bd.statsAsync()', async () => {
     const expected = { total: 5, pending: 1, ready: 2, claimed: 1, done: 1, failed: 0, pct: 20 }
-    vi.spyOn(coord.bd, 'stats').mockReturnValue(expected)
-    expect(coord.getStats()).toEqual(expected)
+    vi.spyOn(coord.bd, 'statsAsync').mockResolvedValue(expected)
+    expect(await coord.getStats()).toEqual(expected)
   })
 })
 
@@ -1385,7 +1385,7 @@ describe('AgentCoordinator — rollbackBead', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('reverts commits and reopens bead', () => {
+  it('reverts commits and reopens bead', async () => {
     // Create a commit that simulates agent work
     fs.writeFileSync(path.join(tmpDir, 'feature.ts'), 'export const x = 1')
     execSync('git add . && git commit -m "agent work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
@@ -1395,9 +1395,9 @@ describe('AgentCoordinator — rollbackBead', () => {
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
     coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: sha, summary: 'Completed' })
 
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(true)
     expect(result.revertedShas.length).toBe(1)
     expect(result.revertedShas[0]).toBe(sha)
@@ -1414,7 +1414,7 @@ describe('AgentCoordinator — rollbackBead', () => {
     expect(rollbackEvent).toBeDefined()
   })
 
-  it('deduplicates SHAs from merged and completed events', () => {
+  it('deduplicates SHAs from merged and completed events', async () => {
     fs.writeFileSync(path.join(tmpDir, 'dup.ts'), 'dup')
     execSync('git add . && git commit -m "dup work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
@@ -1423,24 +1423,24 @@ describe('AgentCoordinator — rollbackBead', () => {
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
     coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: sha, summary: 'Completed' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(true)
     // Should only revert once despite two events with same SHA
     expect(result.revertedShas.length).toBe(1)
   })
 
-  it('returns error when no SHAs found', () => {
+  it('returns error when no SHAs found', async () => {
     // No activity events for this bead
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(false)
     expect(result.error).toContain('No commit SHAs found')
   })
 
-  it('filters events — only considers events after last failed event', () => {
+  it('filters events — only considers events after last failed event', async () => {
     // First attempt: commit and fail
     fs.writeFileSync(path.join(tmpDir, 'old.ts'), 'old work')
     execSync('git add old.ts && git commit -m "old work"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
@@ -1458,16 +1458,16 @@ describe('AgentCoordinator — rollbackBead', () => {
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: newSha, summary: 'Merged attempt 2' })
     coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: newSha, summary: 'Completed attempt 2' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(true)
     // Should only revert the new SHA, not the old one
     expect(result.revertedShas).toEqual([newSha])
     expect(result.revertedShas).not.toContain(oldSha)
   })
 
-  it('aborts on conflict and returns partial result', () => {
+  it('aborts on conflict and returns partial result', async () => {
     // Create a commit
     fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'original')
     execSync('git add . && git commit -m "original"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
@@ -1479,9 +1479,9 @@ describe('AgentCoordinator — rollbackBead', () => {
 
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(false)
     expect(result.error).toContain('Conflict reverting')
   })
