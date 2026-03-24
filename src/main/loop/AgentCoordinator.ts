@@ -562,7 +562,9 @@ export class AgentCoordinator {
   /** Move untracked symlinks/dirs (.slashbot, .beads, etc.) out of the way before checkout. */
   private async _moveConflictingItems(): Promise<Array<{ path: string; symlinkTarget?: string }>> {
     const movedItems: Array<{ path: string; symlinkTarget?: string }> = []
-    for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
+    // .worktrees is excluded — it contains active worktrees and renaming it
+    // would break concurrent merges running in those worktrees.
+    for (const name of ['.slashbot', '.slashbotrc', '.beads']) {
       const fullPath = path.join(this.paths.projectRoot, name)
       let stat: fs.Stats | null = null
       try { stat = fs.lstatSync(fullPath) } catch { continue }

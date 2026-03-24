@@ -685,7 +685,7 @@ describe('AgentCoordinator — worktree creation', () => {
   it('recreates worktree if path already exists (stale worktree)', async () => {
     const wt1 = await coord.createWorktree('agent-0', 'b1')
     expect(wt1).toBeTruthy()
-    const wt2 = coord.createWorktree('agent-0', 'b1')
+    const wt2 = await coord.createWorktree('agent-0', 'b1')
     expect(wt2).toBeTruthy()
     expect(fs.existsSync(wt2!.worktreePath)).toBe(true)
   })
