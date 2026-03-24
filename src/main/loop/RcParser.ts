@@ -244,10 +244,6 @@ const KEY_GROUPS: Array<{ header: string; keys: string[] }> = [
   { header: 'Model overrides', keys: ['CLAUDE_MODEL_THINK', 'CLAUDE_MODEL_EXECUTE', 'CLAUDE_MODEL_REVIEW'] }
 ]
 
-const REVERSE_KEY_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(KEY_MAP).map(([envKey, configKey]) => [configKey, envKey])
-)
-
 const REVERSE_TELEGRAM_KEY_MAP: Record<string, string> = Object.fromEntries(
   Object.entries(TELEGRAM_KEY_MAP).map(([envKey, configKey]) => [configKey, envKey])
 )
