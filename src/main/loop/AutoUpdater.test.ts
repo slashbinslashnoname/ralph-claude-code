@@ -185,6 +185,18 @@ describe('AutoUpdater', () => {
     expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
   })
 
+  it('checkForUpdates() skips when already downloading', async () => {
+    const win = makeWindow()
+    const updater = new AutoUpdater(() => win as never)
+
+    // Move to 'downloading' via progress event
+    getHandler('download-progress')({ percent: 10, bytesPerSecond: 512, transferred: 100, total: 1000 })
+    expect(updater.state).toBe('downloading')
+
+    await updater.checkForUpdates()
+    expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled()
+  })
+
   it('downloadUpdate() only works when state is "available"', async () => {
     const win = makeWindow()
     const updater = new AutoUpdater(() => win as never)
@@ -269,11 +281,12 @@ describe('AutoUpdater', () => {
     })
   })
 
-  it('broadcasts download-progress events', () => {
+  it('broadcasts download-progress events and transitions to downloading state', () => {
     const win = makeWindow()
-    new AutoUpdater(() => win as never)
+    const updater = new AutoUpdater(() => win as never)
     getHandler('download-progress')({ percent: 42, bytesPerSecond: 1024, transferred: 420, total: 1000 })
 
+    expect(updater.state).toBe('downloading')
     expect(win.webContents.send).toHaveBeenCalledWith('update:event', {
       type: 'progress',
       progress: { percent: 42, bytesPerSecond: 1024, transferred: 420, total: 1000 },
