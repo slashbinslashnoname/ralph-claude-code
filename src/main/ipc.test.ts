@@ -508,6 +508,18 @@ describe('ipc handlers use centralized ProjectPaths', () => {
     })
   })
 
+  describe('registerIpc return value', () => {
+    it('returns an IpcHandle with getAutoUpdater()', async () => {
+      const { registerIpc } = await import('./ipc')
+      registeredHandlers.clear()
+      const handle = registerIpc(() => null, storePath)
+      expect(handle).toBeDefined()
+      expect(typeof handle.getAutoUpdater).toBe('function')
+      const updater = handle.getAutoUpdater()
+      expect(updater).toBe(mockAutoUpdaterInstance)
+    })
+  })
+
   describe('auto-update event wiring', () => {
     it('registers event listeners on AutoUpdater for broadcast', () => {
       // Trigger lazy init

@@ -38,10 +38,14 @@ function createWindow(): BrowserWindow {
 }
 
 const storePath = path.join(app.getPath('userData'), 'projects.json')
-registerIpc(() => mainWindow, storePath)
+const ipcHandle = registerIpc(() => mainWindow, storePath)
 
 app.whenReady().then(() => {
   createWindow()
+
+  // Kick off auto-update checks (~30 s delay, then every 4 h).
+  // start() is a no-op in dev builds (app.isPackaged === false).
+  ipcHandle.getAutoUpdater().start()
 
   if (process.env.ELECTRON_RENDERER_URL) {
     globalShortcut.register('F12', () => {

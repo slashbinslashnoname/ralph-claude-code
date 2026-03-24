@@ -163,10 +163,14 @@ const readText = (filePath: string): string | null => {
   try { return fs.readFileSync(filePath, 'utf8') } catch { return null }
 }
 
+export interface IpcHandle {
+  getAutoUpdater(): AutoUpdater
+}
+
 export function registerIpc(
   getMainWindow: () => BrowserWindow | null,
   storePath: string
-): void {
+): IpcHandle {
   const readStore = (): string[] => {
     try { return JSON.parse(fs.readFileSync(storePath, 'utf8')) } catch { return [] }
   }
@@ -979,7 +983,7 @@ export function registerIpc(
 
   function getOrCreateAutoUpdater(): AutoUpdater {
     if (!autoUpdaterInstance) {
-      autoUpdaterInstance = new AutoUpdater()
+      autoUpdaterInstance = new AutoUpdater(getMainWindow)
       autoUpdaterInstance.on('checking', () => broadcast('update:checking'))
       autoUpdaterInstance.on('available', (info) => broadcast('update:available', info))
       autoUpdaterInstance.on('not-available', (info) => broadcast('update:not-available', info))
@@ -1028,4 +1032,6 @@ export function registerIpc(
       telegramBots.clear()
     }
   })
+
+  return { getAutoUpdater: getOrCreateAutoUpdater }
 }
