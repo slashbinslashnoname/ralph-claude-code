@@ -52,6 +52,10 @@ export class BdClient {
     })
   }
 
+  /** Public wrappers for arbitrary bd commands (used by AgentCoordinator for unclaim). */
+  runPublic(args: string[]): string { return this.run(args) }
+  async runPublicAsync(args: string[]): Promise<string> { return this.runAsync(args) }
+
   private async runJsonAsync<T>(args: string[]): Promise<T> {
     const raw = await this.runAsync([...args, '--json'])
     if (!raw) return [] as unknown as T // bd returns empty output when no results

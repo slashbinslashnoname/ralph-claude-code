@@ -953,8 +953,15 @@ export class AgentCoordinator {
           continue
         }
 
-        // Assign directly to this agent
+        // Assign directly to this agent.
+        // If the bead has a stale claimedBy from a previous session, unclaim first so bd
+        // doesn't reject the --claim with "already claimed".
         this._log('INFO', `[${agentId}] attempting to claim ${bead.id} "${bead.title}"…`)
+        if (bead.claimedBy) {
+          this._log('INFO', `[${agentId}] ${bead.id} has stale claimedBy=${bead.claimedBy}, unclaiming first`)
+          try { await this.bd.runPublicAsync(['update', bead.id, '--assignee', '', '--json']) }
+          catch { try { this.bd.runPublic(['update', bead.id, '--assignee', '', '--json']) } catch { /* ignore */ } }
+        }
         let assigned = false
         try {
           assigned = await this.bd.assignToAsync(bead.id, agentId)
@@ -965,7 +972,7 @@ export class AgentCoordinator {
           catch (err2) { this._log('ERROR', `[${agentId}] assignTo sync also failed for ${bead.id}: ${err2 instanceof Error ? err2.message : err2}`) }
         }
         if (!assigned) {
-          this._log('WARN', `[${agentId}] skip ${bead.id}: assignTo failed (both async and sync)`)
+          this._log('WARN', `[${agentId}] skip ${bead.id}: assignTo failed`)
           continue
         }
 
@@ -1131,6 +1138,19 @@ export class AgentCoordinator {
         this.postActivity({ agentId: 'system', type: 'info', beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
       } catch { /* ignore — may already be open */ }
     }
+    // Also clear stale claimedBy on open beads — bd keeps the assignee even after
+    // reopen, and bd update --claim rejects "already claimed" if assignee is set.
+    try {
+      const openBeads = await this.bd.listByStatusAsync('open')
+      for (const bead of openBeads) {
+        if (bead.claimedBy) {
+          try {
+            await this.bd.runPublicAsync(['update', bead.id, '--assignee', '', '--json'])
+            this._log('INFO', `Cleared stale claim on open bead [${bead.id}] (was: ${bead.claimedBy})`)
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore — best effort */ }
     // Clear all file locks from previous session
     this.clearAllFileLocks()
     // Reset circuit breaker state from previous session so workers start clean
