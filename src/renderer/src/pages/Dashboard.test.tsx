@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => {
   const mockBeadStats = vi.fn().mockResolvedValue({ ok: true, stats: { total: 5, done: 2, ready: 1, claimed: 1, pct: 40 } })
   const mockOnAgents = vi.fn().mockReturnValue(() => {})
   const mockResetCircuit = vi.fn().mockResolvedValue({ ok: true })
+  const mockUpdateCheck = vi.fn().mockResolvedValue({ ok: true })
 
   ;(globalThis as any).window = {
     slashbot: {
@@ -18,10 +19,11 @@ const mocks = vi.hoisted(() => {
       },
       beads: { stats: mockBeadStats },
       resetCircuit: mockResetCircuit,
+      update: { check: mockUpdateCheck },
     },
   }
 
-  return { mockSwarmStatus, mockBeadStats, mockOnAgents, mockResetCircuit }
+  return { mockSwarmStatus, mockBeadStats, mockOnAgents, mockResetCircuit, mockUpdateCheck }
 })
 
 import Dashboard from './Dashboard'
@@ -74,5 +76,20 @@ describe('Dashboard', () => {
     )
     expect(html).toContain('progress-ring')
     expect(html).toContain('Complete')
+  })
+
+  test('renders check for updates button', () => {
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+    )
+    expect(html).toContain('Check for updates')
+  })
+
+  test('check for updates button is not disabled by default', () => {
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+    )
+    expect(html).not.toContain('Checking')
+    expect(html).toContain('Check for updates')
   })
 })
