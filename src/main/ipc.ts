@@ -26,6 +26,7 @@ import { validateProjectPathArg, validateSaveTabs } from './loop/projectValidati
 import { validateTelegramProjectPath, validateTelegramConfigure } from './loop/telegramValidation'
 import { TelegramBot } from './loop/TelegramBot'
 import { TelegramBridge } from './loop/TelegramBridge'
+import { AutoUpdater } from './loop/AutoUpdater'
 import {
   validateSwarmStart,
   validateSwarmStop,
@@ -55,6 +56,7 @@ const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
 const swarms = new Map<string, SwarmOrchestrator>()
 const telegramBots = new Map<string, TelegramBot>()
 const telegramBridges = new Map<string, TelegramBridge>()
+let autoUpdaterInstance: AutoUpdater | null = null
 
 /**
  * Gracefully shut down all active swarms, stop watchers,
@@ -971,6 +973,42 @@ export function registerIpc(
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
+  })
+
+  // ── Auto-update ──────────────────────────────────────────────────────
+
+  function getOrCreateAutoUpdater(): AutoUpdater {
+    if (!autoUpdaterInstance) {
+      autoUpdaterInstance = new AutoUpdater()
+      autoUpdaterInstance.on('checking', () => broadcast('update:checking'))
+      autoUpdaterInstance.on('available', (info) => broadcast('update:available', info))
+      autoUpdaterInstance.on('not-available', (info) => broadcast('update:not-available', info))
+      autoUpdaterInstance.on('progress', (progress) => broadcast('update:progress', progress))
+      autoUpdaterInstance.on('downloaded', (info) => broadcast('update:downloaded', info))
+      autoUpdaterInstance.on('error', (error) => broadcast('update:error', error))
+    }
+    return autoUpdaterInstance
+  }
+
+  ipcMain.handle('update:check', async () => {
+    const updater = getOrCreateAutoUpdater()
+    await updater.check()
+  })
+
+  ipcMain.handle('update:download', async () => {
+    const updater = getOrCreateAutoUpdater()
+    await updater.download()
+  })
+
+  ipcMain.handle('update:install', async () => {
+    const updater = getOrCreateAutoUpdater()
+    await gracefulShutdown(storePath)
+    updater.quitAndInstall()
+  })
+
+  ipcMain.handle('update:state', () => {
+    const updater = getOrCreateAutoUpdater()
+    return updater.getState()
   })
 
   // ── Cleanup ────────────────────────────────────────────────────────────
