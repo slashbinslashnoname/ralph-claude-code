@@ -15,6 +15,13 @@ const mocks = vi.hoisted(() => {
   const mockTelegramConfigure = vi.fn().mockResolvedValue({ ok: true })
   const mockTelegramTest = vi.fn().mockResolvedValue({ ok: true })
   const mockTelegramDisconnect = vi.fn().mockResolvedValue({ ok: true })
+  const mockConfigRead = vi.fn().mockResolvedValue({
+    maxCallsPerHour: 100,
+    claudeTimeoutMinutes: 15,
+    continueSession: true,
+    telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' },
+  })
+  const mockConfigWrite = vi.fn().mockResolvedValue({ ok: true })
 
   ;(globalThis as any).window = {
     slashbot: {
@@ -26,6 +33,10 @@ const mocks = vi.hoisted(() => {
         test: mockTelegramTest,
         disconnect: mockTelegramDisconnect,
       },
+      config: {
+        read: mockConfigRead,
+        write: mockConfigWrite,
+      },
     },
   }
 
@@ -36,6 +47,8 @@ const mocks = vi.hoisted(() => {
     mockTelegramConfigure,
     mockTelegramTest,
     mockTelegramDisconnect,
+    mockConfigRead,
+    mockConfigWrite,
   }
 })
 
@@ -160,5 +173,36 @@ describe('TelegramSection', () => {
     expect(r.ok).toBe(true)
     expect(r.content).toContain('TELEGRAM_BOT_TOKEN=123:abc')
     expect(r.content).toContain('TELEGRAM_ENABLED=true')
+  })
+})
+
+describe('config namespace (preload bridge)', () => {
+  test('config.read returns full config shape', async () => {
+    const cfg = await window.slashbot.config.read('/my/project')
+    expect(mocks.mockConfigRead).toHaveBeenCalledWith('/my/project')
+    expect(cfg).toMatchObject({ maxCallsPerHour: 100, continueSession: true })
+    expect(cfg.telegram).toBeDefined()
+  })
+
+  test('config.write sends partial update and returns ok', async () => {
+    const result = await window.slashbot.config.write('/my/project', { maxCallsPerHour: 50 })
+    expect(mocks.mockConfigWrite).toHaveBeenCalledWith('/my/project', { maxCallsPerHour: 50 })
+    expect(result).toEqual({ ok: true })
+  })
+
+  test('config.write failure propagates error', async () => {
+    mocks.mockConfigWrite.mockResolvedValue({ ok: false, error: 'validation failed' })
+    const result = await window.slashbot.config.write('/my/project', { maxCallsPerHour: -1 })
+    expect(result).toEqual({ ok: false, error: 'validation failed' })
+  })
+
+  test('config.read is isolated per project path', async () => {
+    mocks.mockConfigRead
+      .mockResolvedValueOnce({ maxCallsPerHour: 10 })
+      .mockResolvedValueOnce({ maxCallsPerHour: 200 })
+    const a = await window.slashbot.config.read('/proj/a')
+    const b = await window.slashbot.config.read('/proj/b')
+    expect(a.maxCallsPerHour).toBe(10)
+    expect(b.maxCallsPerHour).toBe(200)
   })
 })
