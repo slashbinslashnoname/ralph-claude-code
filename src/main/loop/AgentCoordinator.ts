@@ -749,19 +749,54 @@ export class AgentCoordinator {
     await this.claimSemaphore.acquire(30_000)
 
     try {
+      // ── Purge stale agents + orphaned file locks ─────────────────────
+      // Agents that no longer have a heartbeat and haven't sent activity
+      // in a long time are likely dead — deregister them so their file locks
+      // and claimedBy fields don't block beads.
+      const now = Date.now()
+      const staleThresholdMs = 5 * 60_000 // 5 minutes
+      const registeredAgents = this.getAgents()
+      for (const agent of registeredAgents) {
+        if (agent.id === agentId) continue
+        const hb = this.getLastHeartbeat(agent.id)
+        const lastAct = agent.lastActivity ? new Date(agent.lastActivity).getTime() : 0
+        const mostRecent = Math.max(hb ?? 0, lastAct)
+        // Only deregister if both heartbeat and lastActivity are stale
+        if (mostRecent > 0 && (now - mostRecent) > staleThresholdMs) {
+          this._log('WARN', `[${agentId}] Deregistering stale agent ${agent.id} (last seen ${Math.round((now - mostRecent) / 1000)}s ago)`)
+          this.deregisterAgent(agent.id)
+        }
+      }
+
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
       // Get ALL open beads as candidates — we handle dep filtering ourselves.
       // bd ready is too strict (blocks beads with in_progress deps that we allow).
-      const [candidates, closedBeads, allBeads] = await Promise.all([
-        this.bd.listByStatusAsync('open'),
-        this.bd.listByStatusAsync('closed'),
-        this.bd.listAllAsync(),
-      ])
-      const doneIds = new Set(closedBeads.map(b => b.id))
+      let candidates: Bead[]
+      let closedBeads: Bead[]
+      let allBeads: Bead[]
+      try {
+        ;[candidates, closedBeads, allBeads] = await Promise.all([
+          this.bd.listByStatusAsync('open'),
+          this.bd.listByStatusAsync('closed'),
+          this.bd.listAllAsync(),
+        ])
+      } catch (err) {
+        this._log('ERROR', `[${agentId}] claimBestBead: bd list failed: ${err instanceof Error ? err.message : err}`)
+        return null
+      }
+
+      // If bd returned empty for all lists, it's likely a bd CLI failure, not "no beads"
+      if (candidates.length === 0 && closedBeads.length === 0 && allBeads.length === 0) {
+        this._log('WARN', `[${agentId}] claimBestBead: bd returned empty for ALL lists — possible bd CLI issue`)
+      }
+
+      // Separate successfully-done from failed beads — failed deps should NOT unblock dependents
+      const doneIds = new Set(closedBeads.filter(b => b.status === 'done').map(b => b.id))
+      const failedIds = new Set(closedBeads.filter(b => b.status === 'failed').map(b => b.id))
       const openChildCount = new Map<string, number>()
       for (const b of allBeads) {
-        if (b.epicId && !doneIds.has(b.id)) {
+        if (b.epicId && !doneIds.has(b.id) && !failedIds.has(b.id)) {
           openChildCount.set(b.epicId, (openChildCount.get(b.epicId) ?? 0) + 1)
         }
       }
@@ -814,6 +849,7 @@ export class AgentCoordinator {
         const retriesB = retryCount.get(b.id) ?? 0
         if (retriesA !== retriesB) return retriesA - retriesB
         // Count only truly blocked deps (not started yet) — in_progress deps are OK (speculative parallel)
+        // Failed deps count as blocked (they won't resolve on their own)
         const blockedA = a.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
         const blockedB = b.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
         if (blockedA !== blockedB) return blockedA - blockedB
@@ -860,12 +896,28 @@ export class AgentCoordinator {
         }
 
         // Skip beads whose dependencies are not yet started.
-        // Allow deps that are in_progress (speculative: they'll likely finish before this bead does)
-        const blockedDeps = bead.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length
+        // Allow deps that are in_progress (speculative: they'll likely finish before this bead does).
+        // Failed deps are treated as unresolved — the dependent bead shouldn't proceed.
+        const blockedDeps = bead.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d))
+        const failedDeps = bead.deps.filter(d => failedIds.has(d))
         const openChildren = openChildCount.get(bead.id) ?? 0
-        if (blockedDeps > 0 || openChildren > 0) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${blockedDeps} blocked deps (not started), ${openChildren} open children`)
+        if (failedDeps.length > 0) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${failedDeps.length} failed deps [${failedDeps.join(',')}]`)
           continue
+        }
+        if (blockedDeps.length > 0 || openChildren > 0) {
+          // Detect circular deps: if ALL blocked deps also depend on this bead, it's a cycle — break it
+          const isCircular = blockedDeps.length > 0 && openChildren === 0 && blockedDeps.every(depId => {
+            const depBead = candidates.find(c => c.id === depId) ?? allBeads.find(b => b.id === depId)
+            return depBead?.deps.includes(bead.id)
+          })
+          if (isCircular) {
+            this._log('WARN', `[${agentId}] ${bead.id}: circular dependency detected with [${blockedDeps.join(',')}] — breaking cycle`)
+            // Fall through and allow claiming this bead to break the deadlock
+          } else {
+            this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${blockedDeps.length} blocked deps (not started), ${openChildren} open children`)
+            continue
+          }
         }
 
         if (bead.files.some(f => lockedFiles.has(f))) {
@@ -895,10 +947,12 @@ export class AgentCoordinator {
 
         // Assign directly to this agent
         let assigned = false
-        try { assigned = await this.bd.assignToAsync(bead.id, agentId) }
-        catch { /* assignment failed — skip this bead */ }
+        try {
+          assigned = await this.bd.assignToAsync(bead.id, agentId)
+        } catch (err) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed: ${err instanceof Error ? err.message : err}`)
+        }
         if (!assigned) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed`)
           continue
         }
 

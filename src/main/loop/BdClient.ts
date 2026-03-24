@@ -216,10 +216,8 @@ export class BdClient {
   }
 
   async listByStatusAsync(status: string): Promise<Bead[]> {
-    try {
-      const raw = await this.runJsonAsync<unknown[]>(['list', '--limit', '0', '--status', status])
-      return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
-    } catch { return [] }
+    const raw = await this.runJsonAsync<unknown[]>(['list', '--limit', '0', '--status', status])
+    return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
   }
 
   async listAllAsync(): Promise<Bead[]> {
@@ -242,8 +240,8 @@ export class BdClient {
   }
 
   async assignToAsync(id: string, assignee: string): Promise<boolean> {
-    try { await this.runAsync(['update', id, '--claim', '-a', assignee, '--json']); return true }
-    catch { return false }
+    await this.runAsync(['update', id, '--claim', '-a', assignee, '--json'])
+    return true
   }
 
   async showAsync(id: string): Promise<Bead | null> {
