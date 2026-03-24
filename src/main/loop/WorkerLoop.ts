@@ -1095,6 +1095,11 @@ DO NOT write any implementation code. Analysis only.`
   async _splitBead(bead: Bead, decision: SplitDecision): Promise<Bead | null> {
     const bd = this.coordinator.bd
 
+    // Hold the claim semaphore for the entire split to prevent other workers
+    // from seeing newly-created children as open and claiming them before we do.
+    await this.coordinator.acquireClaimLock(30_000)
+    try {
+
     // Phase 1: Create all children — abort entirely if any fails
     const createdChildren: Bead[] = []
     try {
@@ -1130,11 +1135,16 @@ DO NOT write any implementation code. Analysis only.`
       }
     }
 
-    // Phase 3: Label original bead as split parent and close it
+    // Phase 3: Claim first child BEFORE closing parent — prevents other workers
+    // from seeing the child as open and grabbing it.
+    const firstChild = createdChildren[0]
+    bd.assignTo(firstChild.id, this.agentId)
+
+    // Phase 4: Label original bead as split parent and close it
     bd.addLabel(bead.id, 'auto-split-parent')
     bd.close(bead.id, `Split into ${createdChildren.length} children`)
 
-    // Phase 4: Post activity event
+    // Phase 5: Post activity event
     this.coordinator.postActivity({
       agentId: this.agentId,
       type: 'split',
@@ -1143,11 +1153,12 @@ DO NOT write any implementation code. Analysis only.`
       summary: `Split into ${createdChildren.length} children: ${createdChildren.map(c => c.id).join(', ')}`
     })
 
-    // Phase 5: Claim and return the first child
-    const firstChild = createdChildren[0]
-    bd.assignTo(firstChild.id, this.agentId)
     const refreshed = bd.show(firstChild.id)
     return refreshed ?? null
+
+    } finally {
+      this.coordinator.releaseClaimLock()
+    }
   }
 
   private _sleep(ms: number): Promise<void> {

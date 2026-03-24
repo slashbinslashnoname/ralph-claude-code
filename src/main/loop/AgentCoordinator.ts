@@ -664,6 +664,15 @@ export class AgentCoordinator {
   private _claimTimeoutTimer: ReturnType<typeof setInterval> | null = null
   private _claimTimeoutRunning = false
 
+  /** Expose the claim semaphore for external callers (e.g. _splitBead) that
+   *  need to prevent concurrent claims while creating + claiming new beads. */
+  acquireClaimLock(timeoutMs = 30_000): Promise<void> {
+    return this.claimSemaphore.acquire(timeoutMs)
+  }
+  releaseClaimLock(): void {
+    this.claimSemaphore.release()
+  }
+
   /**
    * Start a background sweep that periodically reopens beads stuck in_progress
    * past 2× claudeTimeoutMinutes when the owning agent has no live heartbeat.
@@ -871,6 +880,15 @@ export class AgentCoordinator {
           }
           // claimedBy is set but agent is not live — stale claim, try to take it
           this._log('DEBUG', `[${agentId}] ${bead.id}: stale claim by ${bead.claimedBy}, attempting takeover`)
+        }
+
+        // Skip if any live agent is actively working on this bead (in-memory check).
+        // This catches cases where bd status is stale (e.g. bead was reopened by timeout
+        // sweep while the agent is still processing it in its worktree).
+        const activeAgent = this.getAgents().find(a => a.id !== agentId && a.currentBeadId === bead.id)
+        if (activeAgent) {
+          this._log('DEBUG', `[${agentId}] skip ${bead.id}: agent ${activeAgent.id} is actively working on it`)
+          continue
         }
 
         // Assign directly to this agent
