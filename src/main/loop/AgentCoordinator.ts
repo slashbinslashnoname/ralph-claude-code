@@ -891,12 +891,15 @@ export class AgentCoordinator {
         return a.id.localeCompare(b.id)
       })
 
-      this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${inProgressIds.size} in_progress, ${lockedFiles.size} locked files, ${epicIds.size} epics`)
+      this._log('INFO', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${inProgressIds.size} in_progress, ${lockedFiles.size} locked files, ${epicIds.size} epics`)
+      if (candidates.length > 0) {
+        this._log('INFO', `[${agentId}] candidates: ${candidates.map(b => `${b.id}(type=${b.type},deps=[${b.deps.join(',')}],epicId=${b.epicId ?? 'none'},claimedBy=${b.claimedBy ?? 'none'})`).join(', ')}`)
+      }
 
       for (const bead of candidates) {
         // Never pick up epics — they are containers, not work items.
         if (bead.type === 'epic') {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: epic`)
+          this._log('INFO', `[${agentId}] skip ${bead.id}: type is epic (container, not work item)`)
           continue
         }
 
@@ -910,7 +913,7 @@ export class AgentCoordinator {
         const failedDeps = realDeps.filter(d => failedIds.has(d))
         const openChildren = openChildCount.get(bead.id) ?? 0
         if (failedDeps.length > 0) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${failedDeps.length} failed deps [${failedDeps.join(',')}]`)
+          this._log('INFO', `[${agentId}] skip ${bead.id}: ${failedDeps.length} failed deps [${failedDeps.join(',')}]`)
           continue
         }
         if (blockedDeps.length > 0 || openChildren > 0) {
@@ -923,13 +926,13 @@ export class AgentCoordinator {
             this._log('WARN', `[${agentId}] ${bead.id}: circular dependency detected with [${blockedDeps.join(',')}] — breaking cycle`)
             // Fall through and allow claiming this bead to break the deadlock
           } else {
-            this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${blockedDeps.length} blocked deps (not started), ${openChildren} open children`)
+            this._log('INFO', `[${agentId}] skip ${bead.id}: ${blockedDeps.length} blocked deps [${blockedDeps.join(',')}] (not done/in_progress), ${openChildren} open children`)
             continue
           }
         }
 
         if (bead.files.some(f => lockedFiles.has(f))) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: file locked`)
+          this._log('INFO', `[${agentId}] skip ${bead.id}: file locked by another agent`)
           continue
         }
 
@@ -937,30 +940,32 @@ export class AgentCoordinator {
         if (bead.claimedBy && bead.claimedBy !== agentId) {
           const liveAgents = this.getAgents().map(a => a.id)
           if (liveAgents.includes(bead.claimedBy)) {
-            this._log('DEBUG', `[${agentId}] skip ${bead.id}: claimed by live agent ${bead.claimedBy}`)
+            this._log('INFO', `[${agentId}] skip ${bead.id}: claimed by live agent ${bead.claimedBy}`)
             continue
           }
-          // claimedBy is set but agent is not live — stale claim, try to take it
-          this._log('DEBUG', `[${agentId}] ${bead.id}: stale claim by ${bead.claimedBy}, attempting takeover`)
+          this._log('INFO', `[${agentId}] ${bead.id}: stale claim by ${bead.claimedBy} (not in live agents), attempting takeover`)
         }
 
         // Skip if any live agent is actively working on this bead (in-memory check).
-        // This catches cases where bd status is stale (e.g. bead was reopened by timeout
-        // sweep while the agent is still processing it in its worktree).
         const activeAgent = this.getAgents().find(a => a.id !== agentId && a.currentBeadId === bead.id)
         if (activeAgent) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: agent ${activeAgent.id} is actively working on it`)
+          this._log('INFO', `[${agentId}] skip ${bead.id}: agent ${activeAgent.id} has currentBeadId=${bead.id}`)
           continue
         }
 
         // Assign directly to this agent
+        this._log('INFO', `[${agentId}] attempting to claim ${bead.id} "${bead.title}"…`)
         let assigned = false
         try {
           assigned = await this.bd.assignToAsync(bead.id, agentId)
         } catch (err) {
-          this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed: ${err instanceof Error ? err.message : err}`)
+          // Async failed — try sync fallback
+          this._log('WARN', `[${agentId}] assignToAsync failed for ${bead.id}: ${err instanceof Error ? err.message : err} — trying sync fallback`)
+          try { assigned = this.bd.assignTo(bead.id, agentId) }
+          catch (err2) { this._log('ERROR', `[${agentId}] assignTo sync also failed for ${bead.id}: ${err2 instanceof Error ? err2.message : err2}`) }
         }
         if (!assigned) {
+          this._log('WARN', `[${agentId}] skip ${bead.id}: assignTo failed (both async and sync)`)
           continue
         }
 
@@ -977,7 +982,7 @@ export class AgentCoordinator {
         }
         return result
       }
-      this._log('DEBUG', `[${agentId}] claimBestBead: no suitable candidate found`)
+      this._log('WARN', `[${agentId}] claimBestBead: all ${candidates.length} candidates were skipped — no suitable bead found`)
       return null
     } finally {
       this.claimSemaphore.release()
