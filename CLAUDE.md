@@ -8,29 +8,39 @@ Slashbot — an Electron desktop app for autonomous AI development orchestration
 
 - **Main process** (`src/main/`): Electron main, IPC handlers, loop engine
   - `index.ts` — Electron app entry, window creation
-  - `ipc.ts` — IPC handler registration
+  - `ipc.ts` — IPC handler registration, graceful shutdown
   - `types.ts` — Shared types
+  - `getIconPath.ts` — Platform-aware app icon resolution
+  - `nativeRequire.ts` — Native module loader (node-pty)
   - `loop/` — Core loop engine:
     - `SwarmOrchestrator.ts` — Master coordinator, manages plan + worker lifecycle
     - `PlanLoop.ts` — Single plan generation + bead encoding (no competing plans)
     - `WorkerLoop.ts` — Per-agent loop: think → execute → review → merge → close
-    - `AgentCoordinator.ts` — File locks, agent registry, activity log, git worktree management
+    - `WorkerStateMachine.ts` — State-machine worker loop (enabled via SLASHBOT_STATE_MACHINE=1)
+    - `AgentCoordinator.ts` — File locks, agent registry, activity log, git worktree management, heartbeats, claim timeout sweep
+    - `ProjectStore.ts` — Per-project storage under ~/.slashbot/projects/<id>/
     - `BdClient.ts` — Wrapper around `bd` CLI (beads-rust)
     - `CircuitBreaker.ts` — Safety mechanism (CLOSED/HALF_OPEN/OPEN states)
-    - `RateLimit.ts` — API call quota tracking
-    - `ResponseAnalyzer.ts` — Claude output parsing
+    - `BuildMonitor.ts` — Continuous build health + auto-filed beads on failure
+    - `HealthCheck.ts` — Pre-flight validation (bd CLI, claude CLI, project files)
+    - `ResponseAnalyzer.ts` — Claude output parsing, API limit detection, stuck detection
     - `FileGuard.ts` — Required file integrity checks
     - `RcParser.ts` — `.slashbotrc` configuration parser
     - `RalphEnabler.ts` — Project setup/enablement
-    - `RalphLoop.ts` — Single-agent loop (legacy, pre-swarm)
+    - `TelegramBot.ts` — Telegram API client with command handling
+    - `TelegramBridge.ts` — Telegram ↔ Swarm event bridge with batching/throttling
+    - `AsyncSemaphore.ts` — FIFO mutex for safe concurrency
+    - `mcp-coordination-server.ts` — MCP server for inter-agent coordination
+    - `utils.ts` — Shared utilities (log rotation, helpers)
 - **Preload** (`src/preload/`): Context bridge exposing APIs to renderer
 - **Renderer** (`src/renderer/`): React UI
   - `src/App.tsx` — Root component with sidebar navigation
   - `src/pages/Dashboard.tsx` — Overview with progress ring
   - `src/pages/SwarmPage.tsx` — Agent flywheel: plan injection, live output, activity feed
   - `src/pages/BeadsPage.tsx` — Task management with tabbed filtering (Open/In Progress/Closed)
+  - `src/pages/ThreadsPage.tsx` — Threaded communication view
   - `src/pages/LogViewer.tsx` — Real-time log streaming
-  - `src/pages/ConfigEditor.tsx` — Edit .slashbotrc, PROMPT.md, AGENT.md
+  - `src/pages/ConfigEditor.tsx` — Edit .slashbotrc, PROMPT.md, AGENT.md, Telegram settings
   - `src/pages/SetupWizard.tsx` — Project enablement flow
 
 ## Key Design Decisions
@@ -65,6 +75,7 @@ bun run preview      # Preview production build
 - **Runtime**: Electron 33
 - **Bundler**: electron-vite + Vite 5
 - **Frontend**: React 18, TypeScript 5
-- **Dependencies**: chokidar (file watching), node-pty (terminal)
+- **Dependencies**: chokidar (file watching), node-pty (terminal), telegraf (Telegram), @modelcontextprotocol/sdk (MCP)
 - **Package manager**: Bun
+- **Testing**: Vitest
 - **Task tracking**: beads-rust (`bd` CLI)
