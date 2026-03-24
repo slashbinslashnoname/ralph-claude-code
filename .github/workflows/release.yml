@@ -96,6 +96,7 @@ jobs:
             dist-electron/*.deb
             dist-electron/*.exe
             dist-electron/*.blockmap
+            dist-electron/latest*.yml
           if-no-files-found: warn
           retention-days: 5
 
@@ -153,6 +154,7 @@ jobs:
             | macOS (Intel) | `Slashbot-*-x64.dmg` |
             | Linux | `Slashbot-*.AppImage` / `.deb` |
             | Windows | `Slashbot-*.exe` |
+            | Auto-update feed | `latest-mac.yml` / `latest-linux.yml` / `latest.yml` |
           files: artifacts/*
           draft: false
           prerelease: false

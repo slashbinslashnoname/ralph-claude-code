@@ -64,3 +64,6 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+
+dmg:
+  writeUpdateInfo: true
