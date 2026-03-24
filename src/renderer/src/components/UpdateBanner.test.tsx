@@ -3,9 +3,15 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
+import { readFileSync } from 'fs'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 // Enable React act() environment for jsdom
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const src = readFileSync(resolve(__dirname, 'UpdateBanner.tsx'), 'utf-8')
 
 // Mock window.slashbot.update before importing component
 const mockUpdate = {
@@ -62,7 +68,7 @@ describe('UpdateBanner — hydrated states', () => {
     })
 
     expect(container!.innerHTML).toContain('Checking for updates')
-    expect(container!.innerHTML).toContain('data-state="checking"')
+    expect(container!.innerHTML).toContain('data-phase="checking"')
   })
 
   test('renders available state with version and download button', async () => {
@@ -74,7 +80,7 @@ describe('UpdateBanner — hydrated states', () => {
 
     expect(container!.innerHTML).toContain('2.3.4')
     expect(container!.innerHTML).toContain('Download')
-    expect(container!.innerHTML).toContain('data-state="available"')
+    expect(container!.innerHTML).toContain('data-phase="available"')
   })
 
   test('renders downloading state with percent', async () => {
@@ -88,7 +94,7 @@ describe('UpdateBanner — hydrated states', () => {
     })
 
     expect(container!.innerHTML).toContain('42%')
-    expect(container!.innerHTML).toContain('data-state="downloading"')
+    expect(container!.innerHTML).toContain('data-phase="downloading"')
   })
 
   test('renders downloading state with MB/s when speed > 0', async () => {
@@ -111,9 +117,9 @@ describe('UpdateBanner — hydrated states', () => {
       createRoot(container!).render(<UpdateBanner />)
     })
 
-    expect(container!.innerHTML).toContain('Restart')
-    expect(container!.innerHTML).toContain('v2.3.4')
-    expect(container!.innerHTML).toContain('data-state="downloaded"')
+    expect(container!.innerHTML).toContain('Restart & Install')
+    expect(container!.innerHTML).toContain('2.3.4')
+    expect(container!.innerHTML).toContain('data-phase="downloaded"')
   })
 
   test('renders error state with error message and dismiss button', async () => {
@@ -125,7 +131,7 @@ describe('UpdateBanner — hydrated states', () => {
 
     expect(container!.innerHTML).toContain('Network timeout')
     expect(container!.innerHTML).toContain('Dismiss')
-    expect(container!.innerHTML).toContain('data-state="error"')
+    expect(container!.innerHTML).toContain('data-phase="error"')
   })
 
   test('renders nothing in not-available state', async () => {
@@ -140,7 +146,7 @@ describe('UpdateBanner — hydrated states', () => {
 })
 
 describe('UpdateBanner — button interactions', () => {
-  test('download button calls sb.update.download()', async () => {
+  test('download button calls window.slashbot.update.download()', async () => {
     mockUpdate.getState.mockResolvedValue({ state: 'available', info: { version: '1.0.0' } })
 
     await act(async () => {
@@ -154,7 +160,7 @@ describe('UpdateBanner — button interactions', () => {
     expect(mockUpdate.download).toHaveBeenCalledTimes(1)
   })
 
-  test('install button calls sb.update.install()', async () => {
+  test('install button calls window.slashbot.update.install()', async () => {
     mockUpdate.getState.mockResolvedValue({ state: 'downloaded', info: { version: '1.0.0' } })
 
     await act(async () => {
@@ -232,6 +238,74 @@ describe('UpdateBanner — event listeners', () => {
       capturedOnDownloaded!({ version: '9.9.9' })
     })
 
-    expect(container!.innerHTML).toContain('Restart')
+    expect(container!.innerHTML).toContain('Restart & Install')
+  })
+})
+
+describe('UpdateBanner — source analysis', () => {
+  test('imports UpdateState, UpdateInfo, UpdateProgress from types', () => {
+    expect(src).toContain("import type { UpdateState, UpdateInfo, UpdateProgress } from '../types/ipc'")
+  })
+
+  test('defines BannerState interface with required fields', () => {
+    expect(src).toContain('phase: UpdateState')
+    expect(src).toContain('info: UpdateInfo | null')
+    expect(src).toContain('progress: UpdateProgress | null')
+    expect(src).toContain('error: string | null')
+    expect(src).toContain('installing: boolean')
+  })
+
+  test('accesses window.slashbot at call-time, not module level', () => {
+    // Should NOT have module-level `const sb = window.slashbot`
+    expect(src).not.toMatch(/^const sb = window\.slashbot/m)
+    // Should access window.slashbot inside functions
+    expect(src).toContain('window.slashbot.update')
+  })
+
+  test('subscribes to all six update events', () => {
+    expect(src).toContain('update.onChecking(')
+    expect(src).toContain('update.onAvailable(')
+    expect(src).toContain('update.onNotAvailable(')
+    expect(src).toContain('update.onProgress(')
+    expect(src).toContain('update.onDownloaded(')
+    expect(src).toContain('update.onError(')
+  })
+
+  test('unsubscribes on unmount', () => {
+    expect(src).toContain('unsubs.forEach(u => u())')
+  })
+
+  test('returns null for idle and not-available phases', () => {
+    expect(src).toContain("state.phase === 'idle'")
+    expect(src).toContain("state.phase === 'not-available'")
+  })
+
+  test('has data-phase attribute for CSS targeting', () => {
+    expect(src).toContain('data-phase={state.phase}')
+  })
+
+  test('has progress bar with formatSpeed helper', () => {
+    expect(src).toContain('update-progress-bar')
+    expect(src).toContain('update-progress-fill')
+    expect(src).toContain('formatSpeed')
+  })
+
+  test('restart button shows loading state while installing', () => {
+    expect(src).toContain('disabled={state.installing}')
+    expect(src).toContain("state.installing ? 'Restarting…' : 'Restart & Install'")
+  })
+})
+
+describe('formatSpeed helper — source', () => {
+  test('source contains MB/s formatting', () => {
+    expect(src).toContain('MB/s')
+  })
+
+  test('source contains KB/s formatting', () => {
+    expect(src).toContain('KB/s')
+  })
+
+  test('source contains B/s formatting', () => {
+    expect(src).toContain('B/s')
   })
 })

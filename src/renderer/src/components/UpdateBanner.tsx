@@ -1,102 +1,142 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import type { UpdateState, UpdateInfo, UpdateProgress } from '../types/ipc'
 
-export default function UpdateBanner() {
-  const [state, setState] = useState<UpdateState>('idle')
-  const [info, setInfo] = useState<UpdateInfo | null>(null)
-  const [progress, setProgress] = useState<UpdateProgress | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+interface BannerState {
+  phase: UpdateState
+  info: UpdateInfo | null
+  progress: UpdateProgress | null
+  error: string | null
+  installing: boolean
+}
 
+const INITIAL: BannerState = {
+  phase: 'idle',
+  info: null,
+  progress: null,
+  error: null,
+  installing: false,
+}
+
+function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond >= 1_000_000) return `${(bytesPerSecond / 1_000_000).toFixed(1)} MB/s`
+  if (bytesPerSecond >= 1_000) return `${(bytesPerSecond / 1_000).toFixed(0)} KB/s`
+  return `${bytesPerSecond} B/s`
+}
+
+export default function UpdateBanner() {
+  const [state, setState] = useState<BannerState>(INITIAL)
+
+  // Hydrate from current state on mount
   useEffect(() => {
     const update = window.slashbot.update
-    // Hydrate initial state (guard against null — IPC handler may not be wired yet)
     update.getState().then((s: { state: UpdateState; info?: UpdateInfo; progress?: UpdateProgress; error?: string } | null) => {
       if (!s) return
-      setState(s.state)
-      if (s.info) setInfo(s.info)
-      if (s.progress) setProgress(s.progress)
-      if (s.error) setError(s.error)
-    }).catch(() => {})
+      setState(prev => ({
+        ...prev,
+        phase: s.state,
+        info: s.info ?? null,
+        progress: s.progress ?? null,
+        error: s.error ?? null,
+      }))
+    }).catch(() => {/* ignore — banner stays hidden */})
+  }, [])
 
+  // Subscribe to update events
+  useEffect(() => {
+    const update = window.slashbot.update
     const unsubs = [
       update.onChecking(() => {
-        setState('checking')
-        setDismissed(false)
+        setState(prev => ({ ...prev, phase: 'checking', error: null }))
       }),
-      update.onAvailable((i: UpdateInfo) => {
-        setState('available')
-        setInfo(i)
-        setDismissed(false)
+      update.onAvailable((info: UpdateInfo) => {
+        setState(prev => ({ ...prev, phase: 'available', info, error: null }))
       }),
       update.onNotAvailable(() => {
-        setState('not-available')
+        setState(prev => ({ ...prev, phase: 'not-available' }))
       }),
-      update.onProgress((p: UpdateProgress) => {
-        setState('downloading')
-        setProgress(p)
+      update.onProgress((progress: UpdateProgress) => {
+        setState(prev => ({ ...prev, phase: 'downloading', progress }))
       }),
-      update.onDownloaded((i: UpdateInfo) => {
-        setState('downloaded')
-        setInfo(i)
+      update.onDownloaded((info: UpdateInfo) => {
+        setState(prev => ({ ...prev, phase: 'downloaded', info, error: null }))
       }),
-      update.onError((err: string) => {
-        setState('error')
-        setError(err)
-        setDismissed(false)
+      update.onError((error: string) => {
+        setState(prev => ({ ...prev, phase: 'error', error }))
       }),
     ]
+    return () => unsubs.forEach(u => u())
+  }, [])
 
-    return () => { unsubs.forEach(u => u()) }
+  const handleDownload = useCallback(() => {
+    window.slashbot.update.download()
+  }, [])
+
+  const handleInstall = useCallback(() => {
+    setState(prev => ({ ...prev, installing: true }))
+    window.slashbot.update.install()
+  }, [])
+
+  const handleDismiss = useCallback(() => {
+    setState(prev => ({ ...prev, phase: 'idle', error: null }))
   }, [])
 
   // Hidden states
-  if (dismissed || state === 'idle' || state === 'not-available') return null
+  if (state.phase === 'idle' || state.phase === 'not-available') return null
 
   return (
-    <div className="update-banner" data-state={state}>
-      {state === 'checking' && (
-        <span className="update-banner-text">Checking for updates...</span>
+    <div className="update-banner" data-phase={state.phase}>
+      {state.phase === 'checking' && (
+        <div className="update-banner-content">
+          <span className="update-spinner" />
+          <span>Checking for updates…</span>
+        </div>
       )}
 
-      {state === 'available' && info && (
-        <>
-          <span className="update-banner-text">
-            Version {info.version} is available.
-          </span>
-          <button className="btn btn-sm" onClick={() => window.slashbot.update.download()}>
+      {state.phase === 'available' && (
+        <div className="update-banner-content">
+          <span>Version {state.info?.version} is available</span>
+          <button className="btn btn-sm btn-primary" onClick={handleDownload}>
             Download
           </button>
-        </>
+        </div>
       )}
 
-      {state === 'downloading' && progress && (
-        <span className="update-banner-text">
-          Downloading... {progress.percent.toFixed(0)}%
-          {progress.bytesPerSecond > 0 && ` (${(progress.bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s)`}
-        </span>
-      )}
-
-      {state === 'downloaded' && (
-        <>
-          <span className="update-banner-text">
-            Update ready{info ? ` (v${info.version})` : ''}. Restart to apply.
+      {state.phase === 'downloading' && (
+        <div className="update-banner-content">
+          <div className="update-progress-bar">
+            <div
+              className="update-progress-fill"
+              style={{ width: state.progress ? `${Math.round(state.progress.percent)}%` : '0%' }}
+            />
+          </div>
+          <span className="update-progress-text">
+            {state.progress
+              ? `${Math.round(state.progress.percent)}% — ${formatSpeed(state.progress.bytesPerSecond)}`
+              : 'Downloading…'}
           </span>
-          <button className="btn btn-sm" onClick={() => window.slashbot.update.install()}>
-            Restart
+        </div>
+      )}
+
+      {state.phase === 'downloaded' && (
+        <div className="update-banner-content">
+          <span>Version {state.info?.version} ready to install</span>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={handleInstall}
+            disabled={state.installing}
+          >
+            {state.installing ? 'Restarting…' : 'Restart & Install'}
           </button>
-        </>
+        </div>
       )}
 
-      {state === 'error' && (
-        <>
-          <span className="update-banner-text">
-            Update error{error ? `: ${error}` : ''}
-          </span>
-          <button className="btn btn-sm" onClick={() => setDismissed(true)}>
+      {state.phase === 'error' && (
+        <div className="update-banner-content">
+          <span className="update-error-msg">Update error: {state.error}</span>
+          <button className="btn btn-sm btn-ghost" onClick={handleDismiss}>
             Dismiss
           </button>
-        </>
+        </div>
       )}
     </div>
   )
