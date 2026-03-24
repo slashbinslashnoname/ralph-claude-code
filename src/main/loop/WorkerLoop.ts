@@ -600,8 +600,12 @@ export class WorkerLoop extends EventEmitter {
       }
       this.childProc = proc
       let raw = ''
+      let settled = false
       const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
         try { proc.kill('SIGTERM') } catch { /* ignore */ }
+        this.childProc = null
         if (raw.trim()) resolve(raw)
         else reject(new Error(`${this.agentId}: timed out`))
       }, this.config.claudeTimeoutMinutes * 60_000)
@@ -614,12 +618,21 @@ export class WorkerLoop extends EventEmitter {
       })
       proc.stderr!.on('data', (chunk: Buffer) => fs.appendFileSync(outFile, chunk.toString()))
       proc.on('close', (exitCode) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer); this.childProc = null
+        // Capture sessionId from JSON output for continueSession support
+        if (this.config.claudeOutputFormat === 'json') {
+          const { sessionId } = extractResultFromJsonStream(raw)
+          if (sessionId) this.sessionId = sessionId
+        }
         if (this.stopped) { resolve(raw); return }
         if (exitCode !== 0 && !raw.trim()) reject(new Error(`${this.agentId}: Claude exited ${exitCode}`))
         else resolve(raw)
       })
       proc.on('error', (err) => {
+        if (settled) return
+        settled = true
         clearTimeout(timer); this.childProc = null
         reject(new Error(`${this.agentId}: spawn failed: ${err.message}`))
       })
