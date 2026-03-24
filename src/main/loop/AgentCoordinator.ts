@@ -894,7 +894,7 @@ export class AgentCoordinator {
         // Assign directly to this agent
         let assigned = false
         try { assigned = await this.bd.assignToAsync(bead.id, agentId) }
-        catch { assigned = this.bd.assignTo(bead.id, agentId) }
+        catch { /* assignment failed — skip this bead */ }
         if (!assigned) {
           this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed`)
           continue
@@ -906,7 +906,7 @@ export class AgentCoordinator {
         const originalTitle = bead.title
         let freshBead: Bead | null = null
         try { freshBead = await this.bd.showAsync(bead.id) }
-        catch { freshBead = this.bd.show(bead.id) }
+        catch { /* showAsync failed — use in-memory bead data */ }
         const result = freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
         if (originalTitle && result.title !== originalTitle) {
           result.title = originalTitle
