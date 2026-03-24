@@ -1,6 +1,9 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { exec, execSync, spawn } from 'child_process'
+import { exec, execFile, spawn } from 'child_process'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
 import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry, MailMessage } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
@@ -45,6 +48,17 @@ export class AgentCoordinator {
       const logFile = path.join(this.paths.logsDir, 'slashbot.log')
       fs.appendFileSync(logFile, `[${new Date().toISOString()}] [${level}] ${msg}\n`)
     } catch { /* best-effort */ }
+  }
+
+  /** Run a git command asynchronously. Returns trimmed stdout. */
+  private async _runGit(args: string[], opts?: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv }): Promise<string> {
+    const { stdout } = await execFileAsync('git', args, {
+      cwd: opts?.cwd ?? this.paths.projectRoot,
+      timeout: opts?.timeout ?? 10000,
+      maxBuffer: 10 * 1024 * 1024,
+      env: opts?.env,
+    })
+    return stdout.trim()
   }
 
   constructor(paths: ProjectPaths) {
@@ -441,34 +455,30 @@ export class AgentCoordinator {
   // ── Git worktree management ─────────────────────────────────────────────
 
   /** Create a git worktree for an agent's isolated work */
-  createWorktree(agentId: string, beadId: string): { worktreePath: string; branch: string } | null {
+  async createWorktree(agentId: string, beadId: string): Promise<{ worktreePath: string; branch: string } | null> {
     const branch = `worker/${beadId}`
     const worktreePath = path.join(this.paths.worktreesDir, `worker-${beadId}`)
 
     try {
       // Get current branch
-      const currentBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.paths.projectRoot, timeout: 5000
-      }).toString().trim()
+      const currentBranch = await this._runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })
 
       // Clean up stale worktree if exists
       if (fs.existsSync(worktreePath)) {
-        try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+        try { await this._runGit(['worktree', 'remove', '--force', worktreePath], { timeout: 10000 }) } catch { /* ignore */ }
         // Force-remove directory if git worktree remove didn't clean it
         try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
       }
 
       // Prune stale worktree references so git doesn't block creating new ones
-      try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      try { await this._runGit(['worktree', 'prune'], { timeout: 5000 }) } catch { /* ignore */ }
 
       // Delete branch if it exists from a previous attempt
-      try { execSync(`git branch -D "${branch}"`, { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+      try { await this._runGit(['branch', '-D', branch], { timeout: 5000 }) } catch { /* ignore */ }
 
       // Create worktree with new branch
       fs.mkdirSync(path.dirname(worktreePath), { recursive: true })
-      execSync(`git worktree add -b "${branch}" "${worktreePath}" "${currentBranch}"`, {
-        cwd: this.paths.projectRoot, timeout: 15000
-      })
+      await this._runGit(['worktree', 'add', '-b', branch, worktreePath, currentBranch], { timeout: 15000 })
 
       // Symlink .beads into worktree so bd CLI works there
       const beadsLink = path.join(worktreePath, '.beads')
@@ -532,63 +542,51 @@ export class AgentCoordinator {
     const stoppedFn = opts?.stoppedFn
 
     try {
-      const baseBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.paths.projectRoot, timeout: 5000
-      }).toString().trim()
+      const baseBranch = await this._runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })
 
       // Verify agent branch is resolvable
       try {
-        execSync(`git rev-parse --verify "${branch}"`, { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' })
+        await this._runGit(['rev-parse', '--verify', branch], { timeout: 5000 })
       } catch {
         // Branch doesn't resolve — nothing to merge (brand-new worktree, no commits)
-        this._cleanupWorktree(worktreePath, branch)
+        await this._cleanupWorktree(worktreePath, branch)
         return { merged: true, filesChanged: [] }
       }
 
       // Check if there are any new commits on the agent branch
-      const diffOutput = execSync(`git log "${baseBranch}..${branch}" --oneline`, {
-        cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
-      }).toString().trim()
+      const diffOutput = await this._runGit(['log', `${baseBranch}..${branch}`, '--oneline'], { timeout: 5000 })
 
       if (!diffOutput) {
-        this._cleanupWorktree(worktreePath, branch)
+        await this._cleanupWorktree(worktreePath, branch)
         return { merged: true, filesChanged: [] }
       }
 
       // Get list of files changed by the agent
-      const filesOutput = execSync(`git diff --name-only "${baseBranch}..${branch}"`, {
-        cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
-      }).toString().trim()
+      const filesOutput = await this._runGit(['diff', '--name-only', `${baseBranch}..${branch}`], { timeout: 5000 })
       const filesChanged = filesOutput ? filesOutput.split('\n').filter(Boolean) : []
 
       let lastError = ''
 
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         if (stoppedFn?.()) {
-          this._cleanupWorktree(worktreePath, branch)
+          await this._cleanupWorktree(worktreePath, branch)
           return { merged: false, filesChanged: [], error: 'stopped' }
         }
 
         // Step 1: Record current base ref for CAS (compare-and-swap)
-        const oldBaseRef = execSync(`git rev-parse "${baseBranch}"`, {
-          cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
-        }).toString().trim()
+        const oldBaseRef = await this._runGit(['rev-parse', baseBranch], { timeout: 5000 })
 
         // Step 2: Check if base is already an ancestor of agent branch
         let mergeNeeded = true
         try {
-          execSync(`git merge-base --is-ancestor "${oldBaseRef}" HEAD`, {
-            cwd: worktreePath, timeout: 5000, stdio: 'pipe'
-          })
+          await this._runGit(['merge-base', '--is-ancestor', oldBaseRef, 'HEAD'], { cwd: worktreePath, timeout: 5000 })
           mergeNeeded = false
         } catch { /* base has moved ahead — merge needed */ }
 
         // Step 3: Merge base into agent branch (in agent's worktree — no global lock)
         if (mergeNeeded) {
           try {
-            execSync(`git merge "${baseBranch}" --no-edit`, {
-              cwd: worktreePath, timeout: 30000, stdio: 'pipe'
-            })
+            await this._runGit(['merge', baseBranch, '--no-edit'], { cwd: worktreePath, timeout: 30000 })
           } catch (err) {
             const stderr = (err as { stderr?: Buffer | string })?.stderr
             const stdout = (err as { stdout?: Buffer | string })?.stdout
@@ -605,12 +603,12 @@ export class AgentCoordinator {
               if (!resolved) {
                 // Claude couldn't resolve — accept agent's version for conflicted files
                 try {
-                  execSync('git checkout --ours .', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
-                  execSync('git add -A', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
-                  execSync('git commit --no-edit', { cwd: worktreePath, timeout: 10000, stdio: 'pipe' })
+                  await this._runGit(['checkout', '--ours', '.'], { cwd: worktreePath, timeout: 5000 })
+                  await this._runGit(['add', '-A'], { cwd: worktreePath, timeout: 5000 })
+                  await this._runGit(['commit', '--no-edit'], { cwd: worktreePath, timeout: 10000 })
                 } catch {
                   // Last resort: abort and retry
-                  try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+                  try { await this._runGit(['merge', '--abort'], { cwd: worktreePath, timeout: 5000 }) } catch { /* ignore */ }
                   if (attempt >= maxRetries) break
                   continue
                 }
@@ -619,11 +617,11 @@ export class AgentCoordinator {
             } else if (isConflict) {
               // No Claude available — accept agent's version for conflicted files
               try {
-                execSync('git checkout --ours .', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
-                execSync('git add -A', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' })
-                execSync('git commit --no-edit', { cwd: worktreePath, timeout: 10000, stdio: 'pipe' })
+                await this._runGit(['checkout', '--ours', '.'], { cwd: worktreePath, timeout: 5000 })
+                await this._runGit(['add', '-A'], { cwd: worktreePath, timeout: 5000 })
+                await this._runGit(['commit', '--no-edit'], { cwd: worktreePath, timeout: 10000 })
               } catch {
-                try { execSync('git merge --abort', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+                try { await this._runGit(['merge', '--abort'], { cwd: worktreePath, timeout: 5000 }) } catch { /* ignore */ }
                 if (attempt >= maxRetries) break
                 continue
               }
@@ -637,21 +635,17 @@ export class AgentCoordinator {
         }
 
         // Step 4: Get agent branch tip (now includes base changes)
-        const newRef = execSync('git rev-parse HEAD', {
-          cwd: worktreePath, timeout: 5000, stdio: 'pipe'
-        }).toString().trim()
+        const newRef = await this._runGit(['rev-parse', 'HEAD'], { cwd: worktreePath, timeout: 5000 })
 
         // Step 5: Atomic CAS — update base branch ref to agent tip
         // Fails if another agent moved the ref since we read oldBaseRef
         try {
-          execSync(`git update-ref "refs/heads/${baseBranch}" ${newRef} ${oldBaseRef}`, {
-            cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
-          })
+          await this._runGit(['update-ref', `refs/heads/${baseBranch}`, newRef, oldBaseRef], { timeout: 5000 })
         } catch {
           // CAS failed — another agent updated the base. Undo merge and retry.
           lastError = 'update-ref CAS failed (concurrent merge)'
           if (mergeNeeded) {
-            try { execSync('git reset --hard HEAD~1', { cwd: worktreePath, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+            try { await this._runGit(['reset', '--hard', 'HEAD~1'], { cwd: worktreePath, timeout: 5000 }) } catch { /* ignore */ }
           }
           if (attempt >= maxRetries) break
           continue
@@ -660,15 +654,15 @@ export class AgentCoordinator {
         // Step 6: Sync main working tree (brief lock — only for checkout, not merge)
         await this._syncMainWorkingTree()
 
-        this._cleanupWorktree(worktreePath, branch)
+        await this._cleanupWorktree(worktreePath, branch)
         return { merged: true, filesChanged, commitSha: newRef }
       }
 
       // Exhausted retries
-      this._cleanupWorktree(worktreePath, branch)
+      await this._cleanupWorktree(worktreePath, branch)
       return { merged: false, filesChanged: [], error: lastError || 'exhausted retries' }
     } catch (err) {
-      this._cleanupWorktree(worktreePath, branch)
+      await this._cleanupWorktree(worktreePath, branch)
       return { merged: false, filesChanged: [], error: err instanceof Error ? err.message : String(err) }
     }
   }
@@ -678,9 +672,9 @@ export class AgentCoordinator {
     await this.mergeSemaphore.acquire(30000)
     try {
       // Move untracked items that might conflict with the checkout
-      const movedItems = this._moveConflictingItems()
+      const movedItems = await this._moveConflictingItems()
       try {
-        execSync('git reset --hard', { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' })
+        await this._runGit(['reset', '--hard'], { timeout: 10000 })
       } finally {
         this._restoreMovedItems(movedItems)
       }
@@ -690,7 +684,7 @@ export class AgentCoordinator {
   }
 
   /** Move untracked symlinks/dirs (.slashbot, .beads, etc.) out of the way before checkout. */
-  private _moveConflictingItems(): Array<{ path: string; symlinkTarget?: string }> {
+  private async _moveConflictingItems(): Promise<Array<{ path: string; symlinkTarget?: string }>> {
     const movedItems: Array<{ path: string; symlinkTarget?: string }> = []
     for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
       const fullPath = path.join(this.paths.projectRoot, name)
@@ -698,7 +692,7 @@ export class AgentCoordinator {
       try { stat = fs.lstatSync(fullPath) } catch { continue }
       // Skip tracked files — reset --hard handles those
       try {
-        execSync(`git ls-files --error-unmatch "${name}"`, { cwd: this.paths.projectRoot, timeout: 3000, stdio: 'pipe' })
+        await this._runGit(['ls-files', '--error-unmatch', name], { timeout: 3000 })
         continue
       } catch { /* untracked */ }
       if (stat.isSymbolicLink()) {
@@ -736,9 +730,7 @@ export class AgentCoordinator {
     const workDir = cwd ?? this.paths.projectRoot
     try {
       // Get list of conflicted files
-      const conflicted = execSync('git diff --name-only --diff-filter=U', {
-        cwd: workDir, timeout: 5000, stdio: 'pipe'
-      }).toString().trim()
+      const conflicted = await this._runGit(['diff', '--name-only', '--diff-filter=U'], { cwd: workDir, timeout: 5000 })
 
       if (!conflicted) return false
 
@@ -763,17 +755,14 @@ export class AgentCoordinator {
           clearTimeout(timer)
           if (code !== 0) { resolve(false); return }
           // Check if conflicts are resolved (no more conflict markers)
-          try {
-            const remaining = execSync('git diff --name-only --diff-filter=U', {
-              cwd: workDir, timeout: 5000, stdio: 'pipe'
-            }).toString().trim()
-            if (remaining) { resolve(false); return }
-            // Commit the merge resolution
-            execSync('git commit --no-edit', { cwd: workDir, timeout: 10000, stdio: 'pipe' })
-            resolve(true)
-          } catch {
-            resolve(false)
-          }
+          this._runGit(['diff', '--name-only', '--diff-filter=U'], { cwd: workDir, timeout: 5000 })
+            .then(remaining => {
+              if (remaining) { resolve(false); return }
+              // Commit the merge resolution
+              return this._runGit(['commit', '--no-edit'], { cwd: workDir, timeout: 10000 })
+                .then(() => resolve(true))
+            })
+            .catch(() => resolve(false))
         })
         proc.on('error', () => { clearTimeout(timer); resolve(false) })
       })
@@ -782,13 +771,13 @@ export class AgentCoordinator {
     }
   }
 
-  private _cleanupWorktree(worktreePath: string, branch: string): void {
-    try { execSync(`git worktree remove --force "${worktreePath}"`, { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' }) } catch { /* ignore */ }
+  private async _cleanupWorktree(worktreePath: string, branch: string): Promise<void> {
+    try { await this._runGit(['worktree', 'remove', '--force', worktreePath], { timeout: 10000 }) } catch { /* ignore */ }
     // Force-remove directory if git worktree remove didn't clean it up
     try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
     // Prune stale worktree references so git doesn't think the worktree still exists
-    try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
-    try { execSync(`git branch -D "${branch}"`, { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+    try { await this._runGit(['worktree', 'prune'], { timeout: 5000 }) } catch { /* ignore */ }
+    try { await this._runGit(['branch', '-D', branch], { timeout: 5000 }) } catch { /* ignore */ }
   }
 
   // ── Bead operations via bd CLI ─────────────────────────────────────────
@@ -1040,7 +1029,7 @@ export class AgentCoordinator {
   async completeBead(agentId: string, beadId: string, filesChanged?: string[], autoPush = true): Promise<void> {
     // Idempotency: skip if bead is already done
     try {
-      const current = this.bd.show(beadId)
+      const current = await this.bd.showAsync(beadId)
       if (current?.status === 'done') {
         this.releaseFiles(agentId, beadId)
         this.postActivity({ agentId, type: 'completed', beadId, filesChanged, summary: `Completed [${beadId}] (already done)` })
@@ -1059,7 +1048,7 @@ export class AgentCoordinator {
     }
 
     try {
-      this.bd.close(beadId, `Completed by ${agentId}`)
+      await this.bd.closeAsync(beadId, `Completed by ${agentId}`)
     } catch (err) {
       // bd close can fail for epics with open children — don't crash the worker
       const msg = err instanceof Error ? err.message : String(err)
@@ -1069,7 +1058,7 @@ export class AgentCoordinator {
     this.postActivity({ agentId, type: 'completed', beadId, filesChanged, commitSha: commitSha ?? undefined, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
 
     // Auto-close parent epic if all siblings are done
-    this._maybeCloseEpic(agentId, beadId)
+    await this._maybeCloseEpic(agentId, beadId)
   }
 
   /**
@@ -1077,23 +1066,23 @@ export class AgentCoordinator {
    * that epic are now done. If so, close the epic automatically.
    * Leverages idempotent close — a spurious double-close is harmless.
    */
-  private _maybeCloseEpic(agentId: string, beadId: string): void {
+  private async _maybeCloseEpic(agentId: string, beadId: string): Promise<void> {
     try {
-      const bead = this.bd.show(beadId)
+      const bead = await this.bd.showAsync(beadId)
       if (!bead?.epicId) return
 
       const epicId = bead.epicId
-      const epic = this.bd.show(epicId)
+      const epic = await this.bd.showAsync(epicId)
       if (!epic || epic.status === 'done') return // already closed or missing
 
-      const allBeads = this.bd.listAll()
+      const allBeads = await this.bd.listAllAsync()
       const siblings = allBeads.filter(b => b.epicId === epicId && b.id !== epicId)
       if (siblings.length === 0) return
 
       const allDone = siblings.every(b => b.status === 'done')
       if (!allDone) return
 
-      this.bd.close(epicId, `All children completed — auto-closed by ${agentId}`)
+      await this.bd.closeAsync(epicId, `All children completed — auto-closed by ${agentId}`)
       this.postActivity({
         agentId,
         type: 'completed',
@@ -1111,36 +1100,32 @@ export class AgentCoordinator {
     await this.commitSemaphore.acquire(60000)
     try {
       // Stage everything (merged code + .beads db changes)
-      execSync('git add -A', { cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe' })
+      await this._runGit(['add', '-A'], { timeout: 10000 })
 
       // Check if there's anything to commit
       try {
-        execSync('git diff --cached --quiet', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' })
+        await this._runGit(['diff', '--cached', '--quiet'], { timeout: 5000 })
         return null // nothing staged
       } catch { /* has staged changes — continue */ }
 
       // Commit
       const msg = `feat: complete bead ${beadId} [${agentId}]`
-      execSync(`git commit -m ${JSON.stringify(msg)}`, {
-        cwd: this.paths.projectRoot, timeout: 10000, stdio: 'pipe',
+      await this._runGit(['commit', '-m', msg], {
+        timeout: 10000,
         env: { ...process.env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
       })
 
       // Capture the commit SHA
       let commitSha: string | null = null
       try {
-        commitSha = execSync('git rev-parse HEAD', {
-          cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
-        }).toString().trim()
+        commitSha = await this._runGit(['rev-parse', 'HEAD'], { timeout: 5000 })
       } catch { /* non-fatal — SHA capture failed */ }
 
       // Push to remote (current branch)
       if (autoPush) {
         try {
-          const branch = execSync('git rev-parse --abbrev-ref HEAD', {
-            cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe'
-          }).toString().trim()
-          execSync(`git push origin ${branch}`, { cwd: this.paths.projectRoot, timeout: 30000, stdio: 'pipe' })
+          const branch = await this._runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })
+          await this._runGit(['push', 'origin', branch], { timeout: 30000 })
         } catch (err) {
           // Push may fail if no remote or no upstream — non-fatal
           const msg = err instanceof Error ? err.message : String(err)
@@ -1154,39 +1139,22 @@ export class AgentCoordinator {
     }
   }
 
-  reopenBead(agentId: string, beadId: string): void {
+  async reopenBead(agentId: string, beadId: string): Promise<void> {
     // Idempotency: skip if bead is already open
     try {
-      const current = this.bd.show(beadId)
+      const current = await this.bd.showAsync(beadId)
       if (current?.status === 'ready') {
         this.releaseFiles(agentId, beadId)
         return
       }
     } catch { /* bead not found — proceed and let bd.reopen handle the error */ }
 
-    this.bd.reopen(beadId, `Reopened by ${agentId} for retry`)
+    await this.bd.reopenAsync(beadId, `Reopened by ${agentId} for retry`)
     this.releaseFiles(agentId, beadId)
   }
 
   /** Reopen any beads left in claimed/in_progress from a previous session */
-  reopenStaleBeads(): void {
-    const claimed = this.bd.listByStatus('in_progress')
-    for (const bead of claimed) {
-      try {
-        this.bd.reopen(bead.id, 'Reopened on startup — stale from previous session')
-        this.postActivity({ agentId: 'system', type: 'info', beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
-      } catch { /* ignore — may already be open */ }
-    }
-    // Clear all file locks from previous session
-    this.clearAllFileLocks()
-    // Clean up orphaned worktrees from previous session
-    this.cleanOrphanedWorktrees()
-    // Prune stale git worktree references
-    try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
-  }
-
-  /** Async version — does not block the main thread */
-  async reopenStaleBeadsAsync(): Promise<void> {
+  async reopenStaleBeads(): Promise<void> {
     const claimed = await this.bd.listByStatusAsync('in_progress')
     for (const bead of claimed) {
       try {
@@ -1194,11 +1162,17 @@ export class AgentCoordinator {
         this.postActivity({ agentId: 'system', type: 'info', beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
       } catch { /* ignore — may already be open */ }
     }
+    // Clear all file locks from previous session
     this.clearAllFileLocks()
-    this.cleanOrphanedWorktrees()
-    await new Promise<void>(resolve => {
-      exec('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000 }, () => resolve())
-    })
+    // Clean up orphaned worktrees from previous session
+    await this.cleanOrphanedWorktrees()
+    // Prune stale git worktree references
+    try { await this._runGit(['worktree', 'prune'], { timeout: 5000 }) } catch { /* ignore */ }
+  }
+
+  /** Alias — kept for backward compatibility; reopenStaleBeads is now async. */
+  async reopenStaleBeadsAsync(): Promise<void> {
+    return this.reopenStaleBeads()
   }
 
   /**
@@ -1208,7 +1182,7 @@ export class AgentCoordinator {
    * deduplicates, reverts via git revert --no-edit, aborts on conflict,
    * reopens the bead, and posts a rollback activity event.
    */
-  rollbackBead(agentId: string, beadId: string): { reverted: boolean; revertedShas: string[]; error?: string } {
+  async rollbackBead(agentId: string, beadId: string): Promise<{ reverted: boolean; revertedShas: string[]; error?: string }> {
     // Collect activity events for this bead (indexed lookup)
     const beadEvents = this._activityByBead.get(beadId) ?? []
 
@@ -1243,14 +1217,12 @@ export class AgentCoordinator {
 
     for (const sha of reversedShas) {
       try {
-        execSync(`git revert --no-edit ${sha}`, {
-          cwd: this.paths.projectRoot, timeout: 15000, stdio: 'pipe'
-        })
+        await this._runGit(['revert', '--no-edit', sha], { timeout: 15000 })
         revertedShas.push(sha)
       } catch (err) {
         // Conflict during revert — abort and return error
         try {
-          execSync('git revert --abort', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' })
+          await this._runGit(['revert', '--abort'], { timeout: 5000 })
         } catch { /* ignore — abort may fail if no revert in progress */ }
         const msg = err instanceof Error ? err.message : String(err)
         this.releaseFiles(agentId, beadId)
@@ -1264,7 +1236,7 @@ export class AgentCoordinator {
 
     // Reopen the bead via bd CLI
     try {
-      this.bd.reopen(beadId, `Rolled back by ${agentId}`)
+      await this.bd.reopenAsync(beadId, `Rolled back by ${agentId}`)
     } catch (err) {
       // Non-fatal — bead may already be open
       const msg = err instanceof Error ? err.message : String(err)
@@ -1284,10 +1256,10 @@ export class AgentCoordinator {
     return { reverted: true, revertedShas }
   }
 
-  failBead(agentId: string, beadId: string, reason: string): void {
+  async failBead(agentId: string, beadId: string, reason: string): Promise<void> {
     // Idempotency: skip if bead is already failed
     try {
-      const current = this.bd.show(beadId)
+      const current = await this.bd.showAsync(beadId)
       if (current?.status === 'failed') {
         this.releaseFiles(agentId, beadId)
         this.postActivity({ agentId, type: 'failed', beadId, summary: `${reason} (already failed)` })
@@ -1295,14 +1267,14 @@ export class AgentCoordinator {
       }
     } catch { /* bead not found — proceed and let bd.close handle the error */ }
 
-    this.bd.addLabel(beadId, 'failed')
-    this.bd.close(beadId, `Failed: ${reason}`)
+    await this.bd.addLabelAsync(beadId, 'failed')
+    await this.bd.closeAsync(beadId, `Failed: ${reason}`)
     this.releaseFiles(agentId, beadId)
     this.postActivity({ agentId, type: 'failed', beadId, summary: reason })
   }
 
   /** Remove worktree directories not owned by any registered agent. */
-  cleanOrphanedWorktrees(): string[] {
+  async cleanOrphanedWorktrees(): Promise<string[]> {
     const worktreesDir = this.paths.worktreesDir
     if (!fs.existsSync(worktreesDir)) return []
 
@@ -1337,7 +1309,7 @@ export class AgentCoordinator {
       }
 
       if (branch) {
-        this._cleanupWorktree(wtPath, branch)
+        await this._cleanupWorktree(wtPath, branch)
       }
       // Fallback: rm dir if git worktree remove didn't work
       try { if (fs.existsSync(wtPath)) fs.rmSync(wtPath, { recursive: true, force: true }) } catch { /* ignore */ }
@@ -1346,15 +1318,7 @@ export class AgentCoordinator {
     return removed
   }
 
-  hasOpenWork(): boolean {
-    if (this.planningActive) return true
-    const open = this.bd.listByStatus('open')
-    if (open.length > 0) return true
-    const inProgress = this.bd.listByStatus('in_progress')
-    return inProgress.length > 0
-  }
-
-  async hasOpenWorkAsync(): Promise<boolean> {
+  async hasOpenWork(): Promise<boolean> {
     if (this.planningActive) return true
     const open = await this.bd.listByStatusAsync('open')
     if (open.length > 0) return true
@@ -1362,11 +1326,17 @@ export class AgentCoordinator {
     return inProgress.length > 0
   }
 
-  getStats(): BeadStats {
-    return this.bd.stats()
+  /** Alias — kept for backward compatibility; hasOpenWork is now async. */
+  async hasOpenWorkAsync(): Promise<boolean> {
+    return this.hasOpenWork()
   }
 
-  async getStatsAsync(): Promise<BeadStats> {
+  async getStats(): Promise<BeadStats> {
     return this.bd.statsAsync()
+  }
+
+  /** Alias — kept for backward compatibility; getStats is now async. */
+  async getStatsAsync(): Promise<BeadStats> {
+    return this.getStats()
   }
 }

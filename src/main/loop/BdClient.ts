@@ -327,6 +327,10 @@ export class BdClient {
     this.run(['close', id, '--reason', reason, '--json'])
   }
 
+  async closeAsync(id: string, reason = 'Done'): Promise<void> {
+    await this.runAsync(['close', id, '--reason', reason, '--json'])
+  }
+
   reopen(id: string, reason = ''): void {
     const args = ['reopen', id]
     if (reason) args.push('--reason', reason)
@@ -351,6 +355,10 @@ export class BdClient {
 
   addLabel(id: string, label: string): void {
     this.run(['label', 'add', id, label, '--json'])
+  }
+
+  async addLabelAsync(id: string, label: string): Promise<void> {
+    await this.runAsync(['label', 'add', id, label, '--json'])
   }
 
   removeLabel(id: string, label: string): void {

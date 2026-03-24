@@ -281,7 +281,7 @@ export class WorkerLoop extends EventEmitter {
       this._currentBeadId = bead.id
 
       // ── Create worktree for isolated work ─────────────────────────
-      const wt = this.coordinator.createWorktree(this.agentId, bead.id)
+      const wt = await this.coordinator.createWorktree(this.agentId, bead.id)
       if (!wt) {
         this._log('ERROR', `[${this.agentId}] Worktree creation failed for bead [${bead.id}] — refusing to proceed without isolation`)
         this.emit('output', `\n── ERROR: Worktree creation failed for [${bead.id}] — reopening bead and retrying ──\n\n`)
@@ -289,7 +289,7 @@ export class WorkerLoop extends EventEmitter {
           agentId: this.agentId, type: 'failed', beadId: bead.id,
           beadTitle: bead.title, summary: `Worktree creation failed for [${bead.id}]`
         })
-        this.coordinator.reopenBead(this.agentId, bead.id)
+        await this.coordinator.reopenBead(this.agentId, bead.id)
         this._currentBeadId = null
         this.coordinator.updateAgent(this.agentId, { currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, phase: 'idle' })
         await this._sleep(10_000)
@@ -407,7 +407,7 @@ export class WorkerLoop extends EventEmitter {
               cwd: this.projectPath, timeout: 10000, stdio: 'pipe'
             })
           } catch { /* best-effort cleanup */ }
-          this.coordinator.reopenBead(this.agentId, bead.id)
+          await this.coordinator.reopenBead(this.agentId, bead.id)
         } else if (wt && !this.stopped) {
           try {
             this._setPhase('merging', bead.id, bead.title)
@@ -465,7 +465,7 @@ export class WorkerLoop extends EventEmitter {
 
         if (attempt < maxRetries) {
           this._incrementBeadAttempt(bead.id)
-          this.coordinator.reopenBead(this.agentId, bead.id)
+          await this.coordinator.reopenBead(this.agentId, bead.id)
           const backoffMs = this._backoffMs(attempt)
           this._log('WARN', `[${this.agentId}] Bead [${bead.id}] merge failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${Math.round(backoffMs / 1000)}s`)
           this.coordinator.postActivity({
@@ -479,7 +479,7 @@ export class WorkerLoop extends EventEmitter {
         }
 
         this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] merge permanently failed after ${maxRetries + 1} attempts`)
-        this.coordinator.failBead(this.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
+        await this.coordinator.failBead(this.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
         this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
         await this._sleep(3000)
         continue
@@ -491,7 +491,7 @@ export class WorkerLoop extends EventEmitter {
         if (attempt < maxRetries) {
           // Retry: reopen bead with incremented attempt count
           this._incrementBeadAttempt(bead.id)
-          this.coordinator.reopenBead(this.agentId, bead.id)
+          await this.coordinator.reopenBead(this.agentId, bead.id)
           const backoffMs = this._backoffMs(attempt)
           this._log('WARN', `[${this.agentId}] Bead [${bead.id}] failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${Math.round(backoffMs / 1000)}s`)
           this.coordinator.postActivity({
@@ -506,7 +506,7 @@ export class WorkerLoop extends EventEmitter {
 
         // Max retries exhausted — permanent failure
         this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] permanently failed after ${maxRetries + 1} attempts`)
-        this.coordinator.failBead(this.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
+        await this.coordinator.failBead(this.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
         this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
         await this._sleep(3000)
         continue
@@ -514,7 +514,7 @@ export class WorkerLoop extends EventEmitter {
       if (apiLimited) {
         // Don't fail the bead — it's a quota issue, not a bead issue.
         // Reopen the bead so it can be retried after cooldown.
-        this.coordinator.reopenBead(this.agentId, bead.id)
+        await this.coordinator.reopenBead(this.agentId, bead.id)
         this._setPhase('rate_limited')
         this.coordinator.postActivity({
           agentId: this.agentId, type: 'failed', beadId: bead.id,
@@ -525,7 +525,7 @@ export class WorkerLoop extends EventEmitter {
       }
       if (this.stopped) {
         // Reopen the bead so it can be picked up on next restart
-        this.coordinator.reopenBead(this.agentId, bead.id)
+        await this.coordinator.reopenBead(this.agentId, bead.id)
         this._log('INFO', `[${this.agentId}] Stopped — reopened bead [${bead.id}] for future pickup`)
         break
       }

@@ -467,7 +467,7 @@ export function registerIpc(
       const agent = typeof agentId === 'string' && agentId.length > 0 ? agentId : 'ui'
       const swarm = swarms.get(p)
       if (!swarm) return { ok: false, error: 'No active swarm for this project' }
-      const result = swarm.coordinator.rollbackBead(agent, beadId)
+      const result = await swarm.coordinator.rollbackBead(agent, beadId)
       return { ok: result.reverted, revertedShas: result.revertedShas, error: result.error }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

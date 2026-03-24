@@ -355,9 +355,9 @@ export class SwarmOrchestrator extends EventEmitter {
     return this.coordinator.bd.listAllAsync()
   }
 
-  getStats(): BeadStats { return this.coordinator.getStats() }
+  async getStats(): Promise<BeadStats> { return this.coordinator.getStats() }
 
-  async getStatsAsync(): Promise<BeadStats> { return this.coordinator.getStatsAsync() }
+  async getStatsAsync(): Promise<BeadStats> { return this.coordinator.getStats() }
 
   getAgentOutput(agentId: string): string {
     // Try memory buffer first, fall back to disk log
@@ -436,7 +436,7 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   /** Check for agents whose heartbeat is older than 2× claudeTimeoutMinutes and reopen their beads. */
-  private _detectDeadAgents(): void {
+  private async _detectDeadAgents(): Promise<void> {
     const config = loadConfig(this.projectPath, this.paths.slashbotrc)
     const thresholdMs = 2 * config.claudeTimeoutMinutes * 60_000
     const now = Date.now()
@@ -449,7 +449,7 @@ export class SwarmOrchestrator extends EventEmitter {
         // Find the agent's current bead and reopen it
         const agentInfo = this.coordinator.getAgents().find(a => a.id === agentId)
         if (agentInfo?.currentBeadId) {
-          this.coordinator.reopenBead(agentId, agentInfo.currentBeadId)
+          await this.coordinator.reopenBead(agentId, agentInfo.currentBeadId)
           this.coordinator.postActivity({
             agentId: 'system',
             type: 'dead_agent',

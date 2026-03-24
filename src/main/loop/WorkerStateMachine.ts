@@ -187,7 +187,7 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   }
 
   if (!bead) {
-    const hasOpen = ctx.coordinator.hasOpenWork()
+    const hasOpen = await ctx.coordinator.hasOpenWork()
     if (!hasOpen) {
       ctx.flags.emptyRetries++
       if (ctx.flags.emptyRetries >= 3) {
@@ -220,7 +220,7 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   })
 
   // Create worktree for isolated work
-  const wt = ctx.coordinator.createWorktree(ctx.agentId, bead.id)
+  const wt = await ctx.coordinator.createWorktree(ctx.agentId, bead.id)
   if (wt) {
     ctx.worktreePath = wt.worktreePath
     ctx.worktreeBranch = wt.branch
@@ -378,7 +378,7 @@ export async function merging(ctx: WorkerContext): Promise<StateId> {
         cwd: ctx.paths.projectRoot, timeout: 10000, stdio: 'pipe'
       })
     } catch { /* best-effort cleanup */ }
-    ctx.coordinator.reopenBead(ctx.agentId, bead.id)
+    await ctx.coordinator.reopenBead(ctx.agentId, bead.id)
     return 'closing'
   }
 
@@ -438,7 +438,7 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
 
     if (attempt < maxRetries) {
       ctx.capabilities.incrementBeadAttempt(bead.id)
-      ctx.coordinator.reopenBead(ctx.agentId, bead.id)
+      await ctx.coordinator.reopenBead(ctx.agentId, bead.id)
       const backoffMs = ctx.capabilities.backoffMs(attempt)
       log(ctx, 'WARN', `[${ctx.agentId}] Bead [${bead.id}] merge failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${Math.round(backoffMs / 1000)}s`)
       ctx.coordinator.postActivity({
@@ -451,7 +451,7 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
     }
 
     log(ctx, 'ERROR', `[${ctx.agentId}] Bead [${bead.id}] merge permanently failed after ${maxRetries + 1} attempts`)
-    ctx.coordinator.failBead(ctx.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
+    await ctx.coordinator.failBead(ctx.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
     await ctx.capabilities.sleep(3000)
     return 'cleanup'
   }
@@ -462,7 +462,7 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
 
     if (attempt < maxRetries) {
       ctx.capabilities.incrementBeadAttempt(bead.id)
-      ctx.coordinator.reopenBead(ctx.agentId, bead.id)
+      await ctx.coordinator.reopenBead(ctx.agentId, bead.id)
       const backoffMs = ctx.capabilities.backoffMs(attempt)
       log(ctx, 'WARN', `[${ctx.agentId}] Bead [${bead.id}] failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying in ${Math.round(backoffMs / 1000)}s`)
       ctx.coordinator.postActivity({
@@ -475,14 +475,14 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
     }
 
     log(ctx, 'ERROR', `[${ctx.agentId}] Bead [${bead.id}] permanently failed after ${maxRetries + 1} attempts`)
-    ctx.coordinator.failBead(ctx.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
+    await ctx.coordinator.failBead(ctx.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
     await ctx.capabilities.sleep(3000)
     return 'cleanup'
   }
 
   // ── API rate limited → reopen and wait for quota ──
   if (ctx.flags.apiLimited) {
-    ctx.coordinator.reopenBead(ctx.agentId, bead.id)
+    await ctx.coordinator.reopenBead(ctx.agentId, bead.id)
     setPhase(ctx, 'rate_limited')
     ctx.coordinator.postActivity({
       agentId: ctx.agentId, type: 'failed', beadId: bead.id,
@@ -494,7 +494,7 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
 
   // ── Stopped → reopen bead for future pickup ──
   if (ctx.flags.stopped) {
-    ctx.coordinator.reopenBead(ctx.agentId, bead.id)
+    await ctx.coordinator.reopenBead(ctx.agentId, bead.id)
     log(ctx, 'INFO', `[${ctx.agentId}] Stopped — reopened bead [${bead.id}] for future pickup`)
     return 'stopping'
   }
