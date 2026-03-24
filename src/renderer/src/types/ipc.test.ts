@@ -16,7 +16,11 @@ import type {
   CircuitBreakerSnapshot,
   SwarmStatus,
   ProgressStats,
-  PlanQueueItem
+  PlanQueueItem,
+  UpdateState,
+  UpdateInfo,
+  UpdateProgress,
+  UpdateEvent
 } from './ipc'
 
 describe('IPC types', () => {
@@ -200,5 +204,66 @@ describe('IPC types', () => {
     }
     expect(item.id).toBe('plan-1')
     expect(item.request).toBe('Add auth middleware')
+  })
+
+  it('UpdateState covers all values', () => {
+    const states: UpdateState[] = [
+      'idle', 'checking', 'available', 'not-available',
+      'downloading', 'downloaded', 'error'
+    ]
+    expect(states).toHaveLength(7)
+  })
+
+  it('UpdateInfo has all required fields', () => {
+    const info: UpdateInfo = {
+      version: '1.2.0',
+      releaseDate: '2026-03-24',
+      releaseNotes: 'Bug fixes and improvements'
+    }
+    expect(info.version).toBe('1.2.0')
+  })
+
+  it('UpdateInfo accepts null releaseNotes', () => {
+    const info: UpdateInfo = {
+      version: '1.2.0',
+      releaseDate: '2026-03-24',
+      releaseNotes: null
+    }
+    expect(info.releaseNotes).toBeNull()
+  })
+
+  it('UpdateProgress has all numeric fields', () => {
+    const progress: UpdateProgress = {
+      percent: 45.5,
+      bytesPerSecond: 1048576,
+      transferred: 5242880,
+      total: 11534336
+    }
+    expect(progress.percent).toBe(45.5)
+    expect(progress.total).toBe(11534336)
+  })
+
+  it('UpdateEvent discriminated union covers all event types', () => {
+    const events: UpdateEvent[] = [
+      { type: 'checking' },
+      { type: 'available', info: { version: '1.2.0', releaseDate: '2026-03-24', releaseNotes: null } },
+      { type: 'not-available', info: { version: '1.1.0', releaseDate: '2026-03-20', releaseNotes: null } },
+      { type: 'progress', progress: { percent: 50, bytesPerSecond: 1024, transferred: 512, total: 1024 } },
+      { type: 'downloaded', info: { version: '1.2.0', releaseDate: '2026-03-24', releaseNotes: 'Fixes' } },
+      { type: 'error', error: 'Network timeout' }
+    ]
+    expect(events).toHaveLength(6)
+    expect(events[0].type).toBe('checking')
+    expect(events[5].type).toBe('error')
+  })
+
+  it('UpdateEvent narrowing works via type discriminant', () => {
+    const event: UpdateEvent = {
+      type: 'available',
+      info: { version: '2.0.0', releaseDate: '2026-03-24', releaseNotes: 'Major release' }
+    }
+    if (event.type === 'available') {
+      expect(event.info.version).toBe('2.0.0')
+    }
   })
 })
