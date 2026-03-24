@@ -329,13 +329,18 @@ describe('SwarmOrchestrator — pause/resume workers', () => {
     expect(w1.resume).toHaveBeenCalled()
   })
 
-  it('pauseWorker broadcasts agents', () => {
+  it('pauseWorker broadcasts agents (debounced)', async () => {
+    vi.useFakeTimers()
     const fakeWorker = { pause: vi.fn(), stop: vi.fn() }
     ;(orch as any).workers.set('agent-0', fakeWorker)
     const broadcasts: any[] = []
     orch.on('agents', (a: any) => broadcasts.push(a))
     orch.pauseWorker('agent-0')
+    // Not emitted yet — debounced
+    expect(broadcasts.length).toBe(0)
+    vi.advanceTimersByTime(200)
     expect(broadcasts.length).toBe(1)
+    vi.useRealTimers()
   })
 })
 
@@ -1044,5 +1049,106 @@ describe('SwarmOrchestrator — dead agent cleanup via exit handler (Bug 3)', ()
     // Exit handler fires — now stopped is emitted once
     fakeWorker.emit('exit', 'dead')
     expect(stoppedCount).toBe(1)
+  })
+})
+
+describe('SwarmOrchestrator — broadcast debouncing', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    vi.useRealTimers()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('_broadcastAgents coalesces multiple calls within 200ms into one emit', () => {
+    const emits: any[] = []
+    orch.on('agents', (agents) => emits.push(agents))
+
+    // Call multiple times rapidly
+    ;(orch as any)._broadcastAgents()
+    ;(orch as any)._broadcastAgents()
+    ;(orch as any)._broadcastAgents()
+
+    // Nothing emitted yet (debounced)
+    expect(emits.length).toBe(0)
+
+    // Advance past debounce window
+    vi.advanceTimersByTime(200)
+    expect(emits.length).toBe(1)
+  })
+
+  it('_broadcastAgents emits again after debounce window expires', () => {
+    const emits: any[] = []
+    orch.on('agents', (agents) => emits.push(agents))
+
+    ;(orch as any)._broadcastAgents()
+    vi.advanceTimersByTime(200)
+    expect(emits.length).toBe(1)
+
+    // Second burst after window
+    ;(orch as any)._broadcastAgents()
+    vi.advanceTimersByTime(200)
+    expect(emits.length).toBe(2)
+  })
+
+  it('_broadcastGraph coalesces multiple calls within 200ms into one', () => {
+    const emits: any[] = []
+    orch.on('graph', (stats) => emits.push(stats))
+
+    // Mock getStatsAsync to resolve immediately
+    vi.spyOn(orch.coordinator, 'getStatsAsync').mockResolvedValue({
+      open: 1, in_progress: 0, closed: 0, total: 1
+    } as any)
+
+    ;(orch as any)._broadcastGraph()
+    ;(orch as any)._broadcastGraph()
+    ;(orch as any)._broadcastGraph()
+
+    expect(emits.length).toBe(0)
+
+    // Advance past debounce window to fire the timeout
+    vi.advanceTimersByTime(200)
+    // Allow the resolved promise microtask to flush
+    return Promise.resolve().then(() => {
+      expect(emits.length).toBe(1)
+    })
+  })
+
+  it('_stopActivityPoll clears debounce timers', () => {
+    ;(orch as any)._broadcastAgents()
+    ;(orch as any)._broadcastGraph()
+
+    // Timers should be set
+    expect((orch as any)._agentsBroadcastTimer).not.toBeNull()
+    expect((orch as any)._graphBroadcastTimer).not.toBeNull()
+
+    ;(orch as any)._stopActivityPoll()
+
+    // Timers should be cleared
+    expect((orch as any)._agentsBroadcastTimer).toBeNull()
+    expect((orch as any)._graphBroadcastTimer).toBeNull()
+
+    // Advancing time should not emit anything
+    const emits: any[] = []
+    orch.on('agents', () => emits.push('agents'))
+    orch.on('graph', () => emits.push('graph'))
+    vi.advanceTimersByTime(500)
+    expect(emits.length).toBe(0)
+  })
+
+  it('stopAll clears debounce timers via _stopActivityPoll', () => {
+    ;(orch as any)._broadcastAgents()
+    ;(orch as any)._broadcastGraph()
+
+    orch.stopAll()
+
+    expect((orch as any)._agentsBroadcastTimer).toBeNull()
+    expect((orch as any)._graphBroadcastTimer).toBeNull()
   })
 })

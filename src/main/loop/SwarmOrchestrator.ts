@@ -16,6 +16,8 @@ export class SwarmOrchestrator extends EventEmitter {
   private planner: PlanLoop | null = null
   private planning = false
   private activityPollTimer: ReturnType<typeof setInterval> | null = null
+  private _agentsBroadcastTimer: ReturnType<typeof setTimeout> | null = null
+  private _graphBroadcastTimer: ReturnType<typeof setTimeout> | null = null
   private lastActivityTs: string | null = null
   private _stoppedEmitted = false
   private planQueue: PlanQueueItem[] = []
@@ -396,13 +398,21 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   private _broadcastGraph(): void {
-    this.coordinator.getStatsAsync()
-      .then(stats => this.emit('graph', stats, null))
-      .catch(() => {})
+    if (this._graphBroadcastTimer) return
+    this._graphBroadcastTimer = setTimeout(() => {
+      this._graphBroadcastTimer = null
+      this.coordinator.getStatsAsync()
+        .then(stats => this.emit('graph', stats, null))
+        .catch(() => {})
+    }, 200)
   }
 
   private _broadcastAgents(): void {
-    this.emit('agents', this.coordinator.getAgents())
+    if (this._agentsBroadcastTimer) return
+    this._agentsBroadcastTimer = setTimeout(() => {
+      this._agentsBroadcastTimer = null
+      this.emit('agents', this.coordinator.getAgents())
+    }, 200)
   }
 
   private _deadAgentPollCount = 0
@@ -470,6 +480,8 @@ export class SwarmOrchestrator extends EventEmitter {
 
   private _stopActivityPoll(): void {
     if (this.activityPollTimer) { clearInterval(this.activityPollTimer); this.activityPollTimer = null }
+    if (this._agentsBroadcastTimer) { clearTimeout(this._agentsBroadcastTimer); this._agentsBroadcastTimer = null }
+    if (this._graphBroadcastTimer) { clearTimeout(this._graphBroadcastTimer); this._graphBroadcastTimer = null }
   }
 
   private _broadcastQueue(): void {
