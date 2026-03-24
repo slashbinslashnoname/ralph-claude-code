@@ -4,7 +4,7 @@ import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { parseRcFile, loadConfig, validateConfig, DEFAULT_CONFIG, DEFAULT_TELEGRAM_CONFIG } from './RcParser'
+import { parseRcFile, loadConfig, validateConfig, serializeConfig, DEFAULT_CONFIG, DEFAULT_TELEGRAM_CONFIG } from './RcParser'
 
 let tmpDir: string
 
@@ -574,5 +574,56 @@ describe('loadConfig', () => {
     expect(config.sleepDuration).toBe(DEFAULT_CONFIG.sleepDuration)
     // Valid value passes through
     expect(config.claudeTimeoutMinutes).toBe(5)
+  })
+})
+
+// ── serializeConfig ─────────────────────────────────────────────────────────
+
+describe('serializeConfig', () => {
+  it('serializes DEFAULT_CONFIG to a parseable rc format', () => {
+    const output = serializeConfig(DEFAULT_CONFIG)
+    expect(output).toContain('MAX_CALLS_PER_HOUR=100')
+    expect(output).toContain('CLAUDE_TIMEOUT_MINUTES=15')
+    expect(output).toContain('SLEEP_DURATION=3')
+    expect(output).toContain('AUTO_PUSH=true')
+    expect(output).toContain('CLAUDE_MODEL_THINK=sonnet')
+    expect(output).toContain('CLAUDE_MODEL_EXECUTE=opus')
+    expect(output).toContain('CLAUDE_MODEL_REVIEW=sonnet')
+    expect(output.endsWith('\n')).toBe(true)
+  })
+
+  it('serializes telegram keys', () => {
+    const config = { ...DEFAULT_CONFIG, telegram: { botToken: '123:abc', chatId: '-100', enabled: true, notifyOn: 'all' as const } }
+    const output = serializeConfig(config)
+    expect(output).toContain('TELEGRAM_BOT_TOKEN=123:abc')
+    expect(output).toContain('TELEGRAM_CHAT_ID=-100')
+    expect(output).toContain('TELEGRAM_ENABLED=true')
+    expect(output).toContain('TELEGRAM_NOTIFY_LEVEL=all')
+  })
+
+  it('round-trips: serialize then parse produces equivalent config', () => {
+    const original = { ...DEFAULT_CONFIG, maxCallsPerHour: 500, sleepDuration: 10, autoPush: false }
+    const serialized = serializeConfig(original)
+    writeRc(serialized)
+    const reloaded = loadConfig(tmpDir)
+    expect(reloaded.maxCallsPerHour).toBe(500)
+    expect(reloaded.sleepDuration).toBe(10)
+    expect(reloaded.autoPush).toBe(false)
+    expect(reloaded.claudeTimeoutMinutes).toBe(original.claudeTimeoutMinutes)
+  })
+
+  it('round-trips telegram config', () => {
+    const original = { ...DEFAULT_CONFIG, telegram: { botToken: '123456:ABCdef', chatId: '-100', enabled: true, notifyOn: 'completions' as const } }
+    const serialized = serializeConfig(original)
+    writeRc(serialized)
+    const reloaded = loadConfig(tmpDir)
+    expect(reloaded.telegram).toEqual(original.telegram)
+  })
+
+  it('omits telegram section when telegram is undefined', () => {
+    const config = { ...DEFAULT_CONFIG, telegram: undefined }
+    const output = serializeConfig(config as any)
+    expect(output).not.toContain('TELEGRAM_BOT_TOKEN')
+    expect(output).not.toContain('TELEGRAM_CHAT_ID')
   })
 })

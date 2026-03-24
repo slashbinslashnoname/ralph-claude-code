@@ -9,7 +9,7 @@ import { createNativeRequire } from './nativeRequire'
 const _require = createNativeRequire()
 const chokidar: typeof import('chokidar') = _require('chokidar')
 import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
-import { loadConfig } from './loop/RcParser'
+import { loadConfig, validateConfig, serializeConfig } from './loop/RcParser'
 import { CircuitBreaker } from './loop/CircuitBreaker'
 import { checkEnabled, detectProjectContext, enableRalph } from './loop/RalphEnabler'
 import { getProjectPaths, ensureStoreDirs } from './loop/ProjectStore'
@@ -324,6 +324,45 @@ export function registerIpc(
       const paths = getProjectPaths(projectPath)
       const v = validateConfigWrite(projectPath, relPath, content, paths.configDir)
       fs.writeFileSync(v.resolvedPath, v.content)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // ── Structured config ───────────────────────────────────────────────────
+
+  ipcMain.handle('config:read', (_e, projectPath: string) => {
+    try {
+      const config = loadConfig(projectPath)
+      return { ok: true, config }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('config:write', (_e, projectPath: string, partial: Partial<import('./types').RalphConfig>) => {
+    try {
+      const current = loadConfig(projectPath)
+
+      // Merge only keys present in partial — never clobber telegram unless explicitly passed
+      const merged = { ...current }
+      for (const key of Object.keys(partial) as (keyof import('./types').RalphConfig)[]) {
+        if (key === 'telegram') {
+          // Merge telegram sub-keys individually
+          merged.telegram = { ...current.telegram!, ...partial.telegram }
+        } else {
+          (merged as any)[key] = partial[key]
+        }
+      }
+
+      const { config: validated, warnings } = validateConfig(merged)
+      if (warnings.length > 0) {
+        return { ok: false, error: warnings.join('; ') }
+      }
+
+      const rcPath = path.join(projectPath, '.slashbotrc')
+      fs.writeFileSync(rcPath, serializeConfig(validated))
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
