@@ -2086,7 +2086,7 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
   })
 })
 
-describe('AgentCoordinator — _checkClaimTimeouts', () => {
+describe('AgentCoordinator — _checkClaimTimeouts (background sweep)', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()
     tmpPaths = makeTmpPaths(tmpDir)
@@ -2094,6 +2094,7 @@ describe('AgentCoordinator — _checkClaimTimeouts', () => {
   })
 
   afterEach(() => {
+    coord.stopClaimTimeoutSweep()
     vi.restoreAllMocks()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
@@ -2106,6 +2107,11 @@ describe('AgentCoordinator — _checkClaimTimeouts', () => {
     }
   }
 
+  /** Invoke the private _runClaimTimeoutSweep directly */
+  async function runSweep(c: AgentCoordinator, minutes: number): Promise<void> {
+    await (c as any)._runClaimTimeoutSweep(minutes)
+  }
+
   it('reopens timed-out beads with no live heartbeat', async () => {
     const claudeTimeoutMinutes = 5
     const thresholdMs = 2 * claudeTimeoutMinutes * 60_000 // 10 min
@@ -2115,18 +2121,15 @@ describe('AgentCoordinator — _checkClaimTimeouts', () => {
     ;(coord as any)._activityCache.push({ ts: oldTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
     ;(coord as any)._indexActivity({ ts: oldTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
 
-    // Mock bd.listByStatus('in_progress') to return a stuck bead
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    // Mock bd.listByStatusAsync('in_progress') to return a stuck bead
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: 'agent-1' })]
       return []
     })
 
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
-    // Mock ready/listAll/etc for the rest of claimBestBead
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     expect(reopenSpy).toHaveBeenCalledWith('b1', expect.any(String))
     const events = coord.readActivity()
@@ -2146,16 +2149,14 @@ describe('AgentCoordinator — _checkClaimTimeouts', () => {
     // Agent-1 has a recent heartbeat
     coord.heartbeat('agent-1')
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: 'agent-1' })]
       return []
     })
 
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     expect(reopenSpy).not.toHaveBeenCalled()
   })
@@ -2167,16 +2168,14 @@ describe('AgentCoordinator — _checkClaimTimeouts', () => {
     ;(coord as any)._activityCache.push({ ts: recentTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
     ;(coord as any)._indexActivity({ ts: recentTs, agentId: 'agent-1', type: 'executing', beadId: 'b1' })
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: 'agent-1' })]
       return []
     })
 
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     expect(reopenSpy).not.toHaveBeenCalled()
   })
@@ -2184,35 +2183,45 @@ describe('AgentCoordinator — _checkClaimTimeouts', () => {
   it('skips beads with no claimedBy', async () => {
     const claudeTimeoutMinutes = 5
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [makeBead({ id: 'b1', claimedBy: undefined })]
       return []
     })
 
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-0', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     expect(reopenSpy).not.toHaveBeenCalled()
   })
 
   it('is non-fatal if _checkClaimTimeouts throws', async () => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockRejectedValue(new Error('bd crashed'))
+
+    // Should not throw — error is caught by _runClaimTimeoutSweep
+    await runSweep(coord, 5)
+  })
+
+  it('prevents overlapping sweeps', async () => {
+    let resolveFirst: () => void
+    const firstCall = new Promise<void>(r => { resolveFirst = r })
     let callCount = 0
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async () => {
       callCount++
-      // First call is from _checkClaimTimeouts — throw
-      if (callCount === 1) throw new Error('bd crashed')
-      // Subsequent calls from claimBestBead itself
+      if (callCount === 1) await firstCall
       return []
     })
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
 
-    // Should not throw — error is caught
-    const result = await coord.claimBestBead('agent-0', 5)
-    expect(result).toBeNull()
+    // Start first sweep (will block on firstCall)
+    const sweep1 = (coord as any)._runClaimTimeoutSweep(5)
+    // Start second sweep — should be skipped (guard flag)
+    await (coord as any)._runClaimTimeoutSweep(5)
+    // Unblock first
+    resolveFirst!()
+    await sweep1
+
+    expect(callCount).toBe(1) // only one call, second was skipped
   })
 })
 

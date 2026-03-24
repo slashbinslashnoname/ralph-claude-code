@@ -8,8 +8,8 @@ import { makeTmpGitProject, makeTmpPaths } from './testHelpers'
  * Integration tests for heartbeat watchdog / claim timeout detection.
  *
  * When an agent has been inactive for >2× claudeTimeoutMinutes and has
- * no live heartbeat, _checkClaimTimeouts (called inside claimBestBead)
- * should reopen the bead and reset the agent's claim.
+ * no live heartbeat, _checkClaimTimeouts (run as a background sweep)
+ * should reopen the bead and post a claim_timeout activity event.
  */
 
 function makeBead(overrides: Partial<Bead> = {}): Bead {
@@ -28,7 +28,12 @@ function makeBead(overrides: Partial<Bead> = {}): Bead {
   }
 }
 
-describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
+/** Invoke the private _runClaimTimeoutSweep directly */
+async function runSweep(coord: AgentCoordinator, minutes: number): Promise<void> {
+  await (coord as any)._runClaimTimeoutSweep(minutes)
+}
+
+describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
   let tmpDir: string
   let coord: AgentCoordinator
   const claudeTimeoutMinutes = 5
@@ -39,18 +44,16 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
   })
 
   afterEach(() => {
-    vi.useRealTimers()
+    coord.stopClaimTimeoutSweep()
+    vi.restoreAllMocks()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
   it('reopens a bead when agent has no heartbeat and activity is stale', async () => {
     const stuckBead = makeBead()
 
-    // Mock bd to return the stuck bead as in_progress
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckBead]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
@@ -66,26 +69,19 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
     })
 
     // No heartbeat set — agent is dead
-    const reopenSpy = vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    // Mock ready/listAll/assignTo so claimBestBead can proceed after timeout check
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
-
-    // claimBestBead triggers _checkClaimTimeouts internally
-    await coord.claimBestBead('agent-1', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     // Bead should have been reopened
-    expect(reopenSpy).toHaveBeenCalledWith('agent-0', 'sb-stuck')
+    expect(reopenSpy).toHaveBeenCalledWith('sb-stuck', expect.any(String))
   })
 
   it('does NOT reopen a bead when agent has a fresh heartbeat', async () => {
     const stuckBead = makeBead()
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckBead]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
@@ -103,11 +99,9 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
     // But agent has a fresh heartbeat — it's still alive
     coord.heartbeat('agent-0')
 
-    const reopenSpy = vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-1', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     // Should NOT reopen — heartbeat is fresh
     expect(reopenSpy).not.toHaveBeenCalled()
@@ -116,10 +110,8 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
   it('does NOT reopen a bead when activity is recent', async () => {
     const stuckBead = makeBead()
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckBead]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
@@ -132,11 +124,9 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
       summary: 'Still executing'
     })
 
-    const reopenSpy = vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-1', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     // Activity is fresh — no reopen
     expect(reopenSpy).not.toHaveBeenCalled()
@@ -145,10 +135,8 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
   it('posts claim_timeout activity event when reopening a timed-out bead', async () => {
     const stuckBead = makeBead()
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckBead]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
@@ -162,12 +150,10 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
       ts: staleTs
     })
 
-    vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
     const activitySpy = vi.spyOn(coord, 'postActivity')
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
 
-    await coord.claimBestBead('agent-1', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     // Should have posted a claim_timeout event
     expect(activitySpy).toHaveBeenCalledWith(
@@ -183,10 +169,8 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
     const stuckA = makeBead({ id: 'sb-a', claimedBy: 'agent-0', title: 'Bead A' })
     const stuckB = makeBead({ id: 'sb-b', claimedBy: 'agent-1', title: 'Bead B' })
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckA, stuckB]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
@@ -194,24 +178,20 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
     coord.postActivity({ agentId: 'agent-0', type: 'claimed', beadId: 'sb-a', beadTitle: 'Bead A', summary: 'Claimed', ts: staleTs })
     coord.postActivity({ agentId: 'agent-1', type: 'claimed', beadId: 'sb-b', beadTitle: 'Bead B', summary: 'Claimed', ts: staleTs })
 
-    const reopenSpy = vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-2', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
-    expect(reopenSpy).toHaveBeenCalledWith('agent-0', 'sb-a')
-    expect(reopenSpy).toHaveBeenCalledWith('agent-1', 'sb-b')
+    expect(reopenSpy).toHaveBeenCalledWith('sb-a', expect.any(String))
+    expect(reopenSpy).toHaveBeenCalledWith('sb-b', expect.any(String))
     expect(reopenSpy).toHaveBeenCalledTimes(2)
   })
 
   it('heartbeat then clear makes agent eligible for timeout', async () => {
     const stuckBead = makeBead()
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckBead]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
@@ -229,31 +209,25 @@ describe('heartbeat watchdog — _checkClaimTimeouts via claimBestBead', () => {
     coord.heartbeat('agent-0')
     coord.clearHeartbeat('agent-0')
 
-    const reopenSpy = vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-1', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     // Heartbeat was cleared, so agent is considered dead
-    expect(reopenSpy).toHaveBeenCalledWith('agent-0', 'sb-stuck')
+    expect(reopenSpy).toHaveBeenCalledWith('sb-stuck', expect.any(String))
   })
 
   it('skips beads with no claimedBy field', async () => {
     const unclaimedBead = makeBead({ claimedBy: undefined })
 
-    vi.spyOn(coord.bd, 'listByStatus').mockImplementation((status: string) => {
+    vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [unclaimedBead]
-      if (status === 'open') return []
-      if (status === 'closed') return []
       return []
     })
 
-    const reopenSpy = vi.spyOn(coord, 'reopenBead').mockImplementation(() => {})
-    vi.spyOn(coord.bd, 'ready').mockReturnValue([])
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([])
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
-    await coord.claimBestBead('agent-1', claudeTimeoutMinutes)
+    await runSweep(coord, claudeTimeoutMinutes)
 
     // No claimedBy — should not attempt reopen
     expect(reopenSpy).not.toHaveBeenCalled()

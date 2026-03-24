@@ -661,11 +661,42 @@ export class AgentCoordinator {
   private claimSemaphore = new AsyncSemaphore()
   private commitSemaphore = new AsyncSemaphore()
   private mergeSemaphore = new AsyncSemaphore()
+  private _claimTimeoutTimer: ReturnType<typeof setInterval> | null = null
+  private _claimTimeoutRunning = false
+
+  /**
+   * Start a background sweep that periodically reopens beads stuck in_progress
+   * past 2× claudeTimeoutMinutes when the owning agent has no live heartbeat.
+   * Runs outside the claimSemaphore to avoid blocking claim operations.
+   */
+  startClaimTimeoutSweep(claudeTimeoutMinutes: number, intervalMs = 60_000): void {
+    this.stopClaimTimeoutSweep()
+    this._claimTimeoutTimer = setInterval(() => {
+      this._runClaimTimeoutSweep(claudeTimeoutMinutes)
+    }, intervalMs)
+    // Also run once immediately (fire-and-forget)
+    this._runClaimTimeoutSweep(claudeTimeoutMinutes)
+  }
+
+  stopClaimTimeoutSweep(): void {
+    if (this._claimTimeoutTimer) {
+      clearInterval(this._claimTimeoutTimer)
+      this._claimTimeoutTimer = null
+    }
+  }
+
+  private async _runClaimTimeoutSweep(claudeTimeoutMinutes: number): Promise<void> {
+    if (this._claimTimeoutRunning) return // prevent overlapping sweeps
+    this._claimTimeoutRunning = true
+    try {
+      await this._checkClaimTimeouts(claudeTimeoutMinutes)
+    } catch { /* non-fatal */ }
+    finally { this._claimTimeoutRunning = false }
+  }
 
   /**
    * Reopen beads stuck in_progress past 2× claudeTimeoutMinutes when the
-   * owning agent has no live heartbeat. Called at the start of claimBestBead
-   * inside the claimSemaphore so it cannot race with other claim/reopen calls.
+   * owning agent has no live heartbeat.
    */
   private async _checkClaimTimeouts(claudeTimeoutMinutes: number): Promise<void> {
     const thresholdMs = 2 * claudeTimeoutMinutes * 60_000
@@ -707,7 +738,6 @@ export class AgentCoordinator {
     await this.claimSemaphore.acquire(30_000)
 
     try {
-      try { await this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
       // Get ALL open beads as candidates — we handle dep filtering ourselves.
@@ -898,7 +928,7 @@ export class AgentCoordinator {
     } catch (err) {
       // bd close can fail for epics with open children — don't crash the worker
       const msg = err instanceof Error ? err.message : String(err)
-      this.postActivity({ agentId, type: 'info' as any, beadId, summary: `Close failed (non-fatal): ${msg.slice(0, 120)}` })
+      this.postActivity({ agentId, type: 'info', beadId, summary: `Close failed (non-fatal): ${msg.slice(0, 120)}` })
     }
 
     this.postActivity({ agentId, type: 'completed', beadId, filesChanged, commitSha: commitSha ?? undefined, summary: `Completed [${beadId}]${filesChanged?.length ? ` — ${filesChanged.length} files` : ''}` })
@@ -979,7 +1009,7 @@ export class AgentCoordinator {
         } catch (err) {
           // Push may fail if no remote or no upstream — non-fatal
           const msg = err instanceof Error ? err.message : String(err)
-          this.postActivity({ agentId, type: 'info' as any, summary: `Push failed (non-fatal): ${msg.slice(0, 100)}` })
+          this.postActivity({ agentId, type: 'info', summary: `Push failed (non-fatal): ${msg.slice(0, 100)}` })
         }
       }
 
@@ -1009,7 +1039,7 @@ export class AgentCoordinator {
     for (const bead of claimed) {
       try {
         this.bd.reopen(bead.id, 'Reopened on startup — stale from previous session')
-        this.postActivity({ agentId: 'system', type: 'info' as any, beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
+        this.postActivity({ agentId: 'system', type: 'info', beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
       } catch { /* ignore — may already be open */ }
     }
     // Clear all file locks from previous session
@@ -1026,7 +1056,7 @@ export class AgentCoordinator {
     for (const bead of claimed) {
       try {
         await this.bd.reopenAsync(bead.id, 'Reopened on startup — stale from previous session')
-        this.postActivity({ agentId: 'system', type: 'info' as any, beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
+        this.postActivity({ agentId: 'system', type: 'info', beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
       } catch { /* ignore — may already be open */ }
     }
     this.clearAllFileLocks()
