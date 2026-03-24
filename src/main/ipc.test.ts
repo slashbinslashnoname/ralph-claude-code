@@ -82,7 +82,14 @@ vi.mock('./loop/SwarmOrchestrator', () => ({
   })),
 }))
 
-vi.mock('./loop/RcParser', () => ({ loadConfig: vi.fn().mockReturnValue({}) }))
+const mockLoadConfig = vi.fn().mockReturnValue({})
+const mockValidateConfig = vi.fn().mockReturnValue({ config: {}, warnings: [] })
+const mockSerializeConfig = vi.fn().mockReturnValue('MAX_CALLS_PER_HOUR=100\n')
+vi.mock('./loop/RcParser', () => ({
+  loadConfig: mockLoadConfig,
+  validateConfig: mockValidateConfig,
+  serializeConfig: mockSerializeConfig,
+}))
 
 const mockCircuitBreaker = vi.fn().mockImplementation(() => ({
   reset: vi.fn(),
@@ -206,6 +213,9 @@ describe('ipc handlers use centralized ProjectPaths', () => {
     mockCircuitBreaker.mockClear()
     mockValidateConfigRead.mockClear()
     mockValidateConfigWrite.mockClear()
+    mockLoadConfig.mockClear().mockReturnValue({})
+    mockValidateConfig.mockClear().mockReturnValue({ config: {}, warnings: [] })
+    mockSerializeConfig.mockClear().mockReturnValue('MAX_CALLS_PER_HOUR=100\n')
     mockAutoUpdaterInstance.check.mockClear()
     mockAutoUpdaterInstance.download.mockClear()
     mockAutoUpdaterInstance.quitAndInstall.mockClear()
@@ -531,6 +541,91 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       expect(eventNames).toContain('progress')
       expect(eventNames).toContain('downloaded')
       expect(eventNames).toContain('error')
+    })
+  })
+
+  describe('config:read', () => {
+    it('returns {ok, config} from loadConfig', () => {
+      const fakeConfig = { maxCallsPerHour: 200, sleepDuration: 5 }
+      mockLoadConfig.mockReturnValueOnce(fakeConfig)
+
+      const result = invoke('config:read', '/test/project')
+
+      expect(result).toEqual({ ok: true, config: fakeConfig })
+      expect(mockLoadConfig).toHaveBeenCalledWith('/test/project')
+    })
+
+    it('returns {ok: false, error} when loadConfig throws', () => {
+      mockLoadConfig.mockImplementationOnce(() => { throw new Error('bad rc') })
+
+      const result = invoke('config:read', '/test/project')
+
+      expect(result).toEqual({ ok: false, error: 'bad rc' })
+    })
+  })
+
+  describe('config:write', () => {
+    it('merges partial config and writes serialized output', () => {
+      const projectPath = path.join(tmpDir, 'write-proj')
+      realFs.mkdirSync(projectPath, { recursive: true })
+      const current = { maxCallsPerHour: 100, sleepDuration: 3, telegram: { botToken: 'tok', chatId: 'cid', enabled: true, notifyOn: 'all' as const } }
+      const validated = { ...current, maxCallsPerHour: 200 }
+      mockLoadConfig.mockReturnValueOnce(current)
+      mockValidateConfig.mockReturnValueOnce({ config: validated, warnings: [] })
+      mockSerializeConfig.mockReturnValueOnce('MAX_CALLS_PER_HOUR=200\n')
+
+      const result = invoke('config:write', projectPath, { maxCallsPerHour: 200 })
+
+      expect(result).toEqual({ ok: true })
+      expect(mockLoadConfig).toHaveBeenCalledWith(projectPath)
+      expect(mockValidateConfig).toHaveBeenCalledWith(expect.objectContaining({ maxCallsPerHour: 200 }))
+      expect(mockSerializeConfig).toHaveBeenCalledWith(validated)
+      expect(fsWriteCalls).toContain(path.join(projectPath, '.slashbotrc'))
+    })
+
+    it('preserves telegram keys when not in partial', () => {
+      const projectPath = path.join(tmpDir, 'tg-preserve')
+      realFs.mkdirSync(projectPath, { recursive: true })
+      const current = { maxCallsPerHour: 100, telegram: { botToken: 'secret', chatId: '-100', enabled: true, notifyOn: 'all' as const } }
+      mockLoadConfig.mockReturnValueOnce(current)
+      mockValidateConfig.mockReturnValueOnce({ config: { ...current, sleepDuration: 10 }, warnings: [] })
+
+      invoke('config:write', projectPath, { sleepDuration: 10 })
+
+      const mergedArg = mockValidateConfig.mock.calls[0][0]
+      expect(mergedArg.telegram).toEqual(current.telegram)
+    })
+
+    it('merges telegram sub-keys when partial includes telegram', () => {
+      const projectPath = path.join(tmpDir, 'tg-merge')
+      realFs.mkdirSync(projectPath, { recursive: true })
+      const current = { telegram: { botToken: 'tok', chatId: '-100', enabled: true, notifyOn: 'all' as const } }
+      mockLoadConfig.mockReturnValueOnce(current)
+      mockValidateConfig.mockReturnValueOnce({ config: current, warnings: [] })
+
+      invoke('config:write', projectPath, { telegram: { chatId: '-999' } as any })
+
+      const mergedArg = mockValidateConfig.mock.calls[0][0]
+      expect(mergedArg.telegram.botToken).toBe('tok')
+      expect(mergedArg.telegram.chatId).toBe('-999')
+      expect(mergedArg.telegram.enabled).toBe(true)
+    })
+
+    it('returns error when validation produces warnings', () => {
+      mockLoadConfig.mockReturnValueOnce({})
+      mockValidateConfig.mockReturnValueOnce({ config: {}, warnings: ['value out of range'] })
+
+      const result = invoke('config:write', '/test/project', { maxCallsPerHour: -5 })
+
+      expect(result).toEqual({ ok: false, error: 'value out of range' })
+    })
+
+    it('returns error when loadConfig throws', () => {
+      mockLoadConfig.mockImplementationOnce(() => { throw new Error('no rc') })
+
+      const result = invoke('config:write', '/test/project', { maxCallsPerHour: 100 })
+
+      expect(result).toEqual({ ok: false, error: 'no rc' })
     })
   })
 })

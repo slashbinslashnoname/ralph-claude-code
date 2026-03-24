@@ -50,7 +50,7 @@ describe('parseRcFile', () => {
     expect(result.allowedTools).toBe('Edit,Read')
   })
 
-  it('parses boolean continueSession — only "true" is truthy', () => {
+  it('parses boolean continueSession from CONTINUE_SESSION key', () => {
     writeRc('CONTINUE_SESSION=true')
     const result = parseRcFile(tmpDir)
     expect(result.continueSession).toBe(true)
@@ -624,10 +624,26 @@ describe('serializeConfig', () => {
     expect(serialized).toContain('CONTINUE_SESSION=true')
   })
 
+  it('round-trips continueSession=false', () => {
+    const original = { ...DEFAULT_CONFIG, continueSession: false }
+    const serialized = serializeConfig(original)
+    expect(serialized).toContain('CONTINUE_SESSION=false')
+    writeRc(serialized)
+    const reloaded = loadConfig(tmpDir)
+    expect(reloaded.continueSession).toBe(false)
+  })
+
   it('omits telegram section when botToken is empty', () => {
     const serialized = serializeConfig(DEFAULT_CONFIG)
     expect(serialized).not.toContain('# Telegram')
     expect(serialized).not.toContain('TELEGRAM_BOT_TOKEN')
+  })
+
+  it('omits telegram section when telegram is undefined', () => {
+    const config = { ...DEFAULT_CONFIG, telegram: undefined }
+    const output = serializeConfig(config as any)
+    expect(output).not.toContain('TELEGRAM_BOT_TOKEN')
+    expect(output).not.toContain('TELEGRAM_CHAT_ID')
   })
 
   it('includes telegram section when botToken is non-empty', () => {

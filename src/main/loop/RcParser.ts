@@ -283,3 +283,20 @@ export function loadConfig(projectPath: string, rcPath?: string): RalphConfig {
   }
   return config
 }
+
+export function serializeConfig(config: RalphConfig): string {
+  const lines: string[] = []
+
+  for (const [rcKey, configKey] of Object.entries(KEY_MAP)) {
+    lines.push(`${rcKey}=${String(config[configKey])}`)
+  }
+
+  if (config.telegram) {
+    lines.push('')
+    for (const [rcKey, tgKey] of Object.entries(TELEGRAM_KEY_MAP)) {
+      lines.push(`${rcKey}=${String(config.telegram[tgKey])}`)
+    }
+  }
+
+  return lines.join('\n') + '\n'
+}
