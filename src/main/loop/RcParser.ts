@@ -39,6 +39,7 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   CLAUDE_CODE_CMD: 'claudeCodeCmd',
   CLAUDE_ALLOWED_TOOLS: 'allowedTools',
   SLEEP_DURATION: 'sleepDuration',
+  CONTINUE_SESSION: 'continueSession',
   CB_NO_PROGRESS_THRESHOLD: 'cbNoProgressThreshold',
   CB_SAME_ERROR_THRESHOLD: 'cbSameErrorThreshold',
   CB_PERMISSION_DENIAL_THRESHOLD: 'cbPermissionDenialThreshold',
@@ -230,6 +231,52 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
     config: { ...DEFAULT_CONFIG, ...validated },
     warnings
   }
+}
+
+const KEY_GROUPS: Array<{ header: string; keys: string[] }> = [
+  { header: 'Rate limiting', keys: ['MAX_CALLS_PER_HOUR'] },
+  { header: 'Timeouts', keys: ['CLAUDE_TIMEOUT_MINUTES', 'SLEEP_DURATION'] },
+  { header: 'Session', keys: ['CONTINUE_SESSION'] },
+  { header: 'Claude settings', keys: ['CLAUDE_OUTPUT_FORMAT', 'CLAUDE_CODE_CMD', 'CLAUDE_ALLOWED_TOOLS'] },
+  { header: 'Circuit breaker', keys: ['CB_NO_PROGRESS_THRESHOLD', 'CB_SAME_ERROR_THRESHOLD', 'CB_PERMISSION_DENIAL_THRESHOLD', 'CB_COOLDOWN_MINUTES'] },
+  { header: 'Retries & splitting', keys: ['AUTO_PUSH', 'MAX_RETRIES', 'AUTO_SPLIT_THRESHOLD'] },
+  { header: 'Build monitor', keys: ['BUILD_MONITOR_CMD', 'BUILD_MONITOR_INTERVAL'] },
+  { header: 'Model overrides', keys: ['CLAUDE_MODEL_THINK', 'CLAUDE_MODEL_EXECUTE', 'CLAUDE_MODEL_REVIEW'] }
+]
+
+const REVERSE_KEY_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(KEY_MAP).map(([envKey, configKey]) => [configKey, envKey])
+)
+
+const REVERSE_TELEGRAM_KEY_MAP: Record<string, string> = Object.fromEntries(
+  Object.entries(TELEGRAM_KEY_MAP).map(([envKey, configKey]) => [configKey, envKey])
+)
+
+export function serializeConfig(config: RalphConfig): string {
+  const lines: string[] = []
+
+  for (const group of KEY_GROUPS) {
+    lines.push(`# ${group.header}`)
+    for (const envKey of group.keys) {
+      const configKey = KEY_MAP[envKey]
+      if (!configKey) continue
+      const value = config[configKey]
+      lines.push(`${envKey}=${value}`)
+    }
+    lines.push('')
+  }
+
+  if (config.telegram?.botToken) {
+    lines.push('# Telegram')
+    const tg = config.telegram
+    for (const [configKey, envKey] of Object.entries(REVERSE_TELEGRAM_KEY_MAP)) {
+      const value = tg[configKey as keyof TelegramConfig]
+      lines.push(`${envKey}=${value}`)
+    }
+    lines.push('')
+  }
+
+  return lines.join('\n').trimEnd() + '\n'
 }
 
 export function loadConfig(projectPath: string, rcPath?: string): RalphConfig {

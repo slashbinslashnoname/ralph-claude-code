@@ -4,7 +4,7 @@ import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { parseRcFile, loadConfig, validateConfig, DEFAULT_CONFIG, DEFAULT_TELEGRAM_CONFIG } from './RcParser'
+import { parseRcFile, loadConfig, validateConfig, serializeConfig, DEFAULT_CONFIG, DEFAULT_TELEGRAM_CONFIG } from './RcParser'
 
 let tmpDir: string
 
@@ -52,9 +52,14 @@ describe('parseRcFile', () => {
 
   it('parses boolean continueSession — only "true" is truthy', () => {
     writeRc('CONTINUE_SESSION=true')
-    // CONTINUE_SESSION is not in KEY_MAP, so it should be ignored
     const result = parseRcFile(tmpDir)
-    expect(result.continueSession).toBe(undefined)
+    expect(result.continueSession).toBe(true)
+  })
+
+  it('parses CONTINUE_SESSION=false as boolean false', () => {
+    writeRc('CONTINUE_SESSION=false')
+    const result = parseRcFile(tmpDir)
+    expect(result.continueSession).toBe(false)
   })
 
   it('skips comment lines', () => {
@@ -574,5 +579,114 @@ describe('loadConfig', () => {
     expect(config.sleepDuration).toBe(DEFAULT_CONFIG.sleepDuration)
     // Valid value passes through
     expect(config.claudeTimeoutMinutes).toBe(5)
+  })
+})
+
+// ── serializeConfig ─────────────────────────────────────────────────────────
+
+describe('serializeConfig', () => {
+  it('round-trips: serializeConfig(loadConfig()) produces parseable output', () => {
+    writeRc('MAX_CALLS_PER_HOUR=200\nCLAUDE_TIMEOUT_MINUTES=30\nSLEEP_DURATION=10\nCONTINUE_SESSION=false')
+    const config = loadConfig(tmpDir)
+    const serialized = serializeConfig(config)
+
+    // Write serialized output and re-parse
+    const roundTripPath = path.join(tmpDir, '.slashbotrc-roundtrip')
+    fs.writeFileSync(roundTripPath, serialized, 'utf8')
+    const reloaded = loadConfig(tmpDir, roundTripPath)
+
+    expect(reloaded).toEqual(config)
+  })
+
+  it('round-trips DEFAULT_CONFIG without loss', () => {
+    const serialized = serializeConfig(DEFAULT_CONFIG)
+    const roundTripPath = path.join(tmpDir, '.slashbotrc-rt')
+    fs.writeFileSync(roundTripPath, serialized, 'utf8')
+    const reloaded = loadConfig(tmpDir, roundTripPath)
+
+    expect(reloaded).toEqual(DEFAULT_CONFIG)
+  })
+
+  it('emits comment headers per group', () => {
+    const serialized = serializeConfig(DEFAULT_CONFIG)
+    expect(serialized).toContain('# Rate limiting')
+    expect(serialized).toContain('# Timeouts')
+    expect(serialized).toContain('# Session')
+    expect(serialized).toContain('# Claude settings')
+    expect(serialized).toContain('# Circuit breaker')
+    expect(serialized).toContain('# Retries & splitting')
+    expect(serialized).toContain('# Build monitor')
+    expect(serialized).toContain('# Model overrides')
+  })
+
+  it('includes CONTINUE_SESSION key', () => {
+    const serialized = serializeConfig(DEFAULT_CONFIG)
+    expect(serialized).toContain('CONTINUE_SESSION=true')
+  })
+
+  it('omits telegram section when botToken is empty', () => {
+    const serialized = serializeConfig(DEFAULT_CONFIG)
+    expect(serialized).not.toContain('# Telegram')
+    expect(serialized).not.toContain('TELEGRAM_BOT_TOKEN')
+  })
+
+  it('includes telegram section when botToken is non-empty', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      telegram: {
+        botToken: '123456:ABCdef',
+        chatId: '-100',
+        enabled: true,
+        notifyOn: 'all' as const
+      }
+    }
+    const serialized = serializeConfig(config)
+    expect(serialized).toContain('# Telegram')
+    expect(serialized).toContain('TELEGRAM_BOT_TOKEN=123456:ABCdef')
+    expect(serialized).toContain('TELEGRAM_CHAT_ID=-100')
+    expect(serialized).toContain('TELEGRAM_ENABLED=true')
+    expect(serialized).toContain('TELEGRAM_NOTIFY_LEVEL=all')
+  })
+
+  it('round-trips telegram fields correctly', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      telegram: {
+        botToken: '999:XYZ_abc',
+        chatId: '-200',
+        enabled: false,
+        notifyOn: 'completions' as const
+      }
+    }
+    const serialized = serializeConfig(config)
+    const roundTripPath = path.join(tmpDir, '.slashbotrc-tg')
+    fs.writeFileSync(roundTripPath, serialized, 'utf8')
+    const reloaded = loadConfig(tmpDir, roundTripPath)
+
+    expect(reloaded.telegram).toEqual(config.telegram)
+  })
+
+  it('preserves numeric bounds at edges', () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      maxCallsPerHour: 1,
+      sleepDuration: 0,
+      maxRetries: 10,
+      buildMonitorInterval: 30
+    }
+    const serialized = serializeConfig(config)
+    const roundTripPath = path.join(tmpDir, '.slashbotrc-bounds')
+    fs.writeFileSync(roundTripPath, serialized, 'utf8')
+    const reloaded = loadConfig(tmpDir, roundTripPath)
+
+    expect(reloaded.maxCallsPerHour).toBe(1)
+    expect(reloaded.sleepDuration).toBe(0)
+    expect(reloaded.maxRetries).toBe(10)
+    expect(reloaded.buildMonitorInterval).toBe(30)
+  })
+
+  it('ends with a trailing newline', () => {
+    const serialized = serializeConfig(DEFAULT_CONFIG)
+    expect(serialized.endsWith('\n')).toBe(true)
   })
 })
