@@ -170,3 +170,37 @@ export interface PlanQueueItem {
   id: string
   request: string
 }
+
+// ---------------------------------------------------------------------------
+// Auto-update types
+// ---------------------------------------------------------------------------
+
+export type UpdateState =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateInfo {
+  version: string
+  releaseDate: string
+  releaseNotes: string | null
+}
+
+export interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
+export type UpdateEvent =
+  | { type: 'checking' }
+  | { type: 'available'; info: UpdateInfo }
+  | { type: 'not-available'; info: UpdateInfo }
+  | { type: 'progress'; progress: UpdateProgress }
+  | { type: 'downloaded'; info: UpdateInfo }
+  | { type: 'error'; error: string }
