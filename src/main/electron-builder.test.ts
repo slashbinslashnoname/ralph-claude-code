@@ -102,4 +102,24 @@ describe('package.json build scripts', () => {
   it('has @electron/rebuild as devDependency', () => {
     expect(pkg.devDependencies['@electron/rebuild']).toBeDefined()
   })
+
+  it('has electron-updater as a runtime dependency (not devDependency)', () => {
+    expect(pkg.dependencies['electron-updater']).toBeDefined()
+    expect(pkg.dependencies['electron-updater']).toBe('^4.6.0')
+    // Must NOT be in devDependencies — it's needed at runtime for auto-update
+    expect(pkg.devDependencies['electron-updater']).toBeUndefined()
+  })
+})
+
+describe('electron-updater resolution', () => {
+  it('resolves to a 4.6.x version', () => {
+    const updaterPkg = JSON.parse(
+      readFileSync(resolve(ROOT, 'node_modules/electron-updater/package.json'), 'utf-8')
+    )
+    expect(updaterPkg.version).toMatch(/^4\.6\./)
+  })
+
+  it('module is importable', () => {
+    expect(() => require('electron-updater')).not.toThrow()
+  })
 })
