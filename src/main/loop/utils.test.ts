@@ -3,7 +3,9 @@ vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<t
 vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as child_process from 'child_process'
 import * as fs from 'fs'
-import { stripAnsi, buildEnv, resolveCmd, atomicWriteSync, _resetBuildEnvCache } from './utils'
+import { stripAnsi, buildEnv, resolveCmd, atomicWriteSync, rotateLogFile, _resetBuildEnvCache } from './utils'
+import * as os from 'os'
+import * as path from 'path'
 
 let mockExecSync: any
 
@@ -162,6 +164,69 @@ describe('resolveCmd', () => {
     const env = buildEnv()
     const result = resolveCmd('sh', env)
     expect(result).toMatch(/^\/.*sh$/)
+  })
+})
+
+describe('rotateLogFile', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rotateLogFile-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('does nothing when file is under maxSize', () => {
+    const logFile = path.join(tmpDir, 'test.log')
+    fs.writeFileSync(logFile, 'small')
+    expect(rotateLogFile(logFile, 1024, 3)).toBe(false)
+    expect(fs.readFileSync(logFile, 'utf8')).toBe('small')
+  })
+
+  it('does nothing when file does not exist', () => {
+    expect(rotateLogFile(path.join(tmpDir, 'nope.log'), 1024, 3)).toBe(false)
+  })
+
+  it('rotates file to .1 when over maxSize', () => {
+    const logFile = path.join(tmpDir, 'test.log')
+    const content = 'x'.repeat(2000)
+    fs.writeFileSync(logFile, content)
+    expect(rotateLogFile(logFile, 1000, 3)).toBe(true)
+    expect(fs.existsSync(logFile)).toBe(false)
+    expect(fs.readFileSync(logFile + '.1', 'utf8')).toBe(content)
+  })
+
+  it('shifts existing rotated files', () => {
+    const logFile = path.join(tmpDir, 'test.log')
+    fs.writeFileSync(logFile, 'x'.repeat(2000))
+    fs.writeFileSync(logFile + '.1', 'prev1')
+    fs.writeFileSync(logFile + '.2', 'prev2')
+    expect(rotateLogFile(logFile, 1000, 3)).toBe(true)
+    expect(fs.readFileSync(logFile + '.1', 'utf8')).toBe('x'.repeat(2000))
+    expect(fs.readFileSync(logFile + '.2', 'utf8')).toBe('prev1')
+    expect(fs.readFileSync(logFile + '.3', 'utf8')).toBe('prev2')
+  })
+
+  it('drops oldest file beyond maxRotations', () => {
+    const logFile = path.join(tmpDir, 'test.log')
+    fs.writeFileSync(logFile, 'x'.repeat(2000))
+    fs.writeFileSync(logFile + '.1', 'prev1')
+    fs.writeFileSync(logFile + '.2', 'prev2')
+    fs.writeFileSync(logFile + '.3', 'oldest')
+    expect(rotateLogFile(logFile, 1000, 3)).toBe(true)
+    // .3 should now contain prev2 (oldest was overwritten)
+    expect(fs.readFileSync(logFile + '.3', 'utf8')).toBe('prev2')
+    expect(fs.existsSync(logFile + '.4')).toBe(false)
+  })
+
+  it('works with maxRotations=1', () => {
+    const logFile = path.join(tmpDir, 'test.log')
+    fs.writeFileSync(logFile, 'x'.repeat(2000))
+    fs.writeFileSync(logFile + '.1', 'old')
+    expect(rotateLogFile(logFile, 1000, 1)).toBe(true)
+    expect(fs.readFileSync(logFile + '.1', 'utf8')).toBe('x'.repeat(2000))
   })
 })
 

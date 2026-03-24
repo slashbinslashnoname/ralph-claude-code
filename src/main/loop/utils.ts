@@ -60,6 +60,35 @@ export function atomicWriteSync(dest: string, content: string): void {
   }
 }
 
+/**
+ * Rotate a log file if it exceeds maxSize bytes.
+ * Keeps up to maxRotations rotated copies (.1, .2, .3, …).
+ * Returns true if rotation occurred.
+ */
+export function rotateLogFile(logFile: string, maxSize: number, maxRotations: number): boolean {
+  try {
+    const stat = fs.statSync(logFile)
+    if (stat.size <= maxSize) return false
+  } catch {
+    return false
+  }
+  try {
+    // Shift existing rotated files: .2→.3, .1→.2
+    for (let i = maxRotations; i >= 2; i--) {
+      const src = `${logFile}.${i - 1}`
+      const dest = `${logFile}.${i}`
+      try {
+        if (fs.existsSync(src)) fs.renameSync(src, dest)
+      } catch { /* best-effort */ }
+    }
+    // Rotate current file to .1
+    fs.renameSync(logFile, `${logFile}.1`)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function stripAnsi(s: string): string {
   return s
     .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')

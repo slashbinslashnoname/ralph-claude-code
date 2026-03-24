@@ -263,9 +263,18 @@ export function registerIpc(
     const logWatcher = chokidar.watch(logFile, { ignoreInitial: true })
     logWatcher.on('change', () => {
       const text = readText(logFile) ?? ''
+      // After rotation the new file is smaller — reset to avoid stale offset
+      if (text.length < logSize) logSize = 0
       const newContent = text.slice(logSize)
       logSize = text.length
       if (newContent) broadcast('logs:lines', projectPath, newContent.split('\n').filter(Boolean))
+    })
+    // After rotation, chokidar may fire unlink+add instead of change — reset offset
+    logWatcher.on('unlink', () => { logSize = 0 })
+    logWatcher.on('add', () => {
+      const text = readText(logFile) ?? ''
+      if (text) broadcast('logs:lines', projectPath, text.split('\n').filter(Boolean))
+      logSize = text.length
     })
 
     watchers.set(projectPath, watcher)

@@ -9,6 +9,7 @@ import { WorkerLoop } from './WorkerLoop'
 import { runHealthCheck, formatHealthErrors } from './HealthCheck'
 import { BuildMonitor } from './BuildMonitor'
 import { ProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { rotateLogFile } from './utils'
 
 export class SwarmOrchestrator extends EventEmitter {
   private workers = new Map<string, WorkerLoop>()
@@ -25,6 +26,7 @@ export class SwarmOrchestrator extends EventEmitter {
   coordinator: AgentCoordinator
   private agentOutputBuffers = new Map<string, string>()
   private _outputWriteCounts = new Map<string, number>()
+  private _logWriteCount = 0
   private _heartbeatMap = new Map<string, number>()
   sessionStartedAt: string | null = null
   private shuttingDown = false
@@ -490,6 +492,9 @@ export class SwarmOrchestrator extends EventEmitter {
 
   private static readonly OUTPUT_ROTATION_SIZE = 1_048_576 // 1 MB
   private static readonly OUTPUT_ROTATION_CHECK_INTERVAL = 50
+  private static readonly LOG_ROTATION_SIZE = 10_485_760 // 10 MB
+  private static readonly LOG_ROTATION_MAX_FILES = 3
+  private static readonly LOG_ROTATION_CHECK_INTERVAL = 50
 
   private _bufferOutput(agentId: string, chunk: string): void {
     const prev = this.agentOutputBuffers.get(agentId) ?? ''
@@ -513,8 +518,13 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   private _log(level: string, msg: string, agentId?: string): void {
-    fs.appendFileSync(path.join(this.paths.logsDir, 'slashbot.log'),
-      `[${new Date().toISOString()}] [${level}] ${msg}\n`)
+    const logFile = path.join(this.paths.logsDir, 'slashbot.log')
+    fs.appendFileSync(logFile, `[${new Date().toISOString()}] [${level}] ${msg}\n`)
+    this._logWriteCount++
+    if (this._logWriteCount >= SwarmOrchestrator.LOG_ROTATION_CHECK_INTERVAL) {
+      this._logWriteCount = 0
+      rotateLogFile(logFile, SwarmOrchestrator.LOG_ROTATION_SIZE, SwarmOrchestrator.LOG_ROTATION_MAX_FILES)
+    }
     this.emit('log', level, msg, agentId)
   }
 }
