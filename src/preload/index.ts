@@ -119,6 +119,20 @@ contextBridge.exposeInMainWorld('slashbot', {
     disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
   },
 
+  // ── Update ─────────────────────────────────────────────────────────
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'),
+    install: () => ipcRenderer.invoke('update:install'),
+    getState: () => ipcRenderer.invoke('update:state'),
+    onChecking: (cb: (...a: unknown[]) => void) => listen('update:checking', cb),
+    onAvailable: (cb: (...a: unknown[]) => void) => listen('update:available', cb),
+    onNotAvailable: (cb: (...a: unknown[]) => void) => listen('update:not-available', cb),
+    onProgress: (cb: (...a: unknown[]) => void) => listen('update:progress', cb),
+    onDownloaded: (cb: (...a: unknown[]) => void) => listen('update:downloaded', cb),
+    onError: (cb: (...a: unknown[]) => void) => listen('update:error', cb),
+  },
+
   // ── Shell ────────────────────────────────────────────────────────────
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
