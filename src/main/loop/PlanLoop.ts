@@ -446,7 +446,7 @@ Output ONLY a valid JSON array. No markdown fences, no explanation.`
 
     this.coordinator.postActivity({
       agentId: this.agentId,
-      type: 'info' as any,
+      type: 'info',
       summary: `${created} beads created via bd CLI`
     })
 

@@ -418,6 +418,43 @@ describe('SwarmOrchestrator — agent output buffer', () => {
     expect(fs.existsSync(logFile)).toBe(true)
     expect(fs.readFileSync(logFile, 'utf8')).toBe('disk-check')
   })
+
+  it('_bufferOutput rotates log file when exceeding 1MB after 50 writes', () => {
+    const buf = (orch as any)
+    const logFile = path.join(tmpPaths.logsDir, 'agent-rot.log')
+    const rotatedFile = logFile + '.1'
+
+    // Write a large file (>1MB) in fewer than 50 writes so rotation check hasn't fired yet
+    const bigChunk = 'x'.repeat(100_000)
+    for (let i = 0; i < 11; i++) {
+      buf._bufferOutput('agent-rot', bigChunk) // 11 × 100KB = 1.1MB
+    }
+    // Only 11 writes — below the 50-write check interval, so no rotation yet
+    expect(fs.existsSync(rotatedFile)).toBe(false)
+
+    // Now write enough small chunks to hit the 50-write check interval
+    for (let i = 0; i < 39; i++) {
+      buf._bufferOutput('agent-rot', '.') // writes 12..50
+    }
+    // At write 50 the check fires, file is >1MB → rotated
+    expect(fs.existsSync(rotatedFile)).toBe(true)
+    // Original file should be gone (renamed)
+    expect(fs.existsSync(logFile)).toBe(false)
+  })
+
+  it('_bufferOutput does not rotate when file is under 1MB', () => {
+    const buf = (orch as any)
+    const logFile = path.join(tmpPaths.logsDir, 'agent-small.log')
+    const rotatedFile = logFile + '.1'
+
+    // Write small data and trigger 50 writes
+    for (let i = 0; i < 50; i++) {
+      buf._bufferOutput('agent-small', 'small')
+    }
+    // File is well under 1MB, so no rotation
+    expect(fs.existsSync(rotatedFile)).toBe(false)
+    expect(fs.existsSync(logFile)).toBe(true)
+  })
 })
 
 describe('SwarmOrchestrator — logging', () => {

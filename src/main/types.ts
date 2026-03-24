@@ -125,7 +125,7 @@ export interface AgentInfo {
 export interface ActivityEvent {
   ts: string
   agentId: string
-  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed' | 'rollback' | 'split' | 'heartbeat' | 'dead_agent' | 'claim_timeout'
+  type: 'started' | 'thinking' | 'claimed' | 'executing' | 'merged' | 'completed' | 'failed' | 'stopped' | 'paused' | 'resumed' | 'rollback' | 'split' | 'heartbeat' | 'dead_agent' | 'claim_timeout' | 'info'
   beadId?: string
   beadTitle?: string
   summary?: string

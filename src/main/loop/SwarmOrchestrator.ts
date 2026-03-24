@@ -22,6 +22,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private currentPlanRequest: string | null = null
   coordinator: AgentCoordinator
   private agentOutputBuffers = new Map<string, string>()
+  private _outputWriteCounts = new Map<string, number>()
   private _heartbeatMap = new Map<string, number>()
   sessionStartedAt: string | null = null
   private shuttingDown = false
@@ -173,6 +174,9 @@ export class SwarmOrchestrator extends EventEmitter {
     this._broadcastAgents()
     this._broadcastGraph()
 
+    // Start background claim-timeout sweep (runs every 60s, outside claimSemaphore)
+    this.coordinator.startClaimTimeoutSweep(config.claudeTimeoutMinutes)
+
     // Start build monitor if configured and not already running
     if (config.buildMonitorCmd && !this.buildMonitor) {
       this._startBuildMonitor(config)
@@ -187,6 +191,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this._heartbeatMap.clear()
     this._stopBuildMonitor()
     this._stopActivityPoll()
+    this.coordinator.stopClaimTimeoutSweep()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'All workers stopped')
     if (!this._stoppedEmitted) {
@@ -287,6 +292,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this.workerLoopPromises.clear()
     this._stopBuildMonitor()
     this._stopActivityPoll()
+    this.coordinator.stopClaimTimeoutSweep()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
     this._log('INFO', 'Shutdown complete')
     this.shuttingDown = false
@@ -472,6 +478,9 @@ export class SwarmOrchestrator extends EventEmitter {
     this.emit('planQueue', [...this.planQueue])
   }
 
+  private static readonly OUTPUT_ROTATION_SIZE = 1_048_576 // 1 MB
+  private static readonly OUTPUT_ROTATION_CHECK_INTERVAL = 50
+
   private _bufferOutput(agentId: string, chunk: string): void {
     const prev = this.agentOutputBuffers.get(agentId) ?? ''
     // Keep last 50KB per agent in memory
@@ -479,6 +488,18 @@ export class SwarmOrchestrator extends EventEmitter {
     // Also persist to per-agent log file on disk
     const logFile = path.join(this.paths.logsDir, `${agentId}.log`)
     fs.appendFileSync(logFile, chunk)
+    // Rotate per-agent log when it exceeds 1 MB (checked every 50 writes)
+    const count = (this._outputWriteCounts.get(agentId) ?? 0) + 1
+    this._outputWriteCounts.set(agentId, count)
+    if (count >= SwarmOrchestrator.OUTPUT_ROTATION_CHECK_INTERVAL) {
+      this._outputWriteCounts.set(agentId, 0)
+      try {
+        const stat = fs.statSync(logFile)
+        if (stat.size > SwarmOrchestrator.OUTPUT_ROTATION_SIZE) {
+          fs.renameSync(logFile, logFile + '.1')
+        }
+      } catch { /* best-effort rotation */ }
+    }
   }
 
   private _log(level: string, msg: string, agentId?: string): void {
