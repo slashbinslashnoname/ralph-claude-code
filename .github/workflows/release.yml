@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    branches: [main, master]
+
+# Prevent concurrent releases
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # Check if version changed — skip release if not
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pkg.outputs.version }}
+      tag: ${{ steps.pkg.outputs.tag }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read package.json version
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: check
+        run: |
+          if git rev-parse "v${{ steps.pkg.outputs.version }}" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag v${{ steps.pkg.outputs.version }} already exists — skipping release"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "New version v${{ steps.pkg.outputs.version }} — will release"
+          fi
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            script: dist:mac
+          - os: ubuntu-latest
+            platform: linux
+            script: dist:linux
+          - os: windows-latest
+            platform: win
+            script: dist:win
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      # node-pty needs native rebuild for the target platform
+      - name: Rebuild native modules
+        run: npx electron-rebuild -f -w node-pty
+        shell: bash
+
+      - name: Build & package
+        run: bun run ${{ matrix.script }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip code signing for now
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            dist-electron/*.dmg
+            dist-electron/*.zip
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/*.exe
+            dist-electron/*.blockmap
+          if-no-files-found: warn
+          retention-days: 5
+
+  release:
+    needs: [check-version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: List release files
+        run: find artifacts -type f | sort
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+          else
+            RANGE="HEAD~20..HEAD"
+          fi
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            git log "$RANGE" --pretty=format:"- %s (%h)" --no-merges 2>/dev/null || echo "- Initial release"
+            echo ""
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check-version.outputs.tag }}
+          name: Slashbot ${{ needs.check-version.outputs.tag }}
+          body: |
+            ## What's Changed
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Downloads
+
+            | Platform | File |
+            |----------|------|
+            | macOS (Apple Silicon) | `Slashbot-*-arm64.dmg` |
+            | macOS (Intel) | `Slashbot-*-x64.dmg` |
+            | Linux | `Slashbot-*.AppImage` / `.deb` |
+            | Windows | `Slashbot-*.exe` |
+          files: artifacts/*
+          draft: false
+          prerelease: false
+          generate_release_notes: false
