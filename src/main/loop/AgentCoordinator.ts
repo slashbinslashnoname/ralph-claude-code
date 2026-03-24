@@ -562,7 +562,9 @@ export class AgentCoordinator {
   /** Move untracked symlinks/dirs (.slashbot, .beads, etc.) out of the way before checkout. */
   private async _moveConflictingItems(): Promise<Array<{ path: string; symlinkTarget?: string }>> {
     const movedItems: Array<{ path: string; symlinkTarget?: string }> = []
-    for (const name of ['.slashbot', '.slashbotrc', '.beads', '.worktrees']) {
+    // .worktrees is excluded — it contains active worktrees and renaming it
+    // would break concurrent merges running in those worktrees.
+    for (const name of ['.slashbot', '.slashbotrc', '.beads']) {
       const fullPath = path.join(this.paths.projectRoot, name)
       let stat: fs.Stats | null = null
       try { stat = fs.lstatSync(fullPath) } catch { continue }
@@ -894,7 +896,7 @@ export class AgentCoordinator {
         // Assign directly to this agent
         let assigned = false
         try { assigned = await this.bd.assignToAsync(bead.id, agentId) }
-        catch { assigned = this.bd.assignTo(bead.id, agentId) }
+        catch { /* assignment failed — skip this bead */ }
         if (!assigned) {
           this._log('DEBUG', `[${agentId}] skip ${bead.id}: assignTo failed`)
           continue
@@ -906,7 +908,7 @@ export class AgentCoordinator {
         const originalTitle = bead.title
         let freshBead: Bead | null = null
         try { freshBead = await this.bd.showAsync(bead.id) }
-        catch { freshBead = this.bd.show(bead.id) }
+        catch { /* showAsync failed — use in-memory bead data */ }
         const result = freshBead ?? { ...bead, status: 'claimed', claimedBy: agentId }
         if (originalTitle && result.title !== originalTitle) {
           result.title = originalTitle

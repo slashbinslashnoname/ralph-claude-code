@@ -685,7 +685,7 @@ describe('AgentCoordinator — worktree creation', () => {
   it('recreates worktree if path already exists (stale worktree)', async () => {
     const wt1 = await coord.createWorktree('agent-0', 'b1')
     expect(wt1).toBeTruthy()
-    const wt2 = coord.createWorktree('agent-0', 'b1')
+    const wt2 = await coord.createWorktree('agent-0', 'b1')
     expect(wt2).toBeTruthy()
     expect(fs.existsSync(wt2!.worktreePath)).toBe(true)
   })
@@ -1049,7 +1049,7 @@ describe('AgentCoordinator — completeBead and failBead', () => {
   })
 
   it('completeBead calls bd.close, releases files, and logs activity', async () => {
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
@@ -1075,7 +1075,7 @@ describe('AgentCoordinator — completeBead and failBead', () => {
   })
 
   it('completeBead includes commitSha in activity event when changes exist', async () => {
-    vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
     // Create a file change so commitAndPush produces a SHA
     fs.writeFileSync(path.join(tmpDir, 'changed.txt'), 'data')
 
@@ -1110,7 +1110,7 @@ describe('AgentCoordinator — completeBead and failBead', () => {
   })
 
   it('does not close bead when commitAndPush fails, but does release file locks', async () => {
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
     const releaseSpy = vi.spyOn(coord, 'releaseFiles')
     vi.spyOn(coord, 'commitAndPush').mockRejectedValue(new Error('git commit failed'))
 
@@ -1486,7 +1486,7 @@ describe('AgentCoordinator — rollbackBead', () => {
     expect(result.error).toContain('Conflict reverting')
   })
 
-  it('releases file locks after rollback', () => {
+  it('releases file locks after rollback', async () => {
     fs.writeFileSync(path.join(tmpDir, 'locked.ts'), 'locked content')
     execSync('git add . && git commit -m "locked"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
@@ -1494,13 +1494,13 @@ describe('AgentCoordinator — rollbackBead', () => {
     coord.reserveFiles('agent-0', 'b1', ['locked.ts'])
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    coord.rollbackBead('agent-0', 'b1')
+    await coord.rollbackBead('agent-0', 'b1')
     expect(coord.readLocks().length).toBe(0)
   })
 
-  it('reverts multiple SHAs in reverse chronological order', () => {
+  it('reverts multiple SHAs in reverse chronological order', async () => {
     // Create two commits
     fs.writeFileSync(path.join(tmpDir, 'file1.ts'), 'content1')
     execSync('git add . && git commit -m "first"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
@@ -1513,9 +1513,9 @@ describe('AgentCoordinator — rollbackBead', () => {
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha1, summary: 'Merged 1' })
     coord.postActivity({ agentId: 'agent-0', type: 'completed', beadId: 'b1', commitSha: sha2, summary: 'Completed' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(true)
     expect(result.revertedShas.length).toBe(2)
     // Reversed: sha2 (latest) should be reverted first, then sha1
@@ -1527,22 +1527,22 @@ describe('AgentCoordinator — rollbackBead', () => {
     expect(fs.existsSync(path.join(tmpDir, 'file2.ts'))).toBe(false)
   })
 
-  it('handles bd.reopen failure gracefully', () => {
+  it('handles bd.reopen failure gracefully', async () => {
     fs.writeFileSync(path.join(tmpDir, 'graceful.ts'), 'content')
     execSync('git add . && git commit -m "graceful"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
 
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => { throw new Error('bd reopen failed') })
+    vi.spyOn(coord.bd, 'reopenAsync').mockRejectedValue(new Error('bd reopen failed'))
 
-    // Should not throw even if bd.reopen fails
-    const result = coord.rollbackBead('agent-0', 'b1')
+    // Should not throw even if bd.reopenAsync fails
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(true)
     expect(result.revertedShas.length).toBe(1)
   })
 
-  it('filters events after last rollback event too', () => {
+  it('filters events after last rollback event too', async () => {
     fs.writeFileSync(path.join(tmpDir, 'v1.ts'), 'v1')
     execSync('git add v1.ts && git commit -m "v1"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     const sha1 = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
@@ -1557,15 +1557,15 @@ describe('AgentCoordinator — rollbackBead', () => {
 
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha2, summary: 'Merged v2' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(true)
     expect(result.revertedShas).toEqual([sha2])
     expect(result.revertedShas).not.toContain(sha1)
   })
 
-  it('releases file locks even when rollback fails due to conflict', () => {
+  it('releases file locks even when rollback fails due to conflict', async () => {
     fs.writeFileSync(path.join(tmpDir, 'conflict.ts'), 'original')
     execSync('git add . && git commit -m "original"', { cwd: tmpDir, stdio: 'pipe', env: gitEnv })
     const sha = execSync('git rev-parse HEAD', { cwd: tmpDir, stdio: 'pipe' }).toString().trim()
@@ -1577,9 +1577,9 @@ describe('AgentCoordinator — rollbackBead', () => {
     coord.reserveFiles('agent-0', 'b1', ['conflict.ts'])
     coord.postActivity({ agentId: 'agent-0', type: 'merged', beadId: 'b1', commitSha: sha, summary: 'Merged' })
 
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    const result = coord.rollbackBead('agent-0', 'b1')
+    const result = await coord.rollbackBead('agent-0', 'b1')
     expect(result.reverted).toBe(false)
     expect(result.error).toContain('Conflict')
     // Locks should still be released on failure
@@ -1599,11 +1599,11 @@ describe('AgentCoordinator — idempotent bead operations', () => {
   })
 
   it('completeBead skips bd.close and commitAndPush when bead is already done', async () => {
-    const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
+    const showSpy = vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'done', deps: [], files: [], priority: 2, tags: []
     })
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
@@ -1620,11 +1620,11 @@ describe('AgentCoordinator — idempotent bead operations', () => {
   })
 
   it('completeBead proceeds normally when bead is not yet done', async () => {
-    vi.spyOn(coord.bd, 'show').mockReturnValue({
+    vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'claimed', deps: [], files: [], priority: 2, tags: []
     })
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
@@ -1632,23 +1632,23 @@ describe('AgentCoordinator — idempotent bead operations', () => {
   })
 
   it('completeBead proceeds when bd.show throws (bead not found)', async () => {
-    vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'showAsync').mockRejectedValue(new Error('not found'))
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
     expect(closeSpy).toHaveBeenCalled()
   })
 
-  it('reopenBead skips bd.reopen when bead is already open', () => {
-    const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
+  it('reopenBead skips bd.reopen when bead is already open', async () => {
+    const showSpy = vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'ready', deps: [], files: [], priority: 2, tags: []
     })
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
-    coord.reopenBead('agent-0', 'b1')
+    await coord.reopenBead('agent-0', 'b1')
 
     expect(showSpy).toHaveBeenCalledWith('b1')
     expect(reopenSpy).not.toHaveBeenCalled()
@@ -1656,37 +1656,37 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     expect(coord.readLocks().length).toBe(0)
   })
 
-  it('reopenBead proceeds normally when bead is not open', () => {
-    vi.spyOn(coord.bd, 'show').mockReturnValue({
+  it('reopenBead proceeds normally when bead is not open', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'done', deps: [], files: [], priority: 2, tags: []
     })
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    coord.reopenBead('agent-0', 'b1')
+    await coord.reopenBead('agent-0', 'b1')
 
     expect(reopenSpy).toHaveBeenCalledWith('b1', expect.any(String))
   })
 
-  it('reopenBead proceeds when bd.show throws (bead not found)', () => {
-    vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
-    const reopenSpy = vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+  it('reopenBead proceeds when bd.show throws (bead not found)', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockRejectedValue(new Error('not found'))
+    const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
-    coord.reopenBead('agent-0', 'b1')
+    await coord.reopenBead('agent-0', 'b1')
 
     expect(reopenSpy).toHaveBeenCalled()
   })
 
-  it('failBead skips bd.addLabel and bd.close when bead is already failed', () => {
-    const showSpy = vi.spyOn(coord.bd, 'show').mockReturnValue({
+  it('failBead skips bd.addLabel and bd.close when bead is already failed', async () => {
+    const showSpy = vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'failed', deps: [], files: [], priority: 2, tags: ['failed']
     })
-    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
-    coord.failBead('agent-0', 'b1', 'timeout')
+    await coord.failBead('agent-0', 'b1', 'timeout')
 
     expect(showSpy).toHaveBeenCalledWith('b1')
     expect(addLabelSpy).not.toHaveBeenCalled()
@@ -1700,26 +1700,26 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     expect(failed!.summary).toContain('already failed')
   })
 
-  it('failBead proceeds normally when bead is not yet failed', () => {
-    vi.spyOn(coord.bd, 'show').mockReturnValue({
+  it('failBead proceeds normally when bead is not yet failed', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
       id: 'b1', title: 'Test', description: '', type: 'task',
       status: 'claimed', deps: [], files: [], priority: 2, tags: []
     })
-    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
-    coord.failBead('agent-0', 'b1', 'timeout')
+    await coord.failBead('agent-0', 'b1', 'timeout')
 
     expect(addLabelSpy).toHaveBeenCalledWith('b1', 'failed')
     expect(closeSpy).toHaveBeenCalledWith('b1', expect.any(String))
   })
 
-  it('failBead proceeds when bd.show throws (bead not found)', () => {
-    vi.spyOn(coord.bd, 'show').mockImplementation(() => { throw new Error('not found') })
-    const addLabelSpy = vi.spyOn(coord.bd, 'addLabel').mockImplementation(() => {})
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+  it('failBead proceeds when bd.show throws (bead not found)', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockRejectedValue(new Error('not found'))
+    const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
-    coord.failBead('agent-0', 'b1', 'timeout')
+    await coord.failBead('agent-0', 'b1', 'timeout')
 
     expect(addLabelSpy).toHaveBeenCalled()
     expect(closeSpy).toHaveBeenCalled()
@@ -1838,15 +1838,15 @@ describe('AgentCoordinator — activity indexes', () => {
     expect(coord.readActivityForBead('undefined')).toEqual([])
   })
 
-  it('rollbackBead uses indexed lookup (same behavior as before)', () => {
+  it('rollbackBead uses indexed lookup (same behavior as before)', async () => {
     // Mock bd methods to avoid CLI calls
-    vi.spyOn(coord.bd, 'reopen').mockImplementation(() => {})
+    vi.spyOn(coord.bd, 'reopenAsync').mockResolvedValue(undefined)
 
     // Simulate a merged event with a commit SHA
     coord.postActivity({ agentId: 'a0', type: 'merged', beadId: 'b1', commitSha: 'abc123' })
 
     // rollbackBead should find the SHA from the index
-    const result = coord.rollbackBead('a0', 'b1')
+    const result = await coord.rollbackBead('a0', 'b1')
     // It will fail to revert because abc123 is not a real SHA, but it should attempt it
     expect(result.revertedShas).toBeDefined()
     // The error should mention the SHA, proving the index lookup found it
@@ -1956,7 +1956,7 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
 
   it('closes parent epic when all siblings are done', async () => {
     let b1CallCount = 0
-    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+    vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => {
       if (id === 'b1') {
         b1CallCount++
         // First call = idempotency check, return claimed so close proceeds
@@ -1965,15 +1965,15 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
         return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
       }
       if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' })
-      return null
+      return null as any
     })
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([
+    vi.spyOn(coord.bd, 'listAllAsync').mockResolvedValue([
       makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' }),
       makeBead({ id: 'b2', epicId: 'epic-1', status: 'done' }),
       makeBead({ id: 'b3', epicId: 'epic-1', status: 'done' }),
       makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' }),
     ])
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
@@ -1988,20 +1988,20 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
 
   it('does not close epic when some siblings are still open', async () => {
     let b1CallCount = 0
-    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+    vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => {
       if (id === 'b1') {
         b1CallCount++
         if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
         return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
       }
       if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' })
-      return null
+      return null as any
     })
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([
+    vi.spyOn(coord.bd, 'listAllAsync').mockResolvedValue([
       makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' }),
       makeBead({ id: 'b2', epicId: 'epic-1', status: 'claimed' }),
     ])
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
@@ -2011,37 +2011,37 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
   })
 
   it('skips if bead has no parent epic', async () => {
-    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+    vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => {
       if (id === 'b1') return makeBead({ id: 'b1', status: 'claimed' })
-      return null
+      return null as any
     })
-    const listAllSpy = vi.spyOn(coord.bd, 'listAll')
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const listAllSpy = vi.spyOn(coord.bd, 'listAllAsync')
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
-    // close called for bead only; listAll never called (early return)
+    // close called for bead only; listAllAsync never called (early return)
     expect(closeSpy).toHaveBeenCalledTimes(1)
     expect(listAllSpy).not.toHaveBeenCalled()
   })
 
   it('skips if epic is already done', async () => {
     let b1CallCount = 0
-    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+    vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => {
       if (id === 'b1') {
         b1CallCount++
         if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
         return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
       }
       if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'done' })
-      return null
+      return null as any
     })
-    const listAllSpy = vi.spyOn(coord.bd, 'listAll')
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const listAllSpy = vi.spyOn(coord.bd, 'listAllAsync')
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
-    // listAll never called because epic is already done
+    // listAllAsync never called because epic is already done
     expect(listAllSpy).not.toHaveBeenCalled()
     // close called for bead only
     expect(closeSpy).toHaveBeenCalledTimes(1)
@@ -2049,14 +2049,14 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
 
   it('is non-fatal if bd.show throws during epic check', async () => {
     let callCount = 0
-    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+    vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => {
       callCount++
       // First call (idempotency check) returns claimed bead
       if (callCount === 1) return makeBead({ id: 'b1', status: 'claimed' })
       // Second call (_maybeCloseEpic) throws
       throw new Error('bd crashed')
     })
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     // Should not throw
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
@@ -2065,20 +2065,20 @@ describe('AgentCoordinator — _maybeCloseEpic (auto-close parent epic)', () => 
 
   it('handles failed siblings — does not close epic', async () => {
     let b1CallCount = 0
-    vi.spyOn(coord.bd, 'show').mockImplementation((id: string) => {
+    vi.spyOn(coord.bd, 'showAsync').mockImplementation(async (id: string) => {
       if (id === 'b1') {
         b1CallCount++
         if (b1CallCount === 1) return makeBead({ id: 'b1', epicId: 'epic-1', status: 'claimed' })
         return makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' })
       }
       if (id === 'epic-1') return makeBead({ id: 'epic-1', type: 'epic', status: 'claimed' })
-      return null
+      return null as any
     })
-    vi.spyOn(coord.bd, 'listAll').mockReturnValue([
+    vi.spyOn(coord.bd, 'listAllAsync').mockResolvedValue([
       makeBead({ id: 'b1', epicId: 'epic-1', status: 'done' }),
       makeBead({ id: 'b2', epicId: 'epic-1', status: 'failed' }),
     ])
-    const closeSpy = vi.spyOn(coord.bd, 'close').mockImplementation(() => {})
+    const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
 
     await coord.completeBead('agent-0', 'b1', ['a.ts'])
 
