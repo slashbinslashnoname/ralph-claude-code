@@ -55,6 +55,26 @@ describe('electron-builder.yml', () => {
     expect(toLine).toContain('to: icon.png')
   })
 
+  it('has publish block targeting GitHub', () => {
+    const raw = loadRawConfig()
+    expect(raw).toMatch(/^publish:/m)
+    expect(raw).toContain('provider: github')
+    expect(raw).toContain('owner: frankbria')
+    expect(raw).toContain('repo: ralph-claude-code')
+  })
+
+  it('does not suppress dmg writeUpdateInfo', () => {
+    const raw = loadRawConfig()
+    expect(raw).not.toContain('writeUpdateInfo: false')
+  })
+
+  it('includes zip target for macOS (required for unsigned updates)', () => {
+    const raw = loadRawConfig()
+    // mac section should have a zip target entry
+    const macSection = raw.split(/^linux:/m)[0]
+    expect(macSection).toContain('target: zip')
+  })
+
   it('outputs to dist-electron directory', () => {
     const raw = loadRawConfig()
     expect(raw).toContain('output: dist-electron')
