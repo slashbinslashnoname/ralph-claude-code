@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
-import { RalphConfig, PlanQueueItem, Bead, BeadStats, AgentInfo, ActivityEvent, KnowledgeEntry, MailMessage } from '../types'
+import { RalphConfig, PlanQueueItem, Bead, BeadStats, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
 import { loadConfig } from './RcParser'
 import { AgentCoordinator } from './AgentCoordinator'
 import { PlanLoop } from './PlanLoop'
@@ -302,8 +302,6 @@ export class SwarmOrchestrator extends EventEmitter {
   getActivityForBead(beadId: string, limit = 100): ActivityEvent[] { return this.coordinator.readActivityForBead(beadId, limit) }
   getActivityForAgent(agentId: string, limit = 100): ActivityEvent[] { return this.coordinator.readActivityForAgent(agentId, limit) }
   getKnowledge(limit = 50): KnowledgeEntry[] { return this.coordinator.readKnowledge(limit) }
-  getMail(limit = 50): MailMessage[] { return this.coordinator.readMail(limit) }
-  getMailForAgent(agentId: string, limit = 100): MailMessage[] { return this.coordinator.readMailForAgent(agentId, limit) }
 
   /** Return the last heartbeat timestamp (epoch ms) for an agent, or undefined if unknown. */
   getHeartbeat(agentId: string): number | undefined { return this._heartbeatMap.get(agentId) }

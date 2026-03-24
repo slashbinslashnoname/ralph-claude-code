@@ -46,15 +46,12 @@ import {
   validateSwarmActivityForBead,
   validateSwarmActivityForAgent,
 } from './loop/swarmValidation'
-import { validateMailList, validateMailSubscribe, validateMailUnsubscribe } from './loop/mailValidation'
-import type { TelegramNotifyLevel, MailMessage } from './types'
+import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
 
 const execAsync = promisify(exec)
 
 const watchers = new Map<string, ReturnType<typeof chokidar.watch>>()
-const mailWatchers = new Map<string, ReturnType<typeof chokidar.watch>>()
-const mailSizes = new Map<string, number>()
 const swarms = new Map<string, SwarmOrchestrator>()
 const telegramBots = new Map<string, TelegramBot>()
 const telegramBridges = new Map<string, TelegramBridge>()
@@ -87,9 +84,6 @@ export async function gracefulShutdown(storePath: string, timeoutMs = 30_000): P
   // 3. Close file watchers
   watchers.forEach(w => w.close())
   watchers.clear()
-  mailWatchers.forEach(w => w.close())
-  mailWatchers.clear()
-  mailSizes.clear()
 
   // 4. Clean up orphaned worktrees across known projects
   const projectPaths = readProjectStore(storePath)
@@ -970,83 +964,17 @@ export function registerIpc(
     }
   })
 
-  // ── Mail ──────────────────────────────────────────────────────────────
-
-  ipcMain.handle('mail:list', (_e, projectPath: unknown, limit: unknown) => {
-    try {
-      const v = validateMailList(projectPath, limit)
-      const mailFile = getProjectPaths(v.projectPath).mail
-      if (!fs.existsSync(mailFile)) return []
-      const text = readText(mailFile) ?? ''
-      const lines = text.split('\n').filter(Boolean)
-      const messages: MailMessage[] = []
-      for (const line of lines) {
-        try { messages.push(JSON.parse(line) as MailMessage) } catch { /* skip malformed */ }
-      }
-      return messages.slice(-v.limit)
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('mail:subscribe', (_e, projectPath: unknown) => {
-    try {
-      const v = validateMailSubscribe(projectPath)
-      if (mailWatchers.has(v.projectPath)) return { ok: true }
-      const mailFile = getProjectPaths(v.projectPath).mail
-      const currentSize = fs.existsSync(mailFile) ? (readText(mailFile) ?? '').length : 0
-      mailSizes.set(v.projectPath, currentSize)
-      const watcher = chokidar.watch(mailFile, { ignoreInitial: true })
-      watcher.on('change', () => {
-        const text = readText(mailFile) ?? ''
-        const prevSize = mailSizes.get(v.projectPath) ?? 0
-        const newContent = text.slice(prevSize)
-        mailSizes.set(v.projectPath, text.length)
-        if (!newContent) return
-        const lines = newContent.split('\n').filter(Boolean)
-        for (const line of lines) {
-          try {
-            const msg = JSON.parse(line) as MailMessage
-            broadcast('mail:message', v.projectPath, msg)
-          } catch { /* skip malformed */ }
-        }
-      })
-      watcher.on('add', () => {
-        // File created after watcher started — reset size
-        mailSizes.set(v.projectPath, 0)
-      })
-      mailWatchers.set(v.projectPath, watcher)
-      return { ok: true }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
-  ipcMain.handle('mail:unsubscribe', (_e, projectPath: unknown) => {
-    try {
-      const v = validateMailUnsubscribe(projectPath)
-      mailWatchers.get(v.projectPath)?.close()
-      mailWatchers.delete(v.projectPath)
-      mailSizes.delete(v.projectPath)
-      return { ok: true }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
   // ── Cleanup ────────────────────────────────────────────────────────────
 
   ipcMain.handle('window:cleanup', async (_e, projectPath?: string) => {
     if (projectPath) {
       watchers.get(projectPath)?.close(); watchers.delete(projectPath)
-      mailWatchers.get(projectPath)?.close(); mailWatchers.delete(projectPath); mailSizes.delete(projectPath)
       swarms.get(projectPath)?.stopAll(); swarms.delete(projectPath)
       telegramBridges.get(projectPath)?.stop(); telegramBridges.delete(projectPath)
       const bot = telegramBots.get(projectPath)
       if (bot) { await bot.disconnect(); telegramBots.delete(projectPath) }
     } else {
       watchers.forEach(w => w.close()); watchers.clear()
-      mailWatchers.forEach(w => w.close()); mailWatchers.clear(); mailSizes.clear()
       swarms.forEach(s => s.stopAll()); swarms.clear()
       telegramBridges.forEach(b => b.stop()); telegramBridges.clear()
       await Promise.allSettled([...telegramBots.values()].map(b => b.disconnect()))
