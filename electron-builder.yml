@@ -60,5 +60,8 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 
+publish:
+  provider: github
+
 dmg:
-  writeUpdateInfo: false
+  writeUpdateInfo: true

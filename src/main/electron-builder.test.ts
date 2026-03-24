@@ -68,6 +68,17 @@ describe('electron-builder.yml', () => {
   it('source icon files exist in resources/', () => {
     expect(existsSync(resolve(ROOT, 'resources/icon.png'))).toBe(true)
   })
+
+  it('has publish provider set to github', () => {
+    const raw = loadRawConfig()
+    expect(raw).toMatch(/^publish:/m)
+    expect(raw).toContain('provider: github')
+  })
+
+  it('has dmg.writeUpdateInfo enabled for auto-update feed', () => {
+    const raw = loadRawConfig()
+    expect(raw).toContain('writeUpdateInfo: true')
+  })
 })
 
 describe('package.json build scripts', () => {
@@ -108,6 +119,26 @@ describe('package.json build scripts', () => {
     expect(pkg.dependencies['electron-updater']).toBe('^4.6.0')
     // Must NOT be in devDependencies — it's needed at runtime for auto-update
     expect(pkg.devDependencies['electron-updater']).toBeUndefined()
+  })
+})
+
+describe('release.yml workflow', () => {
+  const workflowPath = resolve(ROOT, '.github/workflows/release.yml')
+
+  it('exists', () => {
+    expect(existsSync(workflowPath)).toBe(true)
+  })
+
+  it('uploads latest*.yml feed files as artifacts', () => {
+    const raw = readFileSync(workflowPath, 'utf-8')
+    expect(raw).toContain('dist-electron/latest*.yml')
+  })
+
+  it('documents auto-update feed files in release assets table', () => {
+    const raw = readFileSync(workflowPath, 'utf-8')
+    expect(raw).toContain('latest-mac.yml')
+    expect(raw).toContain('latest-linux.yml')
+    expect(raw).toContain('latest.yml')
   })
 })
 
