@@ -3,7 +3,7 @@
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Tests](https://img.shields.io/badge/tests-1532%20passing-green)
+![Tests](https://img.shields.io/badge/tests-1468%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -19,9 +19,10 @@ Slashbot is an Electron desktop app that coordinates multiple Claude AI agents w
 - **Think-Before-Act Lifecycle** — Every agent runs a mandatory thinking phase before executing, followed by a review pass
 - **Dependency-Aware Scheduling** — Agents pick the next bead with the fewest unresolved blockers
 - **Circuit Breaker** — Automatically stops the swarm on repeated failures (CLOSED / HALF_OPEN / OPEN states)
-- **Rate Limiting** — Hourly API quota tracking with configurable limits (default: 100 calls/hour)
+- **Rate Limiting** — Hourly API quota tracking with configurable limits (default: 100 calls/hour), enforced via `maxCallsPerHour` in `.slashbotrc`
 - **Build Monitor** — Continuous build health checks with auto-filed beads on repeated failures
 - **Telegram Integration** — Bi-directional bot commands (`/plan`, `/status`, `/pause`, `/resume`, `/stop`, `/bead`) with configurable notification levels
+- **Heartbeat & Claim Recovery** — Agents send periodic heartbeats; stale claims from crashed agents are automatically recovered via a timeout sweep
 - **Health Checks** — Pre-flight validation of `bd` CLI, `claude` CLI, and required project files before starting the swarm
 - **Knowledge Capture** — Agents extract patterns, gotchas, and architectural insights during work
 - **Auto-Retry & Auto-Split** — Configurable retries with exponential backoff; oversized beads are automatically split into children
@@ -61,18 +62,19 @@ Slashbot is a three-process Electron app:
 ```
 Main Process (src/main/)
 ├── index.ts                  — Electron app entry, window creation
-├── ipc.ts                    — IPC handler registration
+├── ipc.ts                    — IPC handler registration, graceful shutdown
 ├── types.ts                  — Shared type definitions
+├── getIconPath.ts            — Platform-aware app icon resolution
+├── nativeRequire.ts          — Native module loader (node-pty)
 └── loop/                     — Core orchestration engine
     ├── SwarmOrchestrator     — Master coordinator: plan queue, worker lifecycle, stats
     ├── PlanLoop              — Generates ONE plan via Claude ULTRATHINK, encodes to bead graph
     ├── WorkerLoop            — Per-agent lifecycle: think → execute → review → merge → close
-    ├── WorkerStateMachine    — Alternative state-machine worker loop (feature-flagged)
-    ├── AgentCoordinator      — File locks, agent registry, activity log, git worktree management
+    ├── WorkerStateMachine    — State-machine worker loop (enabled via SLASHBOT_STATE_MACHINE=1)
+    ├── AgentCoordinator      — File locks, agent registry, activity log, git worktree management, heartbeats, claim timeout sweep
     ├── ProjectStore          — Per-project storage under ~/.slashbot/projects/<id>/
     ├── BdClient              — Wrapper around `bd` CLI (beads-rust)
     ├── CircuitBreaker        — CLOSED → HALF_OPEN → OPEN failure detection
-    ├── RateLimit             — Hourly API quota tracking
     ├── BuildMonitor          — Continuous build health + auto-filed beads on failure
     ├── HealthCheck           — Pre-flight validation (bd CLI, claude CLI, project files)
     ├── ResponseAnalyzer      — Claude output parsing, API limit detection, stuck detection
@@ -168,7 +170,6 @@ CLAUDE_OUTPUT_FORMAT=json           # Output format: json or text (default: json
 CLAUDE_CODE_CMD=claude              # Claude CLI command (default: claude)
 CLAUDE_ALLOWED_TOOLS=*              # Allowed tools (default: *)
 SLEEP_DURATION=3                    # Seconds between loops (default: 3, range: 0-3600)
-CONTINUE_SESSION=true               # Resume Claude sessions across loops (default: true)
 AUTO_PUSH=true                      # Auto-push completed bead branches (default: true)
 
 # Model routing
@@ -258,7 +259,7 @@ The `RalphEnabler` auto-detects project type (Node.js, Python, Rust, Go, Java, R
 | File watching | chokidar |
 | Terminal | node-pty |
 | Telegram | telegraf |
-| Graph layout | dagre |
+| MCP | @modelcontextprotocol/sdk |
 | Task tracking | beads-rust (`bd` CLI) |
 | Package manager | Bun |
 | Testing | Vitest |
@@ -268,7 +269,7 @@ The `RalphEnabler` auto-detects project type (Node.js, Python, Rust, Go, Java, R
 ### Running Tests
 
 ```bash
-# Run all tests (1136 tests across 43 files)
+# Run all tests (1540 tests across 59 files)
 bun run test
 
 # Watch mode
@@ -279,8 +280,8 @@ bun run test:coverage
 ```
 
 Test coverage spans the full stack:
-- **Main process** — AgentCoordinator, BdClient, CircuitBreaker, HealthCheck, PlanLoop, RateLimit, RcParser, ResponseAnalyzer, SwarmOrchestrator, TelegramBot, TelegramBridge, WorkerLoop, BuildMonitor, FileGuard, RalphEnabler, AsyncSemaphore, and all validation modules
-- **Renderer** — Dashboard, BeadsPage, SwarmPage, ConfigEditor, BeadDetailPanel, DependencyDAG, TreeBrowser, SlashbotLogo
+- **Main process** — AgentCoordinator, BdClient, CircuitBreaker, HealthCheck, PlanLoop, RcParser, ResponseAnalyzer, SwarmOrchestrator, TelegramBot, TelegramBridge, WorkerLoop, WorkerStateMachine, BuildMonitor, FileGuard, RalphEnabler, AsyncSemaphore, ProjectStore, MCP coordination server, graceful shutdown, and all validation modules
+- **Renderer** — Dashboard, BeadsPage, SwarmPage, ConfigEditor, TreeBrowser, SlashbotLogo
 
 ### Project Scripts
 
@@ -307,7 +308,7 @@ bun run test:coverage    # Coverage report
 git clone https://github.com/YOUR_USERNAME/ralph-claude-code.git
 cd ralph-claude-code
 bun install
-bun run test  # All 1136 tests must pass
+bun run test  # All tests must pass
 ```
 
 ## License
