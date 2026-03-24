@@ -3,6 +3,7 @@
 import type {
   Bead, BeadType, ActivityEvent, KnowledgeEntry,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
+  RalphConfig,
 } from './types/ipc'
 
 export {}
@@ -126,6 +127,10 @@ interface SlashbotAPI {
     configure: (p: string, config: unknown) => Promise<{ ok: boolean; error?: string }>
     test: (p: string) => Promise<{ ok: boolean; error?: string }>
     disconnect: (p: string) => Promise<{ ok: boolean; error?: string }>
+  }
+  config: {
+    read: (p: string) => Promise<RalphConfig>
+    write: (p: string, updates: Partial<RalphConfig>) => Promise<{ ok: boolean; error?: string }>
   }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>
