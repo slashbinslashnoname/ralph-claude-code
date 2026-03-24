@@ -75,10 +75,11 @@ export class AutoUpdater extends EventEmitter {
     try {
       await autoUpdater.checkForUpdates()
     } catch (err) {
+      // electron-updater fires the 'error' event before rejecting the promise,
+      // so the event handler already sets state + broadcasts. Only log here to
+      // avoid sending a duplicate error event to the renderer.
       const msg = err instanceof Error ? err.message : String(err)
       this.emit('log', 'error', `AutoUpdater: check failed — ${msg}`)
-      this._broadcast({ type: 'error', error: msg })
-      this._state = 'error'
     }
   }
 
@@ -89,10 +90,9 @@ export class AutoUpdater extends EventEmitter {
     try {
       await autoUpdater.downloadUpdate()
     } catch (err) {
+      // Same as checkForUpdates: electron-updater fires 'error' before rejecting.
       const msg = err instanceof Error ? err.message : String(err)
       this.emit('log', 'error', `AutoUpdater: download failed — ${msg}`)
-      this._broadcast({ type: 'error', error: msg })
-      this._state = 'error'
     }
   }
 

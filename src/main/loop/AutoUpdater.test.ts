@@ -322,35 +322,52 @@ describe('AutoUpdater', () => {
 
   // ---- Error handling in checkForUpdates / downloadUpdate ----------------
 
-  it('catches checkForUpdates errors and sets error state', async () => {
+  it('catches checkForUpdates errors without double-broadcasting', async () => {
+    // electron-updater fires 'error' before rejecting the promise. The event
+    // handler owns state + broadcast; the catch block must only log.
     const win = makeWindow()
     const updater = new AutoUpdater(() => win as never)
-    mockAutoUpdater.checkForUpdates.mockRejectedValue(new Error('no internet'))
+    mockAutoUpdater.checkForUpdates.mockImplementation(async () => {
+      getHandler('error')(new Error('no internet')) // event fires first
+      throw new Error('no internet')
+    })
 
     await updater.checkForUpdates()
 
     expect(updater.state).toBe('error')
+    // Exactly one broadcast — from the event handler, not duplicated by the catch
+    expect(win.webContents.send).toHaveBeenCalledTimes(1)
     expect(win.webContents.send).toHaveBeenCalledWith('update:event', {
       type: 'error',
       error: 'no internet',
     })
   })
 
-  it('catches downloadUpdate errors and sets error state', async () => {
+  it('catches downloadUpdate errors without double-broadcasting', async () => {
     const win = makeWindow()
     const updater = new AutoUpdater(() => win as never)
 
     // Move to 'available' first
     getHandler('update-available')({ version: '2.0.0', releaseDate: '2026-01-01' })
-    mockAutoUpdater.downloadUpdate.mockRejectedValue(new Error('disk full'))
+    mockAutoUpdater.downloadUpdate.mockImplementation(async () => {
+      getHandler('error')(new Error('disk full')) // event fires first
+      throw new Error('disk full')
+    })
 
     await updater.downloadUpdate()
 
     expect(updater.state).toBe('error')
-    expect(win.webContents.send).toHaveBeenCalledWith('update:event', {
-      type: 'error',
-      error: 'disk full',
-    })
+    // Two broadcasts total: one for update-available, one for the error
+    const errorCall = win.webContents.send.mock.calls.find(
+      (c) => (c[1] as { type: string }).type === 'error',
+    )
+    expect(errorCall).toBeDefined()
+    expect(errorCall![1]).toEqual({ type: 'error', error: 'disk full' })
+    // Confirm no duplicate error broadcast
+    const errorCalls = win.webContents.send.mock.calls.filter(
+      (c) => (c[1] as { type: string }).type === 'error',
+    )
+    expect(errorCalls).toHaveLength(1)
   })
 
   // ---- update-event emission ---------------------------------------------
