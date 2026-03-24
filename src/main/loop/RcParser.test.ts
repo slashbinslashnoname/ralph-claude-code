@@ -50,11 +50,10 @@ describe('parseRcFile', () => {
     expect(result.allowedTools).toBe('Edit,Read')
   })
 
-  it('parses boolean continueSession — only "true" is truthy', () => {
+  it('parses boolean continueSession from CONTINUE_SESSION key', () => {
     writeRc('CONTINUE_SESSION=true')
-    // CONTINUE_SESSION is not in KEY_MAP, so it should be ignored
     const result = parseRcFile(tmpDir)
-    expect(result.continueSession).toBe(undefined)
+    expect(result.continueSession).toBe(true)
   })
 
   it('skips comment lines', () => {
@@ -610,6 +609,15 @@ describe('serializeConfig', () => {
     expect(reloaded.sleepDuration).toBe(10)
     expect(reloaded.autoPush).toBe(false)
     expect(reloaded.claudeTimeoutMinutes).toBe(original.claudeTimeoutMinutes)
+  })
+
+  it('round-trips continueSession=false', () => {
+    const original = { ...DEFAULT_CONFIG, continueSession: false }
+    const serialized = serializeConfig(original)
+    expect(serialized).toContain('CONTINUE_SESSION=false')
+    writeRc(serialized)
+    const reloaded = loadConfig(tmpDir)
+    expect(reloaded.continueSession).toBe(false)
   })
 
   it('round-trips telegram config', () => {

@@ -39,6 +39,7 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   CLAUDE_CODE_CMD: 'claudeCodeCmd',
   CLAUDE_ALLOWED_TOOLS: 'allowedTools',
   SLEEP_DURATION: 'sleepDuration',
+  CONTINUE_SESSION: 'continueSession',
   CB_NO_PROGRESS_THRESHOLD: 'cbNoProgressThreshold',
   CB_SAME_ERROR_THRESHOLD: 'cbSameErrorThreshold',
   CB_PERMISSION_DENIAL_THRESHOLD: 'cbPermissionDenialThreshold',
@@ -240,14 +241,6 @@ export function loadConfig(projectPath: string, rcPath?: string): RalphConfig {
   }
   return config
 }
-
-const REVERSE_KEY_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(KEY_MAP).map(([k, v]) => [v, k])
-)
-
-const REVERSE_TELEGRAM_KEY_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(TELEGRAM_KEY_MAP).map(([k, v]) => [v, k])
-)
 
 export function serializeConfig(config: RalphConfig): string {
   const lines: string[] = []
