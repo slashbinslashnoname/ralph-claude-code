@@ -3,7 +3,7 @@
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Tests](https://img.shields.io/badge/tests-1540%20passing-green)
+![Tests](https://img.shields.io/badge/tests-1468%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -269,7 +269,7 @@ The `RalphEnabler` auto-detects project type (Node.js, Python, Rust, Go, Java, R
 ### Running Tests
 
 ```bash
-# Run all tests (1540 tests across 48 files)
+# Run all tests (1540 tests across 59 files)
 bun run test
 
 # Watch mode
