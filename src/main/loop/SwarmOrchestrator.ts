@@ -35,6 +35,8 @@ export class SwarmOrchestrator extends EventEmitter {
     ensureStoreDirs(paths)
     this.paths = paths
     this.coordinator = new AgentCoordinator(paths)
+    // Clear stale agents from a previous session that wasn't cleanly stopped
+    this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
   }
 
   // ── Public API ─────────────────────────────────────────────────────────
@@ -336,7 +338,14 @@ export class SwarmOrchestrator extends EventEmitter {
     return this.coordinator.bd.listAll()
   }
 
+  async getBeadsAsync(status?: string): Promise<Bead[]> {
+    if (status && status !== 'all') return this.coordinator.bd.listByStatusAsync(status)
+    return this.coordinator.bd.listAllAsync()
+  }
+
   getStats(): BeadStats { return this.coordinator.getStats() }
+
+  async getStatsAsync(): Promise<BeadStats> { return this.coordinator.getStatsAsync() }
 
   getAgentOutput(agentId: string): string {
     // Try memory buffer first, fall back to disk log

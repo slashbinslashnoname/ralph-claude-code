@@ -1331,4 +1331,8 @@ export class AgentCoordinator {
   getStats(): BeadStats {
     return this.bd.stats()
   }
+
+  async getStatsAsync(): Promise<BeadStats> {
+    return this.bd.statsAsync()
+  }
 }

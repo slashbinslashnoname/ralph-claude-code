@@ -663,7 +663,7 @@ export function registerIpc(
     }
   })
 
-  ipcMain.handle('swarm:status', (_e, projectPath: unknown) => {
+  ipcMain.handle('swarm:status', async (_e, projectPath: unknown) => {
     try {
       const v = validateSwarmStatus(projectPath)
       const swarm = swarms.get(v.projectPath)
@@ -674,7 +674,7 @@ export function registerIpc(
         planRequest: swarm.getPlanRequest(),
         workerCount: swarm.workerCount(),
         agents: swarm.getAgents(),
-        stats: swarm.getStats(),
+        stats: await swarm.getStatsAsync(),
         sessionStartedAt: swarm.sessionStartedAt,
         stoppingGracefully: swarm.stoppingGracefully
       }
@@ -683,22 +683,21 @@ export function registerIpc(
     }
   })
 
-  ipcMain.handle('swarm:beads', (_e, projectPath: unknown, status: unknown) => {
+  ipcMain.handle('swarm:beads', async (_e, projectPath: unknown, status: unknown) => {
     try {
       const v = validateSwarmBeads(projectPath, status)
       const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
-      if (v.status !== 'all') return swarm.getBeads(v.status)
-      return swarm.getBeads()
+      return await swarm.getBeadsAsync(v.status !== 'all' ? v.status : undefined)
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
-  ipcMain.handle('swarm:bead-stats', (_e, projectPath: unknown) => {
+  ipcMain.handle('swarm:bead-stats', async (_e, projectPath: unknown) => {
     try {
       const v = validateSwarmBeadStats(projectPath)
       const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
-      return swarm.getStats()
+      return await swarm.getStatsAsync()
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
