@@ -27,6 +27,7 @@ export class AgentCoordinator {
   private _activityByAgent: Map<string, ActivityEvent[]> = new Map()
   private _knowledgeCache: KnowledgeEntry[] = []
   private static readonly CACHE_CAP = 1000
+  private static readonly INDEX_CAP = 500
   private static readonly KNOWLEDGE_CAP = 200
   private static readonly ROTATION_SIZE = 1_048_576 // 1 MB
   private static readonly ROTATION_CHECK_INTERVAL = 50
