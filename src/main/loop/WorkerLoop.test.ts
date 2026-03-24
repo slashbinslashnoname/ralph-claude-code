@@ -2405,4 +2405,150 @@ None.
       }
     })
   })
+
+  describe('_runClaude promise settling and session capture', () => {
+    it('only settles promise once when both error and close fire', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+
+      // Simulate error followed by close (Node.js spawn failure pattern)
+      proc.emit('error', new Error('ENOENT'))
+      proc.emit('close', 1)
+
+      // The promise should reject with the error handler's message (first to fire)
+      await expect(promise).rejects.toThrow('spawn failed: ENOENT')
+    })
+
+    it('only settles promise once when close fires after timeout', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        const config = makeConfig({ claudeTimeoutMinutes: 1 })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        const proc = createProc()
+        vi.mocked(cp.spawn).mockReturnValue(proc)
+
+        const promise = (worker as any)._runClaude('test prompt', 'test')
+
+        // Timeout fires first (no output → rejects)
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        // Then close fires (should be ignored due to settled flag)
+        proc.emit('close', 0)
+
+        await expect(promise).rejects.toThrow('timed out')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('timeout resolves with raw output when output exists', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        const config = makeConfig({ claudeTimeoutMinutes: 1 })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        const proc = createProc()
+        vi.mocked(cp.spawn).mockReturnValue(proc)
+
+        const promise = (worker as any)._runClaude('test prompt', 'test')
+
+        // Produce some output before timeout
+        proc.simulateStdout('partial output')
+
+        // Timeout fires — should resolve since there's output
+        await vi.advanceTimersByTimeAsync(60_000)
+
+        await expect(promise).resolves.toBe('partial output')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('captures sessionId from JSON output on close', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ claudeOutputFormat: 'json' }), coord, makePaths())
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+
+      // Simulate JSON output with sessionId
+      proc.simulateStdout('{"type":"system","sessionId":"sess-abc123"}\n')
+      proc.simulateStdout('{"type":"result","result":"done","sessionId":"sess-abc123"}\n')
+      proc.simulateExit(0)
+
+      await promise
+
+      expect((worker as any).sessionId).toBe('sess-abc123')
+    })
+
+    it('does not overwrite sessionId when JSON output has no sessionId', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ claudeOutputFormat: 'json' }), coord, makePaths())
+      ;(worker as any).sessionId = 'existing-session'
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+
+      proc.simulateStdout('{"type":"result","result":"done"}\n')
+      proc.simulateExit(0)
+
+      await promise
+
+      expect((worker as any).sessionId).toBe('existing-session')
+    })
+
+    it('does not attempt sessionId extraction for text output format', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ claudeOutputFormat: 'text' as any }), coord, makePaths())
+
+      const proc = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc)
+
+      const promise = (worker as any)._runClaude('test prompt', 'test')
+
+      proc.simulateStdout('plain text output')
+      proc.simulateExit(0)
+
+      await promise
+
+      expect((worker as any).sessionId).toBeUndefined()
+    })
+
+    it('sessionId is used in --resume flag when continueSession is enabled', async () => {
+      const coord = makeCoordinator()
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig({ continueSession: true, claudeOutputFormat: 'json' }), coord, makePaths())
+
+      // First call: capture sessionId
+      const proc1 = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc1)
+      const p1 = (worker as any)._runClaude('first prompt', 'test')
+      proc1.simulateStdout('{"type":"result","result":"done","sessionId":"sess-xyz"}\n')
+      proc1.simulateExit(0)
+      await p1
+
+      // Second call: should include --resume
+      const proc2 = createProc()
+      vi.mocked(cp.spawn).mockReturnValue(proc2)
+      const p2 = (worker as any)._runClaude('second prompt', 'test')
+      proc2.simulateStdout('{"type":"result","result":"done"}\n')
+      proc2.simulateExit(0)
+      await p2
+
+      const secondCallArgs = vi.mocked(cp.spawn).mock.calls[1][1] as string[]
+      expect(secondCallArgs).toContain('--resume')
+      expect(secondCallArgs).toContain('sess-xyz')
+    })
+  })
 })

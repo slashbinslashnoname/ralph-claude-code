@@ -2,7 +2,6 @@ import * as cp from 'child_process'
 import { Bead, BeadStats, BeadType, CreateBeadOpts, CreateManyResult } from '../types'
 import { buildEnv } from './utils'
 
-const ENV = buildEnv()
 
 /**
  * Client wrapper around the `bd` CLI (beads-rust).
@@ -20,7 +19,7 @@ export class BdClient {
     try {
       return cp.execFileSync(this.bdCmd, args, {
         cwd: this.cwd,
-        env: ENV,
+        env: buildEnv(),
         timeout: 15_000,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe']
@@ -40,7 +39,7 @@ export class BdClient {
     return new Promise((resolve, reject) => {
       cp.execFile(this.bdCmd, args, {
         cwd: this.cwd,
-        env: ENV,
+        env: buildEnv(),
         timeout: 30_000
       }, (err, stdout, stderr) => {
         if (err) {
@@ -61,7 +60,7 @@ export class BdClient {
 
   check(): { available: boolean; reason?: string } {
     try {
-      cp.execSync('which bd', { env: ENV, timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+      cp.execSync('which bd', { env: buildEnv(), timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
     } catch {
       return { available: false, reason: '`bd` command not found on PATH. Install from: https://github.com/steveyegge/beads' }
     }
@@ -77,7 +76,7 @@ export class BdClient {
   async checkAsync(): Promise<{ available: boolean; reason?: string }> {
     try {
       await new Promise<void>((resolve, reject) => {
-        cp.exec('which bd', { env: ENV, timeout: 3000 }, (err) => err ? reject(err) : resolve())
+        cp.exec('which bd', { env: buildEnv(), timeout: 3000 }, (err) => err ? reject(err) : resolve())
       })
     } catch {
       return { available: false, reason: '`bd` command not found on PATH. Install from: https://github.com/steveyegge/beads' }

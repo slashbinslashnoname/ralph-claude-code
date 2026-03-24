@@ -1,7 +1,10 @@
 import * as fs from 'fs'
 import * as child_process from 'child_process'
 
+let _cachedBuildEnv: NodeJS.ProcessEnv | undefined
+
 export function buildEnv(): NodeJS.ProcessEnv {
+  if (_cachedBuildEnv) return _cachedBuildEnv
   const home = process.env.HOME ?? ''
   const extraPaths = [
     '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin',
@@ -25,7 +28,13 @@ export function buildEnv(): NodeJS.ProcessEnv {
   const merged = [...new Set(
     [process.env.PATH ?? '', loginPath, ...extraPaths].flatMap(p => p.split(':').filter(Boolean))
   )].join(':')
-  return { ...process.env, PATH: merged }
+  _cachedBuildEnv = { ...process.env, PATH: merged }
+  return _cachedBuildEnv
+}
+
+/** Reset the buildEnv cache — for testing only. */
+export function _resetBuildEnvCache(): void {
+  _cachedBuildEnv = undefined
 }
 
 export function resolveCmd(cmd: string, env: NodeJS.ProcessEnv): string {
