@@ -74,6 +74,22 @@ export class BdClient {
     return { available: true }
   }
 
+  async checkAsync(): Promise<{ available: boolean; reason?: string }> {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        cp.exec('which bd', { env: ENV, timeout: 3000 }, (err) => err ? reject(err) : resolve())
+      })
+    } catch {
+      return { available: false, reason: '`bd` command not found on PATH. Install from: https://github.com/steveyegge/beads' }
+    }
+    const { existsSync } = require('fs')
+    const { join } = require('path')
+    if (!existsSync(join(this.cwd, '.beads'))) {
+      return { available: false, reason: 'No .beads directory found. Run `bd init` in this project.' }
+    }
+    return { available: true }
+  }
+
   info(): Record<string, unknown> {
     return this.runJson(['info'])
   }
@@ -133,6 +149,25 @@ export class BdClient {
     if (filter?.assignee) args.push('--assignee', filter.assignee)
     const raw = this.runJson<unknown[]>(args)
     return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
+  }
+
+  async listAsync(filter?: {
+    status?: string
+    type?: string
+    priority?: number
+    label?: string
+    assignee?: string
+  }): Promise<Bead[]> {
+    const args = ['list', '--limit', '0']
+    if (filter?.status) args.push('--status', filter.status)
+    if (filter?.type) args.push('--type', filter.type)
+    if (filter?.priority !== undefined) args.push('--priority', String(filter.priority))
+    if (filter?.label) args.push('--label', filter.label)
+    if (filter?.assignee) args.push('--assignee', filter.assignee)
+    try {
+      const raw = await this.runJsonAsync<unknown[]>(args)
+      return Array.isArray(raw) ? raw.map(b => this.normalizeBead(b)) : []
+    } catch { return [] }
   }
 
   listAll(): Bead[] {
@@ -353,18 +388,24 @@ export class BdClient {
 
   stats(): BeadStats {
     const all = this.listAll()
+    return this.computeStats(all)
+  }
+
+  async statsAsync(): Promise<BeadStats> {
+    const all = await this.listAllAsync()
+    return this.computeStats(all)
+  }
+
+  private computeStats(all: Bead[]): BeadStats {
     const total = all.length
-    const open = all.filter(b => b.status === 'ready' || b.status === 'pending').length
-    const inProgress = all.filter(b => b.status === 'claimed').length
     const done = all.filter(b => b.status === 'done').length
-    const failed = all.filter(b => b.status === 'failed').length
     return {
       total,
       pending: all.filter(b => b.status === 'pending').length,
-      ready: all.filter(b => b.status === 'ready').length,
-      claimed: inProgress,
+      ready: all.filter(b => b.status === 'ready' || b.status === 'pending').length,
+      claimed: all.filter(b => b.status === 'claimed').length,
       done,
-      failed,
+      failed: all.filter(b => b.status === 'failed').length,
       pct: total > 0 ? Math.round((done / total) * 100) : 0
     }
   }

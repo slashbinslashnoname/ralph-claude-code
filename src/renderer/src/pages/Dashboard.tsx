@@ -28,7 +28,7 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
       sb.beads.stats(projectPath).then(r => { if (r.ok) setBeadStats(r.stats ?? null) }).catch(() => {})
     }
     load()
-    const interval = setInterval(load, 2000)
+    const interval = setInterval(load, 10_000)
     return () => clearInterval(interval)
   }, [projectPath])
 

@@ -366,14 +366,14 @@ export function registerIpc(
 
   ipcMain.handle('beads:check', async (_e, projectPath: string) => {
     const bd = new BdClient(projectPath)
-    return bd.check()
+    return bd.checkAsync()
   })
 
   ipcMain.handle('beads:list', async (_e, projectPath: string, filter = 'open') => {
     try {
       const v = validateBeadsList(projectPath, filter)
       const bd = new BdClient(v.projectPath)
-      const tasks = v.filter === 'all' ? bd.listAll() : bd.listByStatus(v.filter)
+      const tasks = v.filter === 'all' ? await bd.listAllAsync() : await bd.listByStatusAsync(v.filter)
       return { ok: true, tasks }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
@@ -385,7 +385,7 @@ export function registerIpc(
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
       const bd = new BdClient(p)
-      const task = bd.show(beadId)
+      const task = await bd.showAsync(beadId)
       return task ? { ok: true, task } : { ok: false, error: 'Not found' }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -398,14 +398,14 @@ export function registerIpc(
     try {
       const v = validateBeadsCreate(projectPath, opts)
       const bd = new BdClient(v.projectPath)
-      const task = bd.create(v.opts as any)
+      const task = await bd.createAsync(v.opts as any)
       // Wire up dependencies after creation
       if (v.opts.deps?.length) {
         for (const depId of v.opts.deps) {
           bd.addDep(task.id, depId)
         }
         // Re-fetch to include deps in response
-        const updated = bd.show(task.id)
+        const updated = await bd.showAsync(task.id)
         return { ok: true, task: updated ?? task }
       }
       return { ok: true, task }
@@ -477,7 +477,7 @@ export function registerIpc(
   ipcMain.handle('beads:ready', async (_e, projectPath: string) => {
     try {
       const bd = new BdClient(projectPath)
-      return { ok: true, tasks: bd.ready() }
+      return { ok: true, tasks: await bd.readyAsync() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
     }
@@ -486,7 +486,7 @@ export function registerIpc(
   ipcMain.handle('beads:stats', async (_e, projectPath: string) => {
     try {
       const bd = new BdClient(projectPath)
-      return { ok: true, stats: bd.stats() }
+      return { ok: true, stats: await bd.statsAsync() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
