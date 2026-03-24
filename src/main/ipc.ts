@@ -615,7 +615,13 @@ export function registerIpc(
     try {
       const v = validateSwarmStop(projectPath)
       const swarm = swarms.get(v.projectPath)
-      if (swarm) swarm.stopWorkers()
+      if (swarm) {
+        swarm.stopWorkers()
+      } else {
+        // Swarm already gone (workers exited on their own) — ensure UI gets the
+        // stopped signal so it can cleanly reset and allow restart.
+        broadcast('swarm:stopped', v.projectPath)
+      }
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -626,7 +632,11 @@ export function registerIpc(
     try {
       const v = validateSwarmStop(projectPath)
       const swarm = swarms.get(v.projectPath)
-      if (swarm) swarm.gracefulStopWorkers()
+      if (swarm) {
+        swarm.gracefulStopWorkers()
+      } else {
+        broadcast('swarm:stopped', v.projectPath)
+      }
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

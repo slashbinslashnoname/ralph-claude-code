@@ -253,15 +253,13 @@ export class WorkerLoop extends EventEmitter {
       if (!bead) {
         const hasOpen = await this.coordinator.hasOpenWorkAsync()
         if (!hasOpen) {
+          // No open beads — stay alive and poll with increasing backoff.
+          // New beads may arrive via plan injection at any time.
           this.emptyRetries++
-          if (this.emptyRetries >= 3) {
-            this._log('SUCCESS', `[${this.agentId}] No open beads — worker done`)
-            this._exit('all_beads_done')
-            return
-          }
-          this._log('INFO', `[${this.agentId}] No open beads detected, rechecking (${this.emptyRetries}/3)…`)
-          this._setPhase('waiting')
-          await this._sleep(3000)
+          const waitSec = Math.min(10 + this.emptyRetries * 5, 60) // 15s, 20s, … capped at 60s
+          this._log('INFO', `[${this.agentId}] No open beads — idle, polling in ${waitSec}s (attempt ${this.emptyRetries})`)
+          this._setPhase('idle')
+          await this._sleep(waitSec * 1000)
           continue
         }
         // There's open/in-progress work but nothing claimable for us right now.
