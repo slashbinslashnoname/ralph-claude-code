@@ -139,6 +139,17 @@ vi.mock('./loop/telegramValidation', () => ({
 vi.mock('./loop/TelegramBot', () => ({ TelegramBot: vi.fn() }))
 vi.mock('./loop/TelegramBridge', () => ({ TelegramBridge: vi.fn() }))
 
+const mockAutoUpdaterInstance = {
+  on: vi.fn(),
+  check: vi.fn().mockResolvedValue(undefined),
+  download: vi.fn().mockResolvedValue(undefined),
+  quitAndInstall: vi.fn(),
+  getState: vi.fn().mockReturnValue({ state: 'idle' }),
+}
+vi.mock('./loop/AutoUpdater', () => ({
+  AutoUpdater: vi.fn().mockImplementation(() => mockAutoUpdaterInstance),
+}))
+
 vi.mock('./loop/swarmValidation', () => ({
   validateSwarmStart: (p: unknown, w: unknown) => ({ projectPath: p, workerCount: w }),
   validateSwarmStop: (p: unknown) => ({ projectPath: p }),
@@ -461,6 +472,49 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       expect(result).toEqual({ ok: true })
       const storeDir = computeStoreDir(projectPath)
       expect(realFs.existsSync(path.join(storeDir, 'activity.jsonl'))).toBe(false)
+    })
+  })
+
+  describe('update:check', () => {
+    it('calls AutoUpdater.check()', async () => {
+      await invoke('update:check')
+      expect(mockAutoUpdaterInstance.check).toHaveBeenCalled()
+    })
+  })
+
+  describe('update:download', () => {
+    it('calls AutoUpdater.download()', async () => {
+      await invoke('update:download')
+      expect(mockAutoUpdaterInstance.download).toHaveBeenCalled()
+    })
+  })
+
+  describe('update:install', () => {
+    it('calls quitAndInstall after graceful shutdown', async () => {
+      await invoke('update:install')
+      expect(mockAutoUpdaterInstance.quitAndInstall).toHaveBeenCalled()
+    })
+  })
+
+  describe('update:state', () => {
+    it('returns current updater state', () => {
+      const result = invoke('update:state')
+      expect(result).toEqual({ state: 'idle' })
+      expect(mockAutoUpdaterInstance.getState).toHaveBeenCalled()
+    })
+  })
+
+  describe('auto-update event wiring', () => {
+    it('registers event listeners on AutoUpdater for broadcast', () => {
+      // Trigger lazy init
+      invoke('update:state')
+      const eventNames = mockAutoUpdaterInstance.on.mock.calls.map((c: any[]) => c[0])
+      expect(eventNames).toContain('checking')
+      expect(eventNames).toContain('available')
+      expect(eventNames).toContain('not-available')
+      expect(eventNames).toContain('progress')
+      expect(eventNames).toContain('downloaded')
+      expect(eventNames).toContain('error')
     })
   })
 })
