@@ -3,7 +3,7 @@
 [![CI](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml/badge.svg)](https://github.com/frankbria/ralph-claude-code/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Tests](https://img.shields.io/badge/tests-1136%20passing-green)
+![Tests](https://img.shields.io/badge/tests-1532%20passing-green)
 [![GitHub Issues](https://img.shields.io/github/issues/frankbria/ralph-claude-code)](https://github.com/frankbria/ralph-claude-code/issues)
 [![Mentioned in Awesome Claude Code](https://awesome.re/mentioned-badge.svg)](https://github.com/hesreallyhim/awesome-claude-code)
 [![Follow on X](https://img.shields.io/twitter/follow/FrankBria18044?style=social)](https://x.com/FrankBria18044)
@@ -25,7 +25,9 @@ Slashbot is an Electron desktop app that coordinates multiple Claude AI agents w
 - **Health Checks** — Pre-flight validation of `bd` CLI, `claude` CLI, and required project files before starting the swarm
 - **Knowledge Capture** — Agents extract patterns, gotchas, and architectural insights during work
 - **Auto-Retry & Auto-Split** — Configurable retries with exponential backoff; oversized beads are automatically split into children
-- **Desktop UI** — Dashboard with progress ring, dependency DAG graph, tree browser, live agent output, activity feed, log viewer, and config editor
+- **MCP Coordination Server** — Model Context Protocol server for inter-agent coordination (file reservations, team status, messaging)
+- **Multi-Tab Projects** — Open and manage multiple projects simultaneously with persistent tab state
+- **Desktop UI** — Dashboard with progress ring, Kanban board, tree browser, live agent output, activity feed, log viewer, and config editor
 
 ## Quick Start
 
@@ -58,39 +60,51 @@ Slashbot is a three-process Electron app:
 
 ```
 Main Process (src/main/)
-├── index.ts              — Electron app entry, window creation
-├── ipc.ts                — IPC handler registration
-├── types.ts              — Shared type definitions
-└── loop/                 — Core orchestration engine
-    ├── SwarmOrchestrator — Master coordinator: plan queue, worker lifecycle, stats
-    ├── PlanLoop          — Generates ONE plan via Claude ULTRATHINK, encodes to bead graph
-    ├── WorkerLoop        — Per-agent lifecycle: think → execute → review → merge → close
-    ├── AgentCoordinator  — File locks, agent registry, activity log, git worktree management
-    ├── BdClient          — Wrapper around `bd` CLI (beads-rust)
-    ├── CircuitBreaker    — CLOSED → HALF_OPEN → OPEN failure detection
-    ├── RateLimit         — Hourly API quota tracking
-    ├── BuildMonitor      — Continuous build health + auto-filed beads on failure
-    ├── HealthCheck       — Pre-flight validation (bd CLI, claude CLI, project files)
-    ├── ResponseAnalyzer  — Claude output parsing, API limit detection, stuck detection
-    ├── FileGuard         — Required file integrity checks
-    ├── RcParser          — .slashbotrc configuration parser
-    ├── RalphEnabler      — Project setup/initialization
-    ├── TelegramBot       — Telegram API client with command handling
-    ├── TelegramBridge    — Telegram ↔ Swarm event bridge with batching/throttling
-    └── AsyncSemaphore    — FIFO mutex for safe concurrency
+├── index.ts                  — Electron app entry, window creation
+├── ipc.ts                    — IPC handler registration
+├── types.ts                  — Shared type definitions
+└── loop/                     — Core orchestration engine
+    ├── SwarmOrchestrator     — Master coordinator: plan queue, worker lifecycle, stats
+    ├── PlanLoop              — Generates ONE plan via Claude ULTRATHINK, encodes to bead graph
+    ├── WorkerLoop            — Per-agent lifecycle: think → execute → review → merge → close
+    ├── WorkerStateMachine    — Alternative state-machine worker loop (feature-flagged)
+    ├── AgentCoordinator      — File locks, agent registry, activity log, git worktree management
+    ├── ProjectStore          — Per-project storage under ~/.slashbot/projects/<id>/
+    ├── BdClient              — Wrapper around `bd` CLI (beads-rust)
+    ├── CircuitBreaker        — CLOSED → HALF_OPEN → OPEN failure detection
+    ├── RateLimit             — Hourly API quota tracking
+    ├── BuildMonitor          — Continuous build health + auto-filed beads on failure
+    ├── HealthCheck           — Pre-flight validation (bd CLI, claude CLI, project files)
+    ├── ResponseAnalyzer      — Claude output parsing, API limit detection, stuck detection
+    ├── FileGuard             — Required file integrity checks
+    ├── RcParser              — .slashbotrc configuration parser
+    ├── RalphEnabler          — Project setup/initialization
+    ├── TelegramBot           — Telegram API client with command handling
+    ├── TelegramBridge        — Telegram ↔ Swarm event bridge with batching/throttling
+    ├── AsyncSemaphore        — FIFO mutex for safe concurrency
+    ├── mcp-coordination-server — MCP server for inter-agent coordination
+    ├── utils                 — Shared utilities (log rotation, helpers)
+    └── *Validation           — Input validation modules (bead, config, ipc, project, swarm, telegram)
 
 Preload (src/preload/)
 └── Context bridge exposing main-process APIs to renderer
 
 Renderer (src/renderer/)
 ├── App.tsx               — Root component with sidebar navigation
-└── pages/
-    ├── Dashboard         — Progress ring, bead stats, agent phases, swarm controls
-    ├── BeadsPage         — Task list + dependency DAG + tree browser + plan injection
-    ├── SwarmPage         — Agent flywheel, live output, activity feed, knowledge
-    ├── LogViewer         — Real-time log streaming with color-coded levels
-    ├── ConfigEditor      — Edit .slashbotrc, PROMPT.md, AGENT.md, Telegram settings
-    └── SetupWizard       — Project initialization flow
+├── pages/
+│   ├── Dashboard         — Progress ring, bead stats, agent phases, swarm controls
+│   ├── BeadsPage         — Task list + Kanban board + tree browser + plan injection
+│   ├── SwarmPage         — Agent flywheel, live output, activity feed, knowledge
+│   ├── ThreadsPage       — Threaded communication view
+│   ├── LogViewer         — Real-time log streaming with color-coded levels
+│   ├── ConfigEditor      — Edit .slashbotrc, PROMPT.md, AGENT.md, Telegram settings
+│   └── SetupWizard       — Project initialization flow
+└── components/
+    ├── KanbanBoard       — Drag-and-drop Kanban visualization of beads
+    ├── BeadDetailPanel   — Bead detail/edit side panel
+    ├── TreeBrowser       — Epic / task / subtask hierarchy browser
+    ├── AgentOutputRenderer — Streaming Claude output with ANSI support
+    └── SlashbotLogo      — App logo component
 ```
 
 ### How the Swarm Works
@@ -120,19 +134,22 @@ Overview with a progress ring showing completion percentage, bead stats (total/p
 ### Beads
 Task management with three views:
 - **List** — Sortable by dependency count, status, priority, or creation date
-- **Graph** — Interactive D3-based dependency DAG visualization
+- **Kanban** — Drag-and-drop board grouped by status columns
 - **Tree** — Epic / task / subtask hierarchy browser
 
-Supports creating, editing, claiming, completing, failing, rolling back, and deleting beads. Includes a plan injection text input for queuing new plans.
+Status filter tabs (All, Open, In Progress, Closed) apply across all views. Supports creating, editing, claiming, completing, failing, rolling back, and deleting beads. Includes a plan injection text input for queuing new plans.
 
 ### Swarm
 Live agent flywheel showing real-time phases and bead assignments. Includes an activity feed, knowledge display (patterns, gotchas, risks), and streaming Claude output per agent with ANSI color support.
 
+### Threads
+Threaded communication view for inter-agent coordination messages and activity.
+
 ### Log Viewer
-Real-time log streaming from `.slashbot/logs/slashbot.log` and per-agent log files. Lines are color-coded: red (ERROR), orange (WARN), green (SUCCESS), gray (INFO).
+Real-time log streaming from `slashbot.log` and per-agent log files. Lines are color-coded: red (ERROR), orange (WARN), green (SUCCESS), gray (INFO). Log files support rotation to prevent unbounded growth.
 
 ### Config Editor
-Edit `.slashbotrc`, `.slashbot/PROMPT.md`, and `.slashbot/AGENT.md` in-app. Includes a dedicated Telegram configuration tab with bot token/chat ID inputs, notification level dropdown, and a test connection button.
+Edit `.slashbotrc`, `PROMPT.md`, and `AGENT.md` in-app. Includes a dedicated Telegram configuration tab with bot token/chat ID inputs, notification level dropdown, and a test connection button.
 
 ### Setup Wizard
 Step-by-step project initialization: configure max API calls/hour, enable beads tracking, and generate project files.
