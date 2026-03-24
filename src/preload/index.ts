@@ -119,12 +119,12 @@ contextBridge.exposeInMainWorld('slashbot', {
     disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
   },
 
-  // ── Auto-update ──────────────────────────────────────────────────────
+  // ── Update ─────────────────────────────────────────────────────────
   update: {
     check: () => ipcRenderer.invoke('update:check'),
     download: () => ipcRenderer.invoke('update:download'),
     install: () => ipcRenderer.invoke('update:install'),
-    state: () => ipcRenderer.invoke('update:state'),
+    getState: () => ipcRenderer.invoke('update:state'),
     onChecking: (cb: (...a: unknown[]) => void) => listen('update:checking', cb),
     onAvailable: (cb: (...a: unknown[]) => void) => listen('update:available', cb),
     onNotAvailable: (cb: (...a: unknown[]) => void) => listen('update:not-available', cb),
