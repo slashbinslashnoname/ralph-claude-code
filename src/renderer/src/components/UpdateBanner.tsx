@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { UpdateState, UpdateInfo, UpdateProgress } from '../types/ipc'
 
-const sb = window.slashbot
-
 export default function UpdateBanner() {
   const [state, setState] = useState<UpdateState>('idle')
   const [info, setInfo] = useState<UpdateInfo | null>(null)
@@ -11,8 +9,9 @@ export default function UpdateBanner() {
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
+    const update = window.slashbot.update
     // Hydrate initial state (guard against null — IPC handler may not be wired yet)
-    sb.update.getState().then((s: { state: UpdateState; info?: UpdateInfo; progress?: UpdateProgress; error?: string } | null) => {
+    update.getState().then((s: { state: UpdateState; info?: UpdateInfo; progress?: UpdateProgress; error?: string } | null) => {
       if (!s) return
       setState(s.state)
       if (s.info) setInfo(s.info)
@@ -21,27 +20,27 @@ export default function UpdateBanner() {
     }).catch(() => {})
 
     const unsubs = [
-      sb.update.onChecking(() => {
+      update.onChecking(() => {
         setState('checking')
         setDismissed(false)
       }),
-      sb.update.onAvailable((i: UpdateInfo) => {
+      update.onAvailable((i: UpdateInfo) => {
         setState('available')
         setInfo(i)
         setDismissed(false)
       }),
-      sb.update.onNotAvailable(() => {
+      update.onNotAvailable(() => {
         setState('not-available')
       }),
-      sb.update.onProgress((p: UpdateProgress) => {
+      update.onProgress((p: UpdateProgress) => {
         setState('downloading')
         setProgress(p)
       }),
-      sb.update.onDownloaded((i: UpdateInfo) => {
+      update.onDownloaded((i: UpdateInfo) => {
         setState('downloaded')
         setInfo(i)
       }),
-      sb.update.onError((err: string) => {
+      update.onError((err: string) => {
         setState('error')
         setError(err)
         setDismissed(false)
@@ -65,7 +64,7 @@ export default function UpdateBanner() {
           <span className="update-banner-text">
             Version {info.version} is available.
           </span>
-          <button className="btn btn-sm" onClick={() => sb.update.download()}>
+          <button className="btn btn-sm" onClick={() => window.slashbot.update.download()}>
             Download
           </button>
         </>
@@ -83,7 +82,7 @@ export default function UpdateBanner() {
           <span className="update-banner-text">
             Update ready{info ? ` (v${info.version})` : ''}. Restart to apply.
           </span>
-          <button className="btn btn-sm" onClick={() => sb.update.install()}>
+          <button className="btn btn-sm" onClick={() => window.slashbot.update.install()}>
             Restart
           </button>
         </>
