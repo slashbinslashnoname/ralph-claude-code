@@ -38,14 +38,18 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
     return unsub
   }, [])
 
+  const [starting, setStarting] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
 
   const startSwarm = useCallback(async () => {
-    await sb.swarm.start(projectPath, workerCount)
+    setStarting(true)
+    try { await sb.swarm.start(projectPath, workerCount) } finally { setStarting(false) }
   }, [projectPath, workerCount])
 
   const stopSwarm = useCallback(async () => {
-    await sb.swarm.stop(projectPath)
+    setStopping(true)
+    try { await sb.swarm.stop(projectPath) } finally { setStopping(false) }
   }, [projectPath])
 
   const pct = beadStats?.pct ?? 0
@@ -67,7 +71,9 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
                   onClick={() => { const n = workerCount + 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   +
                 </button>
-                <button className="btn btn-danger" onClick={stopSwarm}>Stop</button>
+                <button className="btn btn-danger" onClick={stopSwarm} disabled={stopping}>
+                  {stopping ? 'Stopping\u2026' : 'Stop'}
+                </button>
               </>
             ) : (
               <>
@@ -75,7 +81,9 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
                   onChange={e => setWorkerCount(Number(e.target.value))}>
                   {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} agent{n > 1 ? 's' : ''}</option>)}
                 </select>
-                <button className="btn btn-primary" onClick={startSwarm}>Start Swarm</button>
+                <button className="btn btn-primary" onClick={startSwarm} disabled={starting}>
+                  {starting ? 'Starting\u2026' : 'Start Swarm'}
+                </button>
               </>
             )}
           </div>

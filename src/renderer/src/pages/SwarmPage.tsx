@@ -120,7 +120,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       await sb.swarm.queue(projectPath)
     }
     load()
-    const interval = setInterval(load, 2000)
+    const interval = setInterval(load, 10_000)
     return () => clearInterval(interval)
   }, [projectPath])
 
@@ -218,16 +218,22 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     })
   }, [activeTab, projectPath])
 
+  const [starting, setStarting] = useState(false)
+  const [stopping, setStopping] = useState(false)
+
   const startSwarm = useCallback(async () => {
-    await sb.swarm.start(projectPath, workerCount)
+    setStarting(true)
+    try { await sb.swarm.start(projectPath, workerCount) } finally { setStarting(false) }
   }, [projectPath, workerCount])
 
   const stopSwarm = useCallback(async () => {
-    await sb.swarm.stop(projectPath)
+    setStopping(true)
+    try { await sb.swarm.stop(projectPath) } finally { setStopping(false) }
   }, [projectPath])
 
   const gracefulStopSwarm = useCallback(async () => {
-    await sb.swarm.gracefulStop(projectPath)
+    setStopping(true)
+    try { await sb.swarm.gracefulStop(projectPath) } finally { setStopping(false) }
   }, [projectPath])
 
   const pauseAgent = useCallback(async (agentId: string) => {
@@ -334,7 +340,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   title="Finish current beads then stop">
                   {swarmStatus?.stoppingGracefully ? 'Stopping…' : 'Stop after bead'}
                 </button>
-                <button className="btn btn-danger" onClick={stopSwarm}>Stop now</button>
+                <button className="btn btn-danger" onClick={stopSwarm} disabled={stopping}>
+                  {stopping ? 'Stopping\u2026' : 'Stop now'}
+                </button>
               </>
             ) : (
               <>
@@ -342,7 +350,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   onChange={e => setWorkerCount(Number(e.target.value))}>
                   {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} agent{n > 1 ? 's' : ''}</option>)}
                 </select>
-                <button className="btn btn-primary" onClick={startSwarm}>Start Swarm</button>
+                <button className="btn btn-primary" onClick={startSwarm} disabled={starting}>
+                  {starting ? 'Starting\u2026' : 'Start Swarm'}
+                </button>
               </>
             )}
           </div>
