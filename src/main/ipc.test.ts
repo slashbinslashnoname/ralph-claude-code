@@ -206,6 +206,10 @@ describe('ipc handlers use centralized ProjectPaths', () => {
     mockCircuitBreaker.mockClear()
     mockValidateConfigRead.mockClear()
     mockValidateConfigWrite.mockClear()
+    mockAutoUpdaterInstance.check.mockClear()
+    mockAutoUpdaterInstance.download.mockClear()
+    mockAutoUpdaterInstance.quitAndInstall.mockClear()
+    mockAutoUpdaterInstance.getState.mockClear()
 
     const { registerIpc } = await import('./ipc')
     registerIpc(() => null, storePath)
