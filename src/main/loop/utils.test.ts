@@ -3,7 +3,7 @@ vi.mock('child_process', async (importOriginal) => ({ ...(await importOriginal<t
 vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as child_process from 'child_process'
 import * as fs from 'fs'
-import { stripAnsi, buildEnv, resolveCmd, atomicWriteSync } from './utils'
+import { stripAnsi, buildEnv, resolveCmd, atomicWriteSync, _resetBuildEnvCache } from './utils'
 
 let mockExecSync: any
 
@@ -12,6 +12,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  _resetBuildEnvCache()
   vi.restoreAllMocks()
 })
 
@@ -101,6 +102,20 @@ describe('buildEnv', () => {
 
     const env = buildEnv()
     expect(env.PATH).toContain('/zsh/probe/path')
+  })
+
+  it('memoizes the result across calls', () => {
+    const env1 = buildEnv()
+    const env2 = buildEnv()
+    expect(env1).toBe(env2) // same reference — no recomputation
+  })
+
+  it('recomputes after cache reset', () => {
+    const env1 = buildEnv()
+    _resetBuildEnvCache()
+    const env2 = buildEnv()
+    expect(env1).not.toBe(env2) // different reference after reset
+    expect(env2).toHaveProperty('PATH')
   })
 
   it('takes last line of shell output to skip motd', () => {
