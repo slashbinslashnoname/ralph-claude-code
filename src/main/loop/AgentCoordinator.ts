@@ -843,15 +843,20 @@ export class AgentCoordinator {
         }
       }
 
+      // Build set of epic IDs — used to exclude parent-child deps from blocking checks
+      const epicIds = new Set(allBeads.filter(b => b.type === 'epic').map(b => b.id))
+
       // Sort: retries → unresolved deps → priority → epic convergence → FIFO → ID
       candidates.sort((a, b) => {
         const retriesA = retryCount.get(a.id) ?? 0
         const retriesB = retryCount.get(b.id) ?? 0
         if (retriesA !== retriesB) return retriesA - retriesB
         // Count only truly blocked deps (not started yet) — in_progress deps are OK (speculative parallel)
-        // Failed deps count as blocked (they won't resolve on their own)
-        const blockedA = a.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
-        const blockedB = b.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
+        // Failed deps count as blocked. Exclude epic parent deps (containment, not work deps).
+        const depsA = a.deps.filter(d => d !== a.epicId && !epicIds.has(d))
+        const depsB = b.deps.filter(d => d !== b.epicId && !epicIds.has(d))
+        const blockedA = depsA.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
+        const blockedB = depsB.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
         if (blockedA !== blockedB) return blockedA - blockedB
         const priDiff = (a.priority ?? 2) - (b.priority ?? 2)
         if (priDiff !== 0) return priDiff
@@ -886,7 +891,7 @@ export class AgentCoordinator {
         return a.id.localeCompare(b.id)
       })
 
-      this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${inProgressIds.size} in_progress, ${lockedFiles.size} locked files`)
+      this._log('DEBUG', `[${agentId}] claimBestBead: ${candidates.length} candidates, ${closedBeads.length} done, ${inProgressIds.size} in_progress, ${lockedFiles.size} locked files, ${epicIds.size} epics`)
 
       for (const bead of candidates) {
         // Never pick up epics — they are containers, not work items.
@@ -898,8 +903,11 @@ export class AgentCoordinator {
         // Skip beads whose dependencies are not yet started.
         // Allow deps that are in_progress (speculative: they'll likely finish before this bead does).
         // Failed deps are treated as unresolved — the dependent bead shouldn't proceed.
-        const blockedDeps = bead.deps.filter(d => !doneIds.has(d) && !inProgressIds.has(d))
-        const failedDeps = bead.deps.filter(d => failedIds.has(d))
+        // Exclude parent-child deps from blocking checks — parent-child is a containment
+        // relationship, not a work dependency. bd sometimes includes it in the flat deps array.
+        const realDeps = bead.deps.filter(d => d !== bead.epicId && !epicIds.has(d))
+        const blockedDeps = realDeps.filter(d => !doneIds.has(d) && !inProgressIds.has(d))
+        const failedDeps = realDeps.filter(d => failedIds.has(d))
         const openChildren = openChildCount.get(bead.id) ?? 0
         if (failedDeps.length > 0) {
           this._log('DEBUG', `[${agentId}] skip ${bead.id}: ${failedDeps.length} failed deps [${failedDeps.join(',')}]`)
@@ -1103,6 +1111,12 @@ export class AgentCoordinator {
     this.releaseFiles(agentId, beadId)
   }
 
+  /** Remove circuit breaker state files so workers start fresh. */
+  private _resetCircuitBreakers(): void {
+    const cbFile = path.join(this.paths.storeDir, '.circuit_breaker_state')
+    try { if (fs.existsSync(cbFile)) fs.unlinkSync(cbFile) } catch { /* ignore */ }
+  }
+
   /** Reopen any beads left in claimed/in_progress from a previous session */
   async reopenStaleBeads(): Promise<void> {
     const claimed = await this.bd.listByStatusAsync('in_progress')
@@ -1114,6 +1128,8 @@ export class AgentCoordinator {
     }
     // Clear all file locks from previous session
     this.clearAllFileLocks()
+    // Reset circuit breaker state from previous session so workers start clean
+    this._resetCircuitBreakers()
     // Clean up orphaned worktrees from previous session
     await this.cleanOrphanedWorktrees()
     // Prune stale git worktree references

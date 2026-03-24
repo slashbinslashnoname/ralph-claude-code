@@ -32,6 +32,7 @@ export class BdClient {
 
   private runJson<T>(args: string[]): T {
     const raw = this.run([...args, '--json'])
+    if (!raw) return [] as unknown as T // bd returns empty output when no results
     return JSON.parse(raw) as T
   }
 
@@ -53,6 +54,7 @@ export class BdClient {
 
   private async runJsonAsync<T>(args: string[]): Promise<T> {
     const raw = await this.runAsync([...args, '--json'])
+    if (!raw) return [] as unknown as T // bd returns empty output when no results
     return JSON.parse(raw) as T
   }
 
