@@ -204,6 +204,29 @@ describe('UpdateBanner — event listeners', () => {
     expect(mockUpdate.onError).toHaveBeenCalledTimes(1)
   })
 
+  test('calls all unsubscribe functions on unmount', async () => {
+    const unsubs = Array.from({ length: 6 }, () => vi.fn())
+    let i = 0
+    mockUpdate.onChecking.mockImplementation(() => unsubs[i++])
+    mockUpdate.onAvailable.mockImplementation(() => unsubs[i++])
+    mockUpdate.onNotAvailable.mockImplementation(() => unsubs[i++])
+    mockUpdate.onProgress.mockImplementation(() => unsubs[i++])
+    mockUpdate.onDownloaded.mockImplementation(() => unsubs[i++])
+    mockUpdate.onError.mockImplementation(() => unsubs[i++])
+
+    let root: ReturnType<typeof createRoot>
+    await act(async () => {
+      root = createRoot(container!)
+      root.render(<UpdateBanner />)
+    })
+
+    unsubs.forEach(u => expect(u).not.toHaveBeenCalled())
+
+    await act(async () => { root.unmount() })
+
+    unsubs.forEach(u => expect(u).toHaveBeenCalledTimes(1))
+  })
+
   test('onAvailable callback updates state to available', async () => {
     let capturedOnAvailable: ((info: { version: string }) => void) | null = null
     mockUpdate.onAvailable.mockImplementation((cb: (info: { version: string }) => void) => {
@@ -221,6 +244,25 @@ describe('UpdateBanner — event listeners', () => {
 
     expect(container!.innerHTML).toContain('9.9.9')
     expect(container!.innerHTML).toContain('Download')
+  })
+
+  test('onProgress callback updates download percentage', async () => {
+    let capturedOnProgress: ((progress: { percent: number; bytesPerSecond: number }) => void) | null = null
+    mockUpdate.onProgress.mockImplementation((cb: (progress: { percent: number; bytesPerSecond: number }) => void) => {
+      capturedOnProgress = cb
+      return () => {}
+    })
+
+    await act(async () => {
+      createRoot(container!).render(<UpdateBanner />)
+    })
+
+    await act(async () => {
+      capturedOnProgress!({ percent: 75, bytesPerSecond: 0 })
+    })
+
+    expect(container!.innerHTML).toContain('75%')
+    expect(container!.innerHTML).toContain('data-phase="downloading"')
   })
 
   test('onDownloaded callback updates state to downloaded', async () => {
