@@ -63,6 +63,7 @@ describe('UpdateBanner source analysis', () => {
     expect(src).toContain('update-progress-fill')
     expect(src).toContain('state.progress.percent')
     expect(src).toContain('formatSpeed')
+    expect(src).toContain("'Downloading…'")
   })
 
   test('renders downloaded state with restart button', () => {

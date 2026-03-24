@@ -38,7 +38,7 @@ export default function UpdateBanner() {
           info: s.info ?? null,
         }))
       }
-    })
+    }).catch(() => {/* ignore — banner stays hidden */})
   }, [])
 
   // Subscribe to update events
@@ -100,16 +100,18 @@ export default function UpdateBanner() {
         </div>
       )}
 
-      {state.phase === 'downloading' && state.progress && (
+      {state.phase === 'downloading' && (
         <div className="update-banner-content">
           <div className="update-progress-bar">
             <div
               className="update-progress-fill"
-              style={{ width: `${Math.round(state.progress.percent)}%` }}
+              style={{ width: state.progress ? `${Math.round(state.progress.percent)}%` : '0%' }}
             />
           </div>
           <span className="update-progress-text">
-            {Math.round(state.progress.percent)}% — {formatSpeed(state.progress.bytesPerSecond)}
+            {state.progress
+              ? `${Math.round(state.progress.percent)}% — ${formatSpeed(state.progress.bytesPerSecond)}`
+              : 'Downloading…'}
           </span>
         </div>
       )}
