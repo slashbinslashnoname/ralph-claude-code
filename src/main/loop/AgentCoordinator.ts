@@ -8,6 +8,7 @@ import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
 import { ProjectPaths } from './ProjectStore'
+import { rotateLogFile } from './utils'
 
 /** Write to a temp file then rename — atomic on POSIX (prevents corruption on crash). */
 function atomicWriteSync(filePath: string, data: string): void {
@@ -26,10 +27,15 @@ export class AgentCoordinator {
   private _activityByAgent: Map<string, ActivityEvent[]> = new Map()
   private _knowledgeCache: KnowledgeEntry[] = []
   private static readonly CACHE_CAP = 1000
+  private static readonly INDEX_CAP = 500
   private static readonly KNOWLEDGE_CAP = 200
   private static readonly ROTATION_SIZE = 1_048_576 // 1 MB
   private static readonly ROTATION_CHECK_INTERVAL = 50
   private _activityWriteCount = 0
+  private _logWriteCount = 0
+  private static readonly LOG_ROTATION_SIZE = 10_485_760 // 10 MB
+  private static readonly LOG_ROTATION_MAX_FILES = 3
+  private static readonly LOG_ROTATION_CHECK_INTERVAL = 50
   bd: BdClient
   planningActive = false
 
@@ -40,6 +46,11 @@ export class AgentCoordinator {
     try {
       const logFile = path.join(this.paths.logsDir, 'slashbot.log')
       fs.appendFileSync(logFile, `[${new Date().toISOString()}] [${level}] ${msg}\n`)
+      this._logWriteCount++
+      if (this._logWriteCount >= AgentCoordinator.LOG_ROTATION_CHECK_INTERVAL) {
+        this._logWriteCount = 0
+        rotateLogFile(logFile, AgentCoordinator.LOG_ROTATION_SIZE, AgentCoordinator.LOG_ROTATION_MAX_FILES)
+      }
     } catch { /* best-effort */ }
   }
 

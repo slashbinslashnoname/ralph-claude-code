@@ -2225,3 +2225,64 @@ describe('AgentCoordinator — _checkClaimTimeouts (background sweep)', () => {
   })
 })
 
+describe('AgentCoordinator — INDEX_CAP enforcement', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('caps per-bead and per-agent activity indexes at INDEX_CAP', () => {
+    const INDEX_CAP = (AgentCoordinator as any).INDEX_CAP
+    expect(INDEX_CAP).toBe(500)
+
+    // Post more than INDEX_CAP events for the same bead+agent
+    for (let i = 0; i < INDEX_CAP + 100; i++) {
+      coord.postActivity({
+        agentId: 'agent-0',
+        beadId: 'bead-1',
+        type: 'started',
+        summary: `event-${i}`,
+      })
+    }
+
+    const byBead = (coord as any)._activityByBead.get('bead-1')
+    const byAgent = (coord as any)._activityByAgent.get('agent-0')
+
+    expect(byBead.length).toBeLessThanOrEqual(INDEX_CAP)
+    expect(byAgent.length).toBeLessThanOrEqual(INDEX_CAP)
+    // Most recent events are kept (slice from the end)
+    expect(byBead[byBead.length - 1].summary).toBe(`event-${INDEX_CAP + 99}`)
+    expect(byAgent[byAgent.length - 1].summary).toBe(`event-${INDEX_CAP + 99}`)
+  })
+
+  it('caps indexes when loading from disk', () => {
+    const INDEX_CAP = (AgentCoordinator as any).INDEX_CAP
+
+    // Write more than INDEX_CAP lines to the activity file
+    const lines: string[] = []
+    for (let i = 0; i < INDEX_CAP + 50; i++) {
+      lines.push(JSON.stringify({
+        ts: new Date().toISOString(),
+        agentId: 'agent-0',
+        beadId: 'bead-1',
+        type: 'started',
+        summary: `disk-event-${i}`,
+      }))
+    }
+    fs.writeFileSync(tmpPaths.activity, lines.join('\n'))
+
+    // Create a fresh coordinator that loads from disk
+    const coord2 = new AgentCoordinator(tmpPaths)
+    const byBead = (coord2 as any)._activityByBead.get('bead-1')
+    const byAgent = (coord2 as any)._activityByAgent.get('agent-0')
+
+    expect(byBead.length).toBeLessThanOrEqual(INDEX_CAP)
+    expect(byAgent.length).toBeLessThanOrEqual(INDEX_CAP)
+  })
+})
+
