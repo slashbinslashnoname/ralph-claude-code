@@ -984,24 +984,28 @@ export function registerIpc(
   function getOrCreateAutoUpdater(): AutoUpdater {
     if (!autoUpdaterInstance) {
       autoUpdaterInstance = new AutoUpdater(getMainWindow)
-      autoUpdaterInstance.on('checking', () => broadcast('update:checking'))
-      autoUpdaterInstance.on('available', (info) => broadcast('update:available', info))
-      autoUpdaterInstance.on('not-available', (info) => broadcast('update:not-available', info))
-      autoUpdaterInstance.on('progress', (progress) => broadcast('update:progress', progress))
-      autoUpdaterInstance.on('downloaded', (info) => broadcast('update:downloaded', info))
-      autoUpdaterInstance.on('error', (error) => broadcast('update:error', error))
+      autoUpdaterInstance.on('update-event', (event: { type: string; info?: unknown; progress?: unknown; error?: unknown }) => {
+        switch (event.type) {
+          case 'checking':    broadcast('update:checking'); break
+          case 'available':   broadcast('update:available', event.info); break
+          case 'not-available': broadcast('update:not-available', event.info); break
+          case 'progress':    broadcast('update:progress', event.progress); break
+          case 'downloaded':  broadcast('update:downloaded', event.info); break
+          case 'error':       broadcast('update:error', event.error); break
+        }
+      })
     }
     return autoUpdaterInstance
   }
 
   ipcMain.handle('update:check', async () => {
     const updater = getOrCreateAutoUpdater()
-    await updater.check()
+    await updater.checkForUpdates()
   })
 
   ipcMain.handle('update:download', async () => {
     const updater = getOrCreateAutoUpdater()
-    await updater.download()
+    await updater.downloadUpdate()
   })
 
   ipcMain.handle('update:install', async () => {
@@ -1012,7 +1016,7 @@ export function registerIpc(
 
   ipcMain.handle('update:state', () => {
     const updater = getOrCreateAutoUpdater()
-    return updater.getState()
+    return { state: updater.state, info: updater.latestInfo }
   })
 
   // ── Cleanup ────────────────────────────────────────────────────────────
