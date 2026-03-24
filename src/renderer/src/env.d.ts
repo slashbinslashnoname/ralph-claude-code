@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
-  Bead, BeadType, ActivityEvent, KnowledgeEntry, MailMessage,
+  Bead, BeadType, ActivityEvent, KnowledgeEntry,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
 } from './types/ipc'
 
@@ -126,12 +126,6 @@ interface SlashbotAPI {
     configure: (p: string, config: unknown) => Promise<{ ok: boolean; error?: string }>
     test: (p: string) => Promise<{ ok: boolean; error?: string }>
     disconnect: (p: string) => Promise<{ ok: boolean; error?: string }>
-  }
-  mail: {
-    list: (p: string, limit?: number) => Promise<MailMessage[]>
-    subscribe: (p: string) => Promise<void>
-    unsubscribe: (p: string) => Promise<void>
-    onMessage: (cb: (proj: string, msg: MailMessage) => void) => () => void
   }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>
