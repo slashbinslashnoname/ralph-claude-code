@@ -117,7 +117,7 @@ describe('UpdateBanner — hydrated states', () => {
       createRoot(container!).render(<UpdateBanner />)
     })
 
-    expect(container!.innerHTML).toContain('Restart & Install')
+    expect(container!.innerHTML).toContain('Restart &amp; Install')
     expect(container!.innerHTML).toContain('2.3.4')
     expect(container!.innerHTML).toContain('data-phase="downloaded"')
   })
@@ -238,7 +238,7 @@ describe('UpdateBanner — event listeners', () => {
       capturedOnDownloaded!({ version: '9.9.9' })
     })
 
-    expect(container!.innerHTML).toContain('Restart & Install')
+    expect(container!.innerHTML).toContain('Restart &amp; Install')
   })
 })
 
