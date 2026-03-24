@@ -802,10 +802,10 @@ export class AgentCoordinator {
    * owning agent has no live heartbeat. Called at the start of claimBestBead
    * inside the claimSemaphore so it cannot race with other claim/reopen calls.
    */
-  private _checkClaimTimeouts(claudeTimeoutMinutes: number): void {
+  private async _checkClaimTimeouts(claudeTimeoutMinutes: number): Promise<void> {
     const thresholdMs = 2 * claudeTimeoutMinutes * 60_000
     const now = Date.now()
-    const inProgress = this.bd.listByStatus('in_progress')
+    const inProgress = await this.bd.listByStatusAsync('in_progress')
 
     for (const bead of inProgress) {
       // Determine which agent owns this bead from activity events
@@ -826,7 +826,8 @@ export class AgentCoordinator {
       if (lastHeartbeat !== undefined && (now - lastHeartbeat) <= thresholdMs) continue
 
       // Timed out and no live heartbeat — reopen
-      this.reopenBead(beadAgent, bead.id)
+      await this.bd.reopenAsync(bead.id, `Timed out — agent ${beadAgent} unresponsive`)
+      this.releaseFiles(beadAgent, bead.id)
       this.postActivity({
         agentId: 'system',
         type: 'claim_timeout',
@@ -841,29 +842,16 @@ export class AgentCoordinator {
     await this.claimSemaphore.acquire(30_000)
 
     try {
-      try { this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }
+      try { await this._checkClaimTimeouts(claudeTimeoutMinutes) } catch { /* non-fatal */ }
       const lockedFiles = new Set(this.lockedFilesByOthers(agentId))
 
       // Get ALL open beads as candidates — we handle dep filtering ourselves.
       // bd ready is too strict (blocks beads with in_progress deps that we allow).
-      let candidates: Bead[]
-      try {
-        candidates = await this.bd.listByStatusAsync('open')
-      } catch (err) {
-        this._log('ERROR', `[${agentId}] bd list failed: ${err instanceof Error ? err.message : err}`)
-        candidates = this.bd.listByStatus('open')
-      }
-
-      let closedBeads: Bead[]
-      let allBeads: Bead[]
-      try {
-        closedBeads = await this.bd.listByStatusAsync('closed')
-        allBeads = await this.bd.listAllAsync()
-      } catch (err) {
-        this._log('ERROR', `[${agentId}] bd list failed, falling back to sync: ${err instanceof Error ? err.message : err}`)
-        closedBeads = this.bd.listByStatus('closed')
-        allBeads = this.bd.listAll()
-      }
+      const [candidates, closedBeads, allBeads] = await Promise.all([
+        this.bd.listByStatusAsync('open'),
+        this.bd.listByStatusAsync('closed'),
+        this.bd.listAllAsync(),
+      ])
       const doneIds = new Set(closedBeads.map(b => b.id))
       const openChildCount = new Map<string, number>()
       for (const b of allBeads) {

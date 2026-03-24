@@ -514,6 +514,11 @@ export function registerIpc(
     swarm.on('planQueue', (queue: unknown) => broadcast('swarm:planQueue', projectPath, queue))
     swarm.on('stopped', () => {
       swarms.delete(projectPath)
+      // Clean up telegram bridge and bot to avoid duplicate polling on restart
+      const bridge = telegramBridges.get(projectPath)
+      if (bridge) { bridge.stop(); telegramBridges.delete(projectPath) }
+      const bot = telegramBots.get(projectPath)
+      if (bot) { bot.disconnect().catch(() => {}); telegramBots.delete(projectPath) }
       broadcast('swarm:stopped', projectPath)
     })
     swarm.on('build-status', (status: string, detail?: unknown) => {

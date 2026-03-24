@@ -251,7 +251,7 @@ export class WorkerLoop extends EventEmitter {
         continue
       }
       if (!bead) {
-        const hasOpen = this.coordinator.hasOpenWork()
+        const hasOpen = await this.coordinator.hasOpenWorkAsync()
         if (!hasOpen) {
           this.emptyRetries++
           if (this.emptyRetries >= 3) {
