@@ -339,6 +339,15 @@ export class BdClient {
     try { this.run(['label', 'remove', id, 'failed', '--json']) } catch { /* label may not exist */ }
   }
 
+  async reopenAsync(id: string, reason = ''): Promise<void> {
+    const args = ['reopen', id]
+    if (reason) args.push('--reason', reason)
+    args.push('--json')
+    await this.runAsync(args)
+    try { await this.runAsync(['update', id, '--assignee', '', '--json']) } catch { /* ignore */ }
+    try { await this.runAsync(['label', 'remove', id, 'failed', '--json']) } catch { /* label may not exist */ }
+  }
+
   // ── Labels ─────────────────────────────────────────────────────────────
 
   addLabel(id: string, label: string): void {

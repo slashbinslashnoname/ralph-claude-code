@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { execSync, spawn } from 'child_process'
+import { exec, execSync, spawn } from 'child_process'
 import { BdClient } from './BdClient'
 import { Bead, BeadStats, FileLock, AgentInfo, ActivityEvent, KnowledgeEntry, MailMessage } from '../types'
 import { AsyncSemaphore } from './AsyncSemaphore'
@@ -1165,6 +1165,22 @@ export class AgentCoordinator {
     this.cleanOrphanedWorktrees()
     // Prune stale git worktree references
     try { execSync('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000, stdio: 'pipe' }) } catch { /* ignore */ }
+  }
+
+  /** Async version — does not block the main thread */
+  async reopenStaleBeadsAsync(): Promise<void> {
+    const claimed = await this.bd.listByStatusAsync('in_progress')
+    for (const bead of claimed) {
+      try {
+        await this.bd.reopenAsync(bead.id, 'Reopened on startup — stale from previous session')
+        this.postActivity({ agentId: 'system', type: 'info' as any, beadId: bead.id, beadTitle: bead.title, summary: `Reopened stale bead [${bead.id}]` })
+      } catch { /* ignore — may already be open */ }
+    }
+    this.clearAllFileLocks()
+    this.cleanOrphanedWorktrees()
+    await new Promise<void>(resolve => {
+      exec('git worktree prune', { cwd: this.paths.projectRoot, timeout: 5000 }, () => resolve())
+    })
   }
 
   /**

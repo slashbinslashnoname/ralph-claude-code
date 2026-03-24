@@ -589,7 +589,7 @@ export function registerIpc(
         telegramBridges.set(v.projectPath, bridge)
       }
 
-      swarm.startWorkers(v.workerCount)
+      await swarm.startWorkers(v.workerCount)
 
       return { ok: true }
     } catch (e) {

@@ -99,7 +99,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this.planner = null
   }
 
-  startWorkers(n = 2): void {
+  async startWorkers(n = 2): Promise<void> {
     if (this.shuttingDown) {
       this._log('WARN', 'Cannot start workers during shutdown')
       return
@@ -128,7 +128,7 @@ export class SwarmOrchestrator extends EventEmitter {
     }
 
     // Reopen any beads left claimed/in_progress from a previous session
-    this.coordinator.reopenStaleBeads()
+    await this.coordinator.reopenStaleBeadsAsync()
 
     // Start missing workers up to n
     for (let i = 0; i < n; i++) {
@@ -386,7 +386,9 @@ export class SwarmOrchestrator extends EventEmitter {
   }
 
   private _broadcastGraph(): void {
-    this.emit('graph', this.coordinator.getStats(), null)
+    this.coordinator.getStatsAsync()
+      .then(stats => this.emit('graph', stats, null))
+      .catch(() => {})
   }
 
   private _broadcastAgents(): void {
