@@ -10,6 +10,7 @@ import ConfigEditor from './pages/ConfigEditor'
 import SetupWizard from './pages/SetupWizard'
 import ThreadsPage from './pages/ThreadsPage'
 import SlashbotLogo from './components/SlashbotLogo'
+import UpdateBanner from './components/UpdateBanner'
 
 const sb = window.slashbot
 
@@ -197,6 +198,8 @@ export default function App() {
   // Empty state — no tabs open
   if (tabs.length === 0) {
     return (
+      <>
+      <UpdateBanner />
       <div className="landing">
         <div className="landing-content">
           <div className="landing-logo">
@@ -220,10 +223,13 @@ export default function App() {
           )}
         </div>
       </div>
+      </>
     )
   }
 
   return (
+    <>
+    <UpdateBanner />
     <div className="app-layout has-tabs">
       {/* Project tab bar */}
       <div className="project-tabs">
@@ -310,5 +316,6 @@ export default function App() {
         </footer>
       )}
     </div>
+    </>
   )
 }
