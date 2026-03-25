@@ -60,7 +60,6 @@ export interface CircuitBreakerSnapshot {
   reopen_epoch: number
   rate_limit_until?: string
   agentId?: string
-  error_window_count: number
 }
 
 export type BeadStatus = 'pending' | 'ready' | 'claimed' | 'done' | 'failed'
