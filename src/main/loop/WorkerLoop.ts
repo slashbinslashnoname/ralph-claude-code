@@ -63,7 +63,7 @@ export class WorkerLoop extends EventEmitter {
   private resolvedCmd: string
   /** Shared context when running in state-machine mode (feature-flagged). */
   private _stateMachineCtx: WorkerContext | null = null
-  /** Current bead ID being worked on, for MCP env injection. */
+  /** Current bead ID being worked on. */
   private _currentBeadId: string | null = null
 
   constructor(
@@ -775,14 +775,7 @@ Use \`bd\` to understand the bigger picture before coding:
 - \`bd search <keyword>\` — find related beads for context
 Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\`.
 
-## Team coordination
-You have MCP tools for coordinating with other agents. Use them:
-- \`team_status\` — see what other agents are working on (**call this FIRST**)
-- \`check_file_reservations\` — check for file conflicts before editing shared files
-- \`send_message\` — notify peers about important decisions or API changes
-- \`check_inbox\` — read messages from other agents
-
-## Mandatory analysis (do this FIRST, after checking team_status)
+## Mandatory analysis (do this FIRST)
 1. **Read the relevant code** — understand the existing architecture, patterns, naming conventions
 2. **Identify dependencies** — what other files/modules will be affected?
 3. **Spot risks** — what could go wrong? Race conditions? Breaking changes? Edge cases?
@@ -874,7 +867,6 @@ DO NOT write any implementation code. Analysis only.`
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       parentContext ? `\n${parentContext}` : '',
       knowledgeContext ? `\n${knowledgeContext}` : '',
-      `\n### Team coordination\nUse MCP tools: \`team_status\` (check first), \`check_inbox\`, \`send_message\`, \`check_file_reservations\``,
       thinkingSummary ? `\n### Your prior analysis\n${thinkingSummary}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
