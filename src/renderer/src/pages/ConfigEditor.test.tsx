@@ -64,6 +64,12 @@ beforeEach(() => {
     messagesSent: 0,
     messagesReceived: 0,
   })
+  mocks.mockConfigRead.mockResolvedValue({
+    maxCallsPerHour: 100,
+    claudeTimeoutMinutes: 15,
+    continueSession: true,
+    telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' },
+  })
 })
 
 describe('ConfigEditor', () => {
@@ -159,20 +165,24 @@ describe('TelegramSection', () => {
     expect(status.messagesSent).toBe(5)
   })
 
-  test('readFile returns .slashbotrc content with telegram fields', async () => {
-    mocks.mockReadFile.mockResolvedValue({
-      ok: true,
-      content: [
-        'TELEGRAM_BOT_TOKEN=123:abc',
-        'TELEGRAM_CHAT_ID=-100123',
-        'TELEGRAM_NOTIFY_LEVEL=all',
-        'TELEGRAM_ENABLED=true',
-      ].join('\n'),
+  test('config.read returns telegram fields for TelegramSection', async () => {
+    mocks.mockConfigRead.mockResolvedValue({
+      maxCallsPerHour: 100,
+      telegram: {
+        botToken: '123:abc',
+        chatId: '-100123',
+        enabled: true,
+        notifyOn: 'all',
+      },
     })
-    const r = await window.slashbot.readFile('/test', '.slashbotrc')
-    expect(r.ok).toBe(true)
-    expect(r.content).toContain('TELEGRAM_BOT_TOKEN=123:abc')
-    expect(r.content).toContain('TELEGRAM_ENABLED=true')
+    const cfg = await window.slashbot.config.read('/test')
+    expect(mocks.mockConfigRead).toHaveBeenCalledWith('/test')
+    expect(cfg.telegram).toEqual({
+      botToken: '123:abc',
+      chatId: '-100123',
+      enabled: true,
+      notifyOn: 'all',
+    })
   })
 })
 

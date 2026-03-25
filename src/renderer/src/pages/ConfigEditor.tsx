@@ -43,24 +43,16 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
     setStatus(s)
   }, [projectPath])
 
-  // Load current config from .slashbotrc and status on mount / when tab is shown
+  // Load current config and status on mount / when tab is shown
   useEffect(() => {
     loadStatus()
-    // Read .slashbotrc to populate form fields
-    sb.readFile(projectPath, '.slashbotrc').then(r => {
-      if (!r.ok) return
-      const lines = (r.content ?? '').split('\n')
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('#') || !trimmed.includes('=')) continue
-        const eqIdx = trimmed.indexOf('=')
-        const key = trimmed.slice(0, eqIdx).trim()
-        const val = trimmed.slice(eqIdx + 1).trim()
-        if (key === 'TELEGRAM_BOT_TOKEN') setBotToken(val)
-        else if (key === 'TELEGRAM_CHAT_ID') setChatId(val)
-        else if (key === 'TELEGRAM_NOTIFY_LEVEL') setNotifyLevel(val)
-        else if (key === 'TELEGRAM_ENABLED') setEnabled(val === 'true')
-      }
+    sb.config.read(projectPath).then(config => {
+      const tg = config.telegram
+      if (!tg) return
+      setBotToken(tg.botToken)
+      setChatId(tg.chatId)
+      setNotifyLevel(tg.notifyOn)
+      setEnabled(tg.enabled)
     })
   }, [projectPath, loadStatus])
 
