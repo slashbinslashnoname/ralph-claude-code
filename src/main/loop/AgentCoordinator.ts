@@ -1123,10 +1123,15 @@ export class AgentCoordinator {
     this.releaseFiles(agentId, beadId)
   }
 
-  /** Remove circuit breaker state files so workers start fresh. */
+  /** Remove all per-worker circuit breaker state files so workers start fresh. */
   private _resetCircuitBreakers(): void {
-    const cbFile = path.join(this.paths.storeDir, '.circuit_breaker_state')
-    try { if (fs.existsSync(cbFile)) fs.unlinkSync(cbFile) } catch { /* ignore */ }
+    try {
+      const files = fs.readdirSync(this.paths.storeDir)
+        .filter(f => f.startsWith('.circuit_breaker_state_'))
+      for (const file of files) {
+        try { fs.unlinkSync(path.join(this.paths.storeDir, file)) } catch { /* ignore */ }
+      }
+    } catch { /* ignore — storeDir may not exist yet */ }
   }
 
   /** Reopen any beads left in claimed/in_progress from a previous session */

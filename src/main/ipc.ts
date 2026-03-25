@@ -261,7 +261,13 @@ export function registerIpc(
     watcher.on('change', (filePath: string) => {
       const name = filePath.split('/').pop() ?? ''
       if (name === 'status.json') push('status:update', 'status.json')
-      if (name === '.circuit_breaker_state') push('circuit:update', '.circuit_breaker_state')
+      if (name.startsWith('.circuit_breaker_state_')) {
+        const data = readJson(path.join(sd, name))
+        if (data) {
+          const agentId = name.slice('.circuit_breaker_state_'.length)
+          broadcast('circuit:update', projectPath, { ...data, agentId })
+        }
+      }
     })
 
     const logFile = path.join(paths.logsDir, 'slashbot.log')
@@ -371,12 +377,24 @@ export function registerIpc(
 
   // ── Circuit breaker & session ──────────────────────────────────────────
 
-  ipcMain.handle('circuit:reset', (_e, projectPath: string) => {
+  ipcMain.handle('circuit:reset', (_e, projectPath: string, opts?: { agentId?: string }) => {
     try {
+      const storeDir = getProjectPaths(projectPath).storeDir
       const config = loadConfig(projectPath)
-      const circuit = new CircuitBreaker(getProjectPaths(projectPath).storeDir, config)
-      circuit.reset()
-      broadcast('circuit:update', projectPath, circuit.snapshot())
+      if (opts?.agentId) {
+        const circuit = new CircuitBreaker(storeDir, config, opts.agentId)
+        circuit.reset()
+        broadcast('circuit:update', projectPath, { ...circuit.snapshot(), agentId: opts.agentId })
+      } else {
+        // Reset all per-worker circuit breaker state files
+        const files = fs.readdirSync(storeDir).filter(f => f.startsWith('.circuit_breaker_state_'))
+        for (const file of files) {
+          const agentId = file.slice('.circuit_breaker_state_'.length)
+          const circuit = new CircuitBreaker(storeDir, config, agentId)
+          circuit.reset()
+          broadcast('circuit:update', projectPath, { ...circuit.snapshot(), agentId })
+        }
+      }
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

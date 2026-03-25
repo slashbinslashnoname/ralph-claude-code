@@ -2286,3 +2286,35 @@ describe('AgentCoordinator — INDEX_CAP enforcement', () => {
   })
 })
 
+describe('_resetCircuitBreakers', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('deletes all per-worker .circuit_breaker_state_ files', () => {
+    // Create 3 mock per-worker circuit breaker state files
+    const storeDir = tmpPaths.storeDir
+    fs.writeFileSync(path.join(storeDir, '.circuit_breaker_state_worker-0'), '{}')
+    fs.writeFileSync(path.join(storeDir, '.circuit_breaker_state_worker-1'), '{}')
+    fs.writeFileSync(path.join(storeDir, '.circuit_breaker_state_worker-2'), '{}')
+    // Also create an unrelated file to ensure it's not deleted
+    fs.writeFileSync(path.join(storeDir, 'other_file.json'), '{}')
+
+    // Invoke the private method
+    ;(coord as any)._resetCircuitBreakers()
+
+    // All circuit breaker state files should be gone
+    const remaining = fs.readdirSync(storeDir).filter(f => f.startsWith('.circuit_breaker_state_'))
+    expect(remaining).toEqual([])
+
+    // Unrelated file should still exist
+    expect(fs.existsSync(path.join(storeDir, 'other_file.json'))).toBe(true)
+  })
+})
+
