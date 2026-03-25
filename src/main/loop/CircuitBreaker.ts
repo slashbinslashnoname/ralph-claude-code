@@ -40,8 +40,12 @@ export class CircuitBreaker extends EventEmitter {
     super()
   }
 
+  private get _stateFile(): string {
+    return path.join(this.slashbotDir, `.circuit_breaker_state_${this.agentId}`)
+  }
+
   load(): void {
-    const file = path.join(this.slashbotDir, '.circuit_breaker_state')
+    const file = this._stateFile
     if (!fs.existsSync(file)) return
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -99,7 +103,7 @@ export class CircuitBreaker extends EventEmitter {
       ...(this.rateLimitUntil ? { rate_limit_until: this.rateLimitUntil.toISOString() } : {})
     }
     atomicWriteSync(
-      path.join(this.slashbotDir, '.circuit_breaker_state'),
+      this._stateFile,
       JSON.stringify(snapshot, null, 2)
     )
   }
@@ -194,6 +198,7 @@ export class CircuitBreaker extends EventEmitter {
       reason: this.reason,
       current_loop: this.currentLoop,
       reopen_epoch: this.reopenEpoch,
+      agentId: this.agentId,
       ...(this.openedAt ? { opened_at: this.openedAt } : {}),
       ...(this.rateLimitUntil ? { rate_limit_until: this.rateLimitUntil.toISOString() } : {})
     }

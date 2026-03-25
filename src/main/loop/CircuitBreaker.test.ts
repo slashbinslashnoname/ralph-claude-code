@@ -6,7 +6,7 @@ import { CircuitBreaker, computedCooldown } from './CircuitBreaker'
 import { RalphConfig } from '../types'
 
 const SLASHBOT_DIR = '/tmp/test-slashbot'
-const STATE_PATH = path.join(SLASHBOT_DIR, '.circuit_breaker_state')
+const STATE_PATH = path.join(SLASHBOT_DIR, '.circuit_breaker_state_shared')
 const TMP_PATH = STATE_PATH + '.tmp.' + process.pid
 
 function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
@@ -24,6 +24,7 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     cbErrorWindowThreshold: 5,
     cbPermissionDenialThreshold: 3,
     cbCooldownMinutes: 30,
+    cbMaxCooldownMinutes: 480,
     autoPush: false,
     maxRetries: 3,
     autoSplitThreshold: 3,
@@ -955,6 +956,72 @@ describe('CircuitBreaker', () => {
       expect(cb2.snapshot().state).toBe('HALF_OPEN')
       expect(cb2.snapshot().consecutive_no_progress).toBe(2)
       expect(cb2.snapshot().current_loop).toBe(5)
+    })
+  })
+
+  describe('per-worker isolation (agentId)', () => {
+    it('defaults agentId to shared', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      expect(cb.snapshot().agentId).toBe('shared')
+    })
+
+    it('snapshot includes custom agentId', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig(), 'worker-1')
+      expect(cb.snapshot().agentId).toBe('worker-1')
+    })
+
+    it('two instances with different agentIds write to different paths', () => {
+      const config = makeConfig()
+      const cb1 = new CircuitBreaker(SLASHBOT_DIR, config, 'worker-1')
+      const cb2 = new CircuitBreaker(SLASHBOT_DIR, config, 'worker-2')
+
+      cb1.save()
+      cb2.save()
+
+      const writeCalls = (fs.writeFileSync as any).mock.calls
+      const renameCalls = (fs.renameSync as any).mock.calls
+
+      // Each save writes to its own tmp file then renames to its own state file
+      const renamedPaths = renameCalls.map((c: any[]) => c[1])
+      expect(renamedPaths).toContain(
+        path.join(SLASHBOT_DIR, '.circuit_breaker_state_worker-1')
+      )
+      expect(renamedPaths).toContain(
+        path.join(SLASHBOT_DIR, '.circuit_breaker_state_worker-2')
+      )
+      // No writes to the other worker's path
+      expect(renamedPaths).not.toContain(
+        path.join(SLASHBOT_DIR, '.circuit_breaker_state_shared')
+      )
+    })
+
+    it('no cross-contamination: opening one worker does not affect the other', () => {
+      const config = makeConfig({ cbPermissionDenialThreshold: 1 })
+      const cb1 = new CircuitBreaker(SLASHBOT_DIR, config, 'worker-1')
+      const cb2 = new CircuitBreaker(SLASHBOT_DIR, config, 'worker-2')
+
+      cb1.recordPermissionDenial() // opens worker-1
+      expect(cb1.isOpen()).toBe(true)
+      expect(cb2.isOpen()).toBe(false)
+      expect(cb2.snapshot().state).toBe('CLOSED')
+    })
+
+    it('load reads from agent-specific state file', () => {
+      const agentStatePath = path.join(SLASHBOT_DIR, '.circuit_breaker_state_worker-42')
+      ;(fs.existsSync as any).mockImplementation((p: string) => p === agentStatePath)
+      ;(fs.readFileSync as any).mockImplementation((p: string) => {
+        if (p === agentStatePath) {
+          return JSON.stringify({ state: 'OPEN', opened_at: new Date().toISOString(), total_opens: 3 })
+        }
+        return ''
+      })
+
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 9999 }), 'worker-42')
+      cb.load()
+
+      expect(cb.isOpen()).toBe(true)
+      expect(cb.snapshot().total_opens).toBe(3)
+      expect(fs.readFileSync).toHaveBeenCalledWith(agentStatePath, 'utf8')
     })
   })
 })
