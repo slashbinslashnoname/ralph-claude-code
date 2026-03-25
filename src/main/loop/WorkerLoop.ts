@@ -176,7 +176,8 @@ export class WorkerLoop extends EventEmitter {
       detectApiLimit: (output) => detectApiLimit(output),
       stripAnsi: (s) => stripAnsi(s),
       extractText: (raw) => this._extractText(raw),
-      waitForQuotaReset: () => this._waitForQuotaReset(),
+      waitForQuotaReset: (cb?: CircuitBreaker) => this._waitForQuotaReset(cb),
+      extractRetryAfter: (output: string) => extractRetryAfter(output),
       waitIfPaused: () => this._waitIfPaused(),
       sleep: (ms) => this._sleep(ms),
       emitter: this,
@@ -200,13 +201,32 @@ export class WorkerLoop extends EventEmitter {
   /** State-machine driven loop (feature-flagged behind SLASHBOT_STATE_MACHINE=1). */
   private async _loopStateMachine(): Promise<void> {
     const capabilities = this._buildCapabilities()
+
+    const cb = new CircuitBreaker(this.paths.storeDir, this.config, this.agentId)
+    cb.load()
+
+    // Listen for circuit state changes and post activity
+    cb.on('open', (payload: { agentId: string; reason: string; totalOpens: number }) => {
+      this.coordinator.postActivity({
+        agentId: this.agentId, type: 'circuit_open',
+        summary: `Circuit breaker OPEN: ${payload.reason} (opens: ${payload.totalOpens})`
+      })
+    })
+    cb.on('closed', (payload: { agentId: string }) => {
+      this.coordinator.postActivity({
+        agentId: this.agentId, type: 'circuit_closed',
+        summary: 'Circuit breaker recovered (CLOSED)'
+      })
+    })
+
     const ctx = createWorkerContext(
       this.agentId,
       this.agentIndex,
       this.paths,
       this.config,
       this.coordinator,
-      capabilities
+      capabilities,
+      cb
     )
     this._stateMachineCtx = ctx
 
@@ -221,6 +241,7 @@ export class WorkerLoop extends EventEmitter {
     try {
       await runStateMachine(ctx)
     } finally {
+      cb.removeAllListeners()
       clearInterval(heartbeatTimer)
       this._stateMachineCtx = null
       this._exit(ctx.flags.stopped || ctx.flags.gracefulStopping ? 'stopped' : 'all_beads_done')
@@ -243,13 +264,13 @@ export class WorkerLoop extends EventEmitter {
     // Listen for circuit state changes and post activity
     cb.on('open', (payload: { agentId: string; reason: string; totalOpens: number }) => {
       this.coordinator.postActivity({
-        agentId: this.agentId, type: 'failed',
+        agentId: this.agentId, type: 'circuit_open',
         summary: `Circuit breaker OPEN: ${payload.reason} (opens: ${payload.totalOpens})`
       })
     })
     cb.on('closed', (payload: { agentId: string }) => {
       this.coordinator.postActivity({
-        agentId: this.agentId, type: 'completed',
+        agentId: this.agentId, type: 'circuit_closed',
         summary: 'Circuit breaker recovered (CLOSED)'
       })
     })

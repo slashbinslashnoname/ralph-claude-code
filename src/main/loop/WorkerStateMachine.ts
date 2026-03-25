@@ -9,6 +9,9 @@ import * as cp from 'child_process'
 import { EventEmitter } from 'events'
 import { RalphConfig, Bead, AgentPhase } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
+import { CircuitBreaker } from './CircuitBreaker'
+import { classifyError } from './ErrorClassifier'
+import { analyze } from './ResponseAnalyzer'
 import { ProjectPaths } from './ProjectStore'
 
 // ── State identifiers ─────────────────────────────────────────────────
@@ -49,6 +52,8 @@ export interface WorkerContext {
   flags: WorkerFlags
   /** Injected capabilities — IO and side effects separated from state logic */
   capabilities: WorkerCapabilities
+  /** Per-worker circuit breaker instance */
+  circuitBreaker: CircuitBreaker | null
 }
 
 export interface WorkerFlags {
@@ -94,8 +99,10 @@ export interface WorkerCapabilities {
   stripAnsi: (s: string) => string
   /** Extract human-readable text from raw Claude output (handles JSON format) */
   extractText: (raw: string) => string
-  /** Wait for API quota to reset */
-  waitForQuotaReset: () => Promise<void>
+  /** Wait for API quota to reset (optionally polling CB rateLimitLifted) */
+  waitForQuotaReset: (cb?: CircuitBreaker) => Promise<void>
+  /** Extract retry-after delay from Claude output (returns ms or undefined) */
+  extractRetryAfter: (output: string) => number | undefined
   /** Block until resumed (or stopped). Returns true if stopped while paused. */
   waitIfPaused: () => Promise<boolean>
   /** Sleep for a given duration (interruptible by stop) */
@@ -173,6 +180,18 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   if (ctx.flags.stopped || ctx.flags.gracefulStopping) return 'stopping'
 
   ctx.flags.loopCount++
+  const cb = ctx.circuitBreaker
+  if (cb) cb.tick(ctx.flags.loopCount)
+
+  // Circuit breaker: if open, wait for cooldown before claiming next bead
+  if (cb && cb.isOpen()) {
+    log(ctx, 'WARN', `[${ctx.agentId}] Circuit OPEN — pausing before next bead`)
+    setPhase(ctx, 'waiting')
+    await ctx.capabilities.sleep(60_000)
+    cb.load() // re-check cooldown state from disk
+    return 'routing'
+  }
+
   setPhase(ctx, 'routing')
   log(ctx, 'INFO', `[${ctx.agentId}] Routing: looking for best available bead…`)
 
@@ -431,6 +450,15 @@ export async function merging(ctx: WorkerContext): Promise<StateId> {
 export async function closing(ctx: WorkerContext): Promise<StateId> {
   const bead = ctx.currentBead!
   const maxRetries = ctx.config.maxRetries
+  const cb = ctx.circuitBreaker
+
+  // ── Record CB error for failure paths ──
+  if (cb && (ctx.flags.mergeFailed || ctx.flags.executeFailed)) {
+    const errorMsg = ctx.flags.mergeFailed ? 'merge failed' : 'execution failed'
+    const category = classifyError(errorMsg)
+    cb.recordError(errorMsg, category)
+    cb.save()
+  }
 
   // ── Merge failed → retry or permanent fail ──
   if (ctx.flags.mergeFailed) {
@@ -480,15 +508,20 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
     return 'cleanup'
   }
 
-  // ── API rate limited → reopen and wait for quota ──
+  // ── API rate limited → record rate limit on CB, reopen and wait ──
   if (ctx.flags.apiLimited) {
+    if (cb) {
+      const retryMs = ctx.capabilities.extractRetryAfter(ctx.thinkingOutput)
+      cb.recordRateLimit(retryMs)
+      cb.save()
+    }
     await ctx.coordinator.reopenBead(ctx.agentId, bead.id)
     setPhase(ctx, 'rate_limited')
     ctx.coordinator.postActivity({
       agentId: ctx.agentId, type: 'failed', beadId: bead.id,
       beadTitle: bead.title, summary: 'API quota exhausted — waiting for reset'
     })
-    await ctx.capabilities.waitForQuotaReset()
+    await ctx.capabilities.waitForQuotaReset(cb ?? undefined)
     return 'cleanup'
   }
 
@@ -499,7 +532,11 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
     return 'stopping'
   }
 
-  // ── Success → complete the bead ──
+  // ── Success → record progress on CB, complete the bead ──
+  if (cb) {
+    cb.recordProgress(ctx.flags.loopCount)
+    cb.save()
+  }
   setPhase(ctx, 'closing', bead.id, bead.title)
   await ctx.coordinator.completeBead(ctx.agentId, bead.id, ctx.flags.filesChanged, ctx.config.autoPush)
   log(ctx, 'SUCCESS', `[${ctx.agentId}] ✓ Closed bead [${bead.id}]`)
@@ -564,7 +601,8 @@ export function createWorkerContext(
   paths: ProjectPaths,
   config: RalphConfig,
   coordinator: AgentCoordinator,
-  capabilities: WorkerCapabilities
+  capabilities: WorkerCapabilities,
+  circuitBreaker?: CircuitBreaker
 ): WorkerContext {
   return {
     agentId,
@@ -586,6 +624,7 @@ export function createWorkerContext(
       emptyRetries: 0,
       loopCount: 0
     },
-    capabilities
+    capabilities,
+    circuitBreaker: circuitBreaker ?? null
   }
 }

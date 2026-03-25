@@ -38,6 +38,7 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     cbErrorWindowThreshold: 5,
     cbPermissionDenialThreshold: 3,
     cbCooldownMinutes: 30,
+    cbMaxCooldownMinutes: 480,
     autoPush: false,
     maxRetries: 3,
     autoSplitThreshold: 3,
@@ -93,6 +94,7 @@ function makeCapabilities(overrides: Partial<WorkerCapabilities> = {}): WorkerCa
     stripAnsi: vi.fn().mockImplementation((s: string) => s),
     extractText: vi.fn().mockImplementation((s: string) => s),
     waitForQuotaReset: vi.fn().mockResolvedValue(undefined),
+    extractRetryAfter: vi.fn().mockReturnValue(undefined),
     waitIfPaused: vi.fn().mockResolvedValue(false),
     sleep: vi.fn().mockResolvedValue(undefined),
     emitter: new EventEmitter(),
@@ -164,6 +166,7 @@ function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
     thinkingOutput: '',
     flags: makeFlags(),
     capabilities: makeCapabilities(),
+    circuitBreaker: null,
     ...overrides
   }
 }
@@ -1026,6 +1029,174 @@ describe('WorkerStateMachine', () => {
 
       expect(next).toBe('cleanup')
       expect(caps.waitForQuotaReset).toHaveBeenCalled()
+    })
+  })
+
+  // ── Circuit Breaker integration tests ────────────────────────────────
+
+  describe('CircuitBreaker integration', () => {
+    function makeMockCB() {
+      return {
+        tick: vi.fn(),
+        isOpen: vi.fn().mockReturnValue(false),
+        load: vi.fn(),
+        save: vi.fn(),
+        recordError: vi.fn(),
+        recordRateLimit: vi.fn(),
+        recordProgress: vi.fn(),
+        rateLimitLifted: vi.fn().mockReturnValue(true),
+        on: vi.fn(),
+        removeAllListeners: vi.fn(),
+      } as any
+    }
+
+    describe('routing', () => {
+      it('ticks the circuit breaker on each routing call', async () => {
+        const cb = makeMockCB()
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          coordinator,
+          circuitBreaker: cb,
+          flags: makeFlags({ loopCount: 5 })
+        })
+
+        await routing(ctx)
+
+        // loopCount incremented to 6, tick called with 6
+        expect(cb.tick).toHaveBeenCalledWith(6)
+      })
+
+      it('waits and reloads when circuit is open', async () => {
+        const cb = makeMockCB()
+        cb.isOpen.mockReturnValue(true)
+        const caps = makeCapabilities()
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          coordinator,
+          capabilities: caps,
+          circuitBreaker: cb
+        })
+
+        const next = await routing(ctx)
+
+        expect(caps.sleep).toHaveBeenCalledWith(60_000)
+        expect(cb.load).toHaveBeenCalled()
+        expect(next).toBe('routing')
+      })
+    })
+
+    describe('closing with CB', () => {
+      it('records error on CB when merge fails', async () => {
+        const cb = makeMockCB()
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          currentBead: makeBead(),
+          coordinator,
+          circuitBreaker: cb,
+          flags: makeFlags({ mergeFailed: true })
+        })
+
+        await closing(ctx)
+
+        expect(cb.recordError).toHaveBeenCalledWith('merge failed', expect.any(String))
+        expect(cb.save).toHaveBeenCalled()
+      })
+
+      it('records error on CB when execute fails', async () => {
+        const cb = makeMockCB()
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          currentBead: makeBead(),
+          coordinator,
+          circuitBreaker: cb,
+          flags: makeFlags({ executeFailed: true })
+        })
+
+        await closing(ctx)
+
+        expect(cb.recordError).toHaveBeenCalledWith('execution failed', expect.any(String))
+        expect(cb.save).toHaveBeenCalled()
+      })
+
+      it('records rate limit on CB when apiLimited', async () => {
+        const cb = makeMockCB()
+        const caps = makeCapabilities()
+        ;(caps.extractRetryAfter as any).mockReturnValue(30000)
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          currentBead: makeBead(),
+          coordinator,
+          capabilities: caps,
+          circuitBreaker: cb,
+          flags: makeFlags({ apiLimited: true })
+        })
+
+        await closing(ctx)
+
+        expect(cb.recordRateLimit).toHaveBeenCalledWith(30000)
+        expect(cb.save).toHaveBeenCalled()
+        expect(caps.waitForQuotaReset).toHaveBeenCalledWith(cb)
+      })
+
+      it('records progress on CB on success', async () => {
+        const cb = makeMockCB()
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          currentBead: makeBead(),
+          coordinator,
+          circuitBreaker: cb,
+          flags: makeFlags({ loopCount: 7 })
+        })
+
+        const next = await closing(ctx)
+
+        expect(next).toBe('cleanup')
+        expect(cb.recordProgress).toHaveBeenCalledWith(7)
+        expect(cb.save).toHaveBeenCalled()
+      })
+
+      it('works without CB (null) — no errors', async () => {
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          currentBead: makeBead(),
+          coordinator,
+          circuitBreaker: null,
+          flags: makeFlags({ mergeFailed: true })
+        })
+
+        // Should not throw
+        const next = await closing(ctx)
+        expect(next).toBe('cleanup')
+      })
+    })
+
+    describe('per-worker CB has correct agentId', () => {
+      it('createWorkerContext stores the passed circuitBreaker', () => {
+        const cb = makeMockCB()
+        const ctx = createWorkerContext(
+          'worker-1',
+          1,
+          makePaths(),
+          makeConfig(),
+          makeCoordinator(),
+          makeCapabilities(),
+          cb
+        )
+        expect(ctx.circuitBreaker).toBe(cb)
+        expect(ctx.agentId).toBe('worker-1')
+      })
+
+      it('createWorkerContext defaults circuitBreaker to null', () => {
+        const ctx = createWorkerContext(
+          'worker-2',
+          2,
+          makePaths(),
+          makeConfig(),
+          makeCoordinator(),
+          makeCapabilities()
+        )
+        expect(ctx.circuitBreaker).toBeNull()
+      })
     })
   })
 })
