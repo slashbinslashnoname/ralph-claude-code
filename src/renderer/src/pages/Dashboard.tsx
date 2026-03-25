@@ -40,7 +40,6 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
 
   const [starting, setStarting] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const [checkingUpdate, setCheckingUpdate] = useState(false)
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
 
   const startSwarm = useCallback(async () => {
@@ -52,11 +51,6 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
     setStopping(true)
     try { await sb.swarm.stop(projectPath) } finally { setStopping(false) }
   }, [projectPath])
-
-  const checkUpdate = useCallback(async () => {
-    setCheckingUpdate(true)
-    try { await sb.update.check() } finally { setCheckingUpdate(false) }
-  }, [])
 
   const pct = beadStats?.pct ?? 0
 
@@ -196,9 +190,6 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
                 Reset Circuit
               </button>
             )}
-            <button className="btn btn-sm mt-2" onClick={checkUpdate} disabled={checkingUpdate}>
-              {checkingUpdate ? 'Checking\u2026' : 'Check for updates'}
-            </button>
           </div>
         </div>
 
