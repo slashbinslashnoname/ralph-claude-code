@@ -2279,6 +2279,10 @@ None.
           await vi.advanceTimersByTimeAsync(500)
         }
 
+        worker.stop()
+        for (let i = 0; i < 10; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
         await startPromise.catch(() => {})
 
         // Circuit breaker state should have been saved (writeFileSync called with CB state)
@@ -2327,6 +2331,10 @@ None.
           await vi.advanceTimersByTimeAsync(500)
         }
 
+        worker.stop()
+        for (let i = 0; i < 10; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
         await startPromise.catch(() => {})
 
         // CB state should have been saved with error recorded
