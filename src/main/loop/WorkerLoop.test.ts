@@ -2411,15 +2411,28 @@ None.
       vi.useFakeTimers()
       try {
         const coord = makeCoordinator()
-        coord.claimBestBead.mockResolvedValue(null)
+        // Return one bead then null so cb.save() is called after processing
+        let claimCount = 0
+        coord.claimBestBead.mockImplementation(async () => {
+          claimCount++
+          if (claimCount > 1) return null
+          return makeBead({ id: 'sb-id-check', title: 'agentId check bead' })
+        })
         coord.hasOpenWork.mockReturnValue(false)
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/worker-7', branch: 'worker/worker-7' })
+        coord.completeBead.mockResolvedValue(undefined)
 
         const worker = new WorkerLoop('worker-7', 7, '/project', makeConfig(), coord, makePaths())
 
+        // Return successful output so cb.save() is called after progress is recorded
+        ;(worker as any)._runClaude = vi.fn(async () =>
+          '{"type":"result","result":"RALPH_STATUS: { \\"STATUS\\": \\"COMPLETE\\", \\"EXIT_SIGNAL\\": true, \\"FILES_MODIFIED\\": 1, \\"WORK_SUMMARY\\": \\"done\\" }"}'
+        )
+
         const startPromise = worker.start()
 
-        // Let the loop start and create the CB
-        for (let i = 0; i < 10; i++) {
+        // Advance enough for the bead to be processed
+        for (let i = 0; i < 200; i++) {
           await vi.advanceTimersByTimeAsync(500)
         }
 
@@ -2433,7 +2446,9 @@ None.
         const cbSaveCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
           ([filePath]) => String(filePath).includes('.circuit_breaker_state')
         )
-        // All saved CB state files should use the worker-7 agentId suffix
+        // Must have saved state at least once (proves cb.save() was called)
+        expect(cbSaveCalls.length).toBeGreaterThan(0)
+        // All saved CB state files must use the worker-7 agentId suffix
         for (const [filePath] of cbSaveCalls) {
           expect(String(filePath)).toContain('.circuit_breaker_state_worker-7')
         }
