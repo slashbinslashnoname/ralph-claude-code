@@ -144,6 +144,31 @@ describe('CircuitBreaker', () => {
       expect(snap.reason).toBe('')
     })
 
+    it('restores error_window from persisted array (new format)', () => {
+      const errorWindow = [
+        { ts: NOW - 2000, error: 'err A' },
+        { ts: NOW - 1000, error: 'err B' }
+      ]
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'CLOSED',
+          consecutive_no_progress: 0,
+          error_window: errorWindow,
+          consecutive_permission_denials: 0,
+          last_progress_loop: 0,
+          total_opens: 0,
+          reason: 'test',
+          current_loop: 0
+        })
+      )
+
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.load()
+      expect(cb.snapshot().error_window_count).toBe(2)
+      expect(cb.snapshot().consecutive_same_error).toBe(2)
+    })
+
     it('transitions OPEN to HALF_OPEN when cooldown has elapsed', () => {
       const openedAt = new Date('2026-01-15T11:00:00Z').toISOString() // 60 min ago
       ;(fs.existsSync as any).mockReturnValue(true)
