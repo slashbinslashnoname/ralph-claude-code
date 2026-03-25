@@ -36,7 +36,8 @@ contextBridge.exposeInMainWorld('slashbot', {
     ipcRenderer.invoke('file:write', projectPath, relPath, content),
 
   // ── Circuit breaker & session ────────────────────────────────────────
-  resetCircuit: (projectPath: string) => ipcRenderer.invoke('circuit:reset', projectPath),
+  resetCircuit: (projectPath: string, agentId?: string) =>
+    ipcRenderer.invoke('circuit:reset', projectPath, agentId ? { agentId } : undefined),
   resetSession: (projectPath: string) => ipcRenderer.invoke('session:reset', projectPath),
 
   // ── Beads (via bd CLI) ───────────────────────────────────────────────

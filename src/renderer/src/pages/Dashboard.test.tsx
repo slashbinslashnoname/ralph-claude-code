@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { CircuitBreakerSnapshot } from '../types/ipc'
 
 const mocks = vi.hoisted(() => {
   const mockSwarmStatus = vi.fn().mockResolvedValue({ workerCount: 0, planning: false })
@@ -25,6 +26,23 @@ const mocks = vi.hoisted(() => {
 
 import Dashboard from './Dashboard'
 
+function makeSnapshot(overrides: Partial<CircuitBreakerSnapshot> = {}): CircuitBreakerSnapshot {
+  return {
+    state: 'CLOSED',
+    last_change: '',
+    consecutive_no_progress: 0,
+    consecutive_same_error: 0,
+    error_window_count: 0,
+    consecutive_permission_denials: 0,
+    last_progress_loop: 0,
+    total_opens: 0,
+    reason: '',
+    current_loop: 0,
+    reopen_epoch: 0,
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.mockSwarmStatus.mockResolvedValue({ workerCount: 0, planning: false })
@@ -32,44 +50,128 @@ beforeEach(() => {
 })
 
 describe('Dashboard', () => {
-  test('renders without status prop', () => {
+  test('renders without circuits', () => {
     const html = renderToStaticMarkup(
-      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+      <Dashboard projectPath="/test" circuits={{}} onNavigate={() => {}} />
     )
     expect(html).toContain('Dashboard')
+    expect(html).toContain('No circuit breaker data yet')
   })
 
   test('does not render Rate Limit card', () => {
     const html = renderToStaticMarkup(
-      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+      <Dashboard projectPath="/test" circuits={{}} onNavigate={() => {}} />
     )
     expect(html).not.toContain('Rate Limit')
     expect(html).not.toContain('API Calls')
     expect(html).not.toContain('Loop Count')
   })
 
-  test('renders circuit breaker card with circuit prop', () => {
+  test('renders per-worker circuit rows', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED', error_window_count: 2 }),
+      'worker-1': makeSnapshot({ state: 'HALF_OPEN', error_window_count: 4 }),
+    }
     const html = renderToStaticMarkup(
-      <Dashboard
-        projectPath="/test"
-        circuit={{ state: 'CLOSED', last_change: '', consecutive_no_progress: 0, consecutive_same_error: 0, consecutive_permission_denials: 0, last_progress_loop: 0, total_opens: 0, reason: '', current_loop: 0 }}
-        onNavigate={() => {}}
-      />
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
     )
-    expect(html).toContain('Circuit Breaker')
+    expect(html).toContain('worker-0')
+    expect(html).toContain('worker-1')
     expect(html).toContain('CLOSED')
+    expect(html).toContain('HALF_OPEN')
+    expect(html).toContain('Errors: 2')
+    expect(html).toContain('Errors: 4')
+  })
+
+  test('renders red warning pill when any agent is OPEN', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED' }),
+      'worker-1': makeSnapshot({ state: 'OPEN', error_window_count: 5 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('pill-red')
+    expect(html).toContain('data-testid="circuit-warning-pill"')
+    expect(html).toContain('OPEN')
+  })
+
+  test('renders amber warning pill when any agent is HALF_OPEN (none OPEN)', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED' }),
+      'worker-1': makeSnapshot({ state: 'HALF_OPEN' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('pill-amber')
+    expect(html).toContain('data-testid="circuit-warning-pill"')
+  })
+
+  test('no warning pill when all agents CLOSED', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED' }),
+      'worker-1': makeSnapshot({ state: 'CLOSED' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).not.toContain('pill-red')
+    expect(html).not.toContain('pill-amber')
+    expect(html).not.toContain('circuit-warning-pill')
+  })
+
+  test('shows reset button only for OPEN agents', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED' }),
+      'worker-1': makeSnapshot({ state: 'OPEN' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    // Only one Reset button (for the OPEN agent)
+    const resetCount = (html.match(/Reset<\/button>/g) || []).length
+    expect(resetCount).toBe(1)
+  })
+
+  test('collapses circuit list when more than 3 agents', () => {
+    const circuits: Record<string, CircuitBreakerSnapshot> = {}
+    for (let i = 0; i < 5; i++) {
+      circuits[`worker-${i}`] = makeSnapshot()
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    // Should show first 3 and a "Show 2 more" button
+    expect(html).toContain('worker-0')
+    expect(html).toContain('worker-1')
+    expect(html).toContain('worker-2')
+    expect(html).not.toContain('worker-3')
+    expect(html).not.toContain('worker-4')
+    expect(html).toContain('Show 2 more')
+  })
+
+  test('shows reopen epoch and rate-limit-until when present', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ reopen_epoch: 3, rate_limit_until: '2026-03-25T12:00:00Z' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('Reopen: 3')
+    expect(html).toContain('Rate-limit: 2026-03-25T12:00:00Z')
   })
 
   test('renders Swarm Engine card', () => {
     const html = renderToStaticMarkup(
-      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+      <Dashboard projectPath="/test" circuits={{}} onNavigate={() => {}} />
     )
     expect(html).toContain('Swarm Engine')
   })
 
   test('renders progress ring', () => {
     const html = renderToStaticMarkup(
-      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+      <Dashboard projectPath="/test" circuits={{}} onNavigate={() => {}} />
     )
     expect(html).toContain('progress-ring')
     expect(html).toContain('Complete')
@@ -77,7 +179,7 @@ describe('Dashboard', () => {
 
   test('does not render check for updates button', () => {
     const html = renderToStaticMarkup(
-      <Dashboard projectPath="/test" circuit={null} onNavigate={() => {}} />
+      <Dashboard projectPath="/test" circuits={{}} onNavigate={() => {}} />
     )
     expect(html).not.toContain('Check for updates')
   })
