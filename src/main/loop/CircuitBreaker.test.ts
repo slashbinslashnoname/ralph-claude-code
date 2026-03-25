@@ -879,6 +879,62 @@ describe('CircuitBreaker', () => {
     })
   })
 
+  describe('EventEmitter notifications', () => {
+    it('emits "open" with correct payload when _open is triggered', () => {
+      const config = makeConfig({ cbPermissionDenialThreshold: 1 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config, 'worker-1')
+
+      const events: any[] = []
+      cb.on('open', (payload) => events.push(payload))
+
+      cb.recordPermissionDenial() // triggers _open
+      expect(events).toHaveLength(1)
+      expect(events[0]).toEqual({
+        agentId: 'worker-1',
+        reason: '1 consecutive permission denials',
+        totalOpens: 1
+      })
+    })
+
+    it('emits "closed" with correct payload on HALF_OPEN → CLOSED via recordProgress', () => {
+      const config = makeConfig({ cbNoProgressThreshold: 2 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config, 'worker-2')
+
+      const events: any[] = []
+      cb.on('closed', (payload) => events.push(payload))
+
+      cb.recordNoProgress(false)
+      cb.recordNoProgress(false) // → HALF_OPEN
+      expect(cb.snapshot().state).toBe('HALF_OPEN')
+      expect(events).toHaveLength(0) // no closed event yet
+
+      cb.recordProgress(3) // HALF_OPEN → CLOSED
+      expect(events).toHaveLength(1)
+      expect(events[0]).toEqual({ agentId: 'worker-2' })
+    })
+
+    it('uses default agentId "shared" when not provided', () => {
+      const config = makeConfig({ cbPermissionDenialThreshold: 1 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      const events: any[] = []
+      cb.on('open', (payload) => events.push(payload))
+
+      cb.recordPermissionDenial()
+      expect(events[0].agentId).toBe('shared')
+    })
+
+    it('does not emit "closed" when recordProgress is called in CLOSED state', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig(), 'worker-3')
+
+      const events: any[] = []
+      cb.on('closed', (payload) => events.push(payload))
+
+      cb.recordProgress(1)
+      expect(events).toHaveLength(0)
+    })
+  })
+
   describe('persistence round-trip', () => {
     it('save then load preserves state', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })
