@@ -6,8 +6,19 @@ type CommandHandler = (args: string, chatId: string) => void | Promise<void>
 const MAX_MESSAGE_LENGTH = 4000
 const THROTTLE_MS = 1000
 const DISCONNECT_TIMEOUT_MS = 3000
-const VALID_COMMANDS = ['bead', 'plan', 'status', 'pause', 'resume', 'stop'] as const
+const VALID_COMMANDS = ['bead', 'plan', 'status', 'pause', 'resume', 'stop', 'start', 'beads'] as const
 type ValidCommand = (typeof VALID_COMMANDS)[number]
+
+const COMMAND_MENU = [
+  { command: 'start', description: 'Show welcome message and available commands' },
+  { command: 'status', description: 'Show swarm status and bot info' },
+  { command: 'beads', description: 'List current open beads' },
+  { command: 'bead', description: 'Create a new bead: /bead <title>' },
+  { command: 'plan', description: 'Inject a new plan: /plan <description>' },
+  { command: 'pause', description: 'Pause all workers' },
+  { command: 'resume', description: 'Resume all workers' },
+  { command: 'stop', description: 'Gracefully stop all workers' },
+] as const
 
 function maskToken(token: string): string {
   if (token.length <= 5) return '*'.repeat(token.length)
@@ -46,6 +57,14 @@ export class TelegramBot {
       this._connected = true
       this._lastError = null
       this.logger(`[telegram] connected as @${this._botUsername}`)
+
+      // Register command menu with Telegram
+      try {
+        await this.bot.telegram.setMyCommands(COMMAND_MENU as unknown as Array<{ command: string; description: string }>)
+        this.logger('[telegram] command menu registered')
+      } catch (err) {
+        this.logger(`[telegram] failed to register command menu: ${err}`)
+      }
 
       // Register command listeners on the bot
       for (const cmd of VALID_COMMANDS) {

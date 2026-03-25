@@ -88,20 +88,25 @@ beforeEach(() => {
     messagesSent: 0,
     messagesReceived: 0,
   })
+  mocks.mockConfigRead.mockResolvedValue({
+    maxCallsPerHour: 100,
+    claudeTimeoutMinutes: 15,
+    continueSession: true,
+    telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' },
+  })
 })
 
 describe('ConfigEditor', () => {
-  test('renders Settings tab as default active tab', () => {
+  test('renders Settings, Prompts, and Telegram outer tabs', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toContain('Settings')
-    expect(html).toContain('Prompt (PROMPT.md)')
-    expect(html).toContain('Agent (AGENT.md)')
-    expect(html).toContain('Telegram')
+    expect(html).toContain('>Settings</button>')
+    expect(html).toContain('>Prompts</button>')
+    expect(html).toContain('>Telegram</button>')
   })
 
-  test('does not render .slashbotrc as an editable file tab', () => {
+  test('does not render .slashbotrc tab', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).not.toContain('Configuration (.slashbotrc)')
+    expect(html).not.toContain('.slashbotrc')
   })
 
   test('renders Settings section with loading state on initial render', () => {
@@ -110,12 +115,23 @@ describe('ConfigEditor', () => {
     expect(html).toContain('Loading configuration')
   })
 
-  test('renders Save button in file mode header', () => {
-    // File mode is not the default anymore; Settings is. But the component
-    // still supports file mode when user clicks a file tab.
+  test('does not render .slashbotrc as an editable file tab', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    // Settings tab is active by default, so no Save button in header
-    // (the save button for settings is inside the SettingsSection)
+    expect(html).not.toContain('Configuration (.slashbotrc)')
+  })
+
+  test('readFile mock is callable with project path and PROMPT.md', async () => {
+    await window.slashbot.readFile('/my/project', 'PROMPT.md')
+    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'PROMPT.md')
+  })
+
+  test('readFile mock is callable with AGENT.md', async () => {
+    await window.slashbot.readFile('/my/project', 'AGENT.md')
+    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'AGENT.md')
+  })
+
+  test('renders Configuration header', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
     expect(html).toContain('Configuration')
   })
 })
@@ -180,6 +196,11 @@ describe('NUMERIC_RANGES', () => {
       expect(range!.min).toBeLessThanOrEqual(range!.max)
     }
   })
+
+  test('Settings tab is active by default', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    expect(html).toMatch(/tab active[^"]*">Settings/)
+  })
 })
 
 describe('TelegramSection', () => {
@@ -238,6 +259,26 @@ describe('TelegramSection', () => {
     expect(status.connected).toBe(true)
     expect(status.botUsername).toBe('mybot')
     expect(status.messagesSent).toBe(5)
+  })
+
+  test('config.read returns telegram fields for TelegramSection', async () => {
+    mocks.mockConfigRead.mockResolvedValue({
+      maxCallsPerHour: 100,
+      telegram: {
+        botToken: '123:abc',
+        chatId: '-100123',
+        enabled: true,
+        notifyOn: 'all',
+      },
+    })
+    const cfg = await window.slashbot.config.read('/test')
+    expect(mocks.mockConfigRead).toHaveBeenCalledWith('/test')
+    expect(cfg.telegram).toEqual({
+      botToken: '123:abc',
+      chatId: '-100123',
+      enabled: true,
+      notifyOn: 'all',
+    })
   })
 })
 

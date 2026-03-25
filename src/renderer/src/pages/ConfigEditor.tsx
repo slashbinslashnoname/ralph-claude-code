@@ -5,11 +5,11 @@ const sb = window.slashbot
 
 interface Props { projectPath: string }
 
-type ActiveTab = 'settings' | 'file' | 'telegram'
+type ActiveTab = 'settings' | 'prompts' | 'telegram'
 
-const EDITABLE_FILES = [
-  { path: 'PROMPT.md', label: 'Prompt (PROMPT.md)' },
-  { path: 'AGENT.md', label: 'Agent (AGENT.md)' },
+const PROMPT_FILES = [
+  { path: 'PROMPT.md', label: 'PROMPT.md' },
+  { path: 'AGENT.md', label: 'AGENT.md' },
 ]
 
 const NOTIFY_LEVELS = [
@@ -306,24 +306,16 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
     setStatus(s)
   }, [projectPath])
 
-  // Load current config from .slashbotrc and status on mount / when tab is shown
+  // Load current config and status on mount / when tab is shown
   useEffect(() => {
     loadStatus()
-    // Read .slashbotrc to populate form fields
-    sb.readFile(projectPath, '.slashbotrc').then(r => {
-      if (!r.ok) return
-      const lines = (r.content ?? '').split('\n')
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (trimmed.startsWith('#') || !trimmed.includes('=')) continue
-        const eqIdx = trimmed.indexOf('=')
-        const key = trimmed.slice(0, eqIdx).trim()
-        const val = trimmed.slice(eqIdx + 1).trim()
-        if (key === 'TELEGRAM_BOT_TOKEN') setBotToken(val)
-        else if (key === 'TELEGRAM_CHAT_ID') setChatId(val)
-        else if (key === 'TELEGRAM_NOTIFY_LEVEL') setNotifyLevel(val)
-        else if (key === 'TELEGRAM_ENABLED') setEnabled(val === 'true')
-      }
+    sb.config.read(projectPath).then(config => {
+      const tg = config.telegram
+      if (!tg) return
+      setBotToken(tg.botToken)
+      setChatId(tg.chatId)
+      setNotifyLevel(tg.notifyOn)
+      setEnabled(tg.enabled)
     })
   }, [projectPath, loadStatus])
 
@@ -485,7 +477,7 @@ export default function ConfigEditor({ projectPath }: Props) {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (activeTab !== 'file') return
+    if (activeTab !== 'prompts') return
     sb.readFile(projectPath, activeFile).then(r => {
       if (r.ok) { setContent(r.content!); setSaved(true); setError('') }
       else setError(r.error ?? 'Failed to read file')
@@ -502,7 +494,7 @@ export default function ConfigEditor({ projectPath }: Props) {
     <div className="page">
       <header className="page-header">
         <h2>Configuration</h2>
-        {activeTab === 'file' && (
+        {activeTab === 'prompts' && (
           <div className="header-actions">
             <button className="btn btn-primary" onClick={save} disabled={saved}>
               {saved ? 'Saved' : 'Save'}
@@ -517,12 +509,12 @@ export default function ConfigEditor({ projectPath }: Props) {
         >
           Settings
         </button>
-        {EDITABLE_FILES.map(f => (
-          <button key={f.path} className={`tab ${activeTab === 'file' && activeFile === f.path ? 'active' : ''}`}
-            onClick={() => { setActiveTab('file'); setActiveFile(f.path) }}>
-            {f.label}
-          </button>
-        ))}
+        <button
+          className={`tab ${activeTab === 'prompts' ? 'active' : ''}`}
+          onClick={() => setActiveTab('prompts')}
+        >
+          Prompts
+        </button>
         <button
           className={`tab ${activeTab === 'telegram' ? 'active' : ''}`}
           onClick={() => setActiveTab('telegram')}
@@ -531,8 +523,19 @@ export default function ConfigEditor({ projectPath }: Props) {
         </button>
       </div>
       {activeTab === 'settings' && <SettingsSection projectPath={projectPath} />}
-      {activeTab === 'file' && (
+      {activeTab === 'prompts' && (
         <>
+          <div className="prompt-toggle">
+            {PROMPT_FILES.map(f => (
+              <button
+                key={f.path}
+                className={`prompt-toggle-btn ${activeFile === f.path ? 'active' : ''}`}
+                onClick={() => setActiveFile(f.path)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
           {error && <div className="alert alert-danger">{error}</div>}
           <textarea
             className="code-editor"
