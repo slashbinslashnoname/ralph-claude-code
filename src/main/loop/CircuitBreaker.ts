@@ -17,11 +17,16 @@ export class CircuitBreaker {
 
   constructor(
     private slashbotDir: string,
-    private config: RalphConfig
+    private config: RalphConfig,
+    private agentId: string = 'shared'
   ) {}
 
+  private get _stateFile(): string {
+    return path.join(this.slashbotDir, `.circuit_breaker_state_${this.agentId}`)
+  }
+
   load(): void {
-    const file = path.join(this.slashbotDir, '.circuit_breaker_state')
+    const file = this._stateFile
     if (!fs.existsSync(file)) return
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -71,7 +76,7 @@ export class CircuitBreaker {
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
     atomicWriteSync(
-      path.join(this.slashbotDir, '.circuit_breaker_state'),
+      this._stateFile,
       JSON.stringify(snapshot, null, 2)
     )
   }
@@ -146,6 +151,7 @@ export class CircuitBreaker {
       reason: this.reason,
       current_loop: this.currentLoop,
       reopen_epoch: 0,
+      agentId: this.agentId,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
   }
