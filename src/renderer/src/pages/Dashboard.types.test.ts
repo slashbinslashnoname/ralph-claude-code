@@ -95,6 +95,119 @@ describe('AgentOutputRenderer type contracts', () => {
   })
 })
 
+describe('Multi-agent circuit rendering', () => {
+  it('renders multiple per-worker circuit breaker rows', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const React = (await import('react')).default
+
+    // Mock window.slashbot to prevent errors during render
+    const mockSb = {
+      swarm: { status: async () => ({ status: null, progress: null, circuit: null, circuits: {}, analysis: null }) },
+      onSwarmStatus: () => () => {},
+      onCircuitUpdate: () => () => {},
+      onBeadStats: () => () => {},
+      onAgentsUpdate: () => () => {},
+      startSwarm: async () => {},
+      stopSwarm: async () => {},
+      resetCircuit: async () => ({ ok: true }),
+    }
+    ;(globalThis as any).window = { slashbot: mockSb }
+
+    const { default: Dashboard } = await import('./Dashboard')
+
+    const circuits: Record<string, any> = {
+      'worker-0': {
+        state: 'CLOSED',
+        last_change: '2026-03-25T10:00:00Z',
+        consecutive_no_progress: 0,
+        consecutive_same_error: 0,
+        error_window_count: 0,
+        consecutive_permission_denials: 0,
+        last_progress_loop: 5,
+        total_opens: 0,
+        reason: '',
+        current_loop: 10,
+        reopen_epoch: 0,
+      },
+      'worker-1': {
+        state: 'OPEN',
+        last_change: '2026-03-25T10:05:00Z',
+        consecutive_no_progress: 3,
+        consecutive_same_error: 0,
+        error_window_count: 4,
+        consecutive_permission_denials: 0,
+        last_progress_loop: 2,
+        total_opens: 1,
+        reason: 'API rate limit',
+        current_loop: 8,
+        reopen_epoch: 1,
+      },
+      'worker-2': {
+        state: 'HALF_OPEN',
+        last_change: '2026-03-25T10:03:00Z',
+        consecutive_no_progress: 2,
+        consecutive_same_error: 0,
+        error_window_count: 2,
+        consecutive_permission_denials: 0,
+        last_progress_loop: 3,
+        total_opens: 1,
+        reason: 'Too many errors',
+        current_loop: 6,
+        reopen_epoch: 1,
+      },
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(Dashboard, {
+        projectPath: '/test/project',
+        circuits,
+        onNavigate: () => {},
+      })
+    )
+
+    // All three worker agents should appear
+    expect(html).toContain('worker-0')
+    expect(html).toContain('worker-1')
+    expect(html).toContain('worker-2')
+
+    // State badges should be rendered
+    expect(html).toContain('CLOSED')
+    expect(html).toContain('OPEN')
+    expect(html).toContain('HALF_OPEN')
+
+    // Error counts should appear
+    expect(html).toContain('Errors: 0')
+    expect(html).toContain('Errors: 4')
+    expect(html).toContain('Errors: 2')
+
+    // Reopen epoch shown for non-zero values
+    expect(html).toContain('Reopen: 1')
+
+    // OPEN pill warning should be rendered (OPEN takes precedence)
+    expect(html).toContain('pill-red')
+
+    // Reset button should appear for OPEN circuit
+    expect(html).toContain('Reset')
+  })
+
+  it('renders empty state when no circuit data exists', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const React = (await import('react')).default
+
+    const { default: Dashboard } = await import('./Dashboard')
+
+    const html = renderToStaticMarkup(
+      React.createElement(Dashboard, {
+        projectPath: '/test/project',
+        circuits: {},
+        onNavigate: () => {},
+      })
+    )
+
+    expect(html).toContain('No circuit breaker data yet')
+  })
+})
+
 describe('KanbanBoard type contracts', () => {
   it('KanbanBead keeps local interface (not coupled to IPC Bead)', () => {
     // KanbanBoard intentionally uses a local KanbanBead with a subset of fields

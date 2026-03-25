@@ -2316,5 +2316,35 @@ describe('_resetCircuitBreakers', () => {
     // Unrelated file should still exist
     expect(fs.existsSync(path.join(storeDir, 'other_file.json'))).toBe(true)
   })
+
+  it('is a no-op when no circuit breaker state files exist', () => {
+    // storeDir has no .circuit_breaker_state_ files
+    const storeDir = tmpPaths.storeDir
+    fs.writeFileSync(path.join(storeDir, 'agents.json'), '[]')
+
+    // Should not throw
+    ;(coord as any)._resetCircuitBreakers()
+
+    // Other files should remain untouched
+    expect(fs.existsSync(path.join(storeDir, 'agents.json'))).toBe(true)
+  })
+
+  it('preserves the legacy .circuit_breaker_state file (no underscore suffix)', () => {
+    const storeDir = tmpPaths.storeDir
+    // Legacy shared state file (no agent suffix)
+    fs.writeFileSync(path.join(storeDir, '.circuit_breaker_state'), '{}')
+    // Per-worker files
+    fs.writeFileSync(path.join(storeDir, '.circuit_breaker_state_worker-0'), '{}')
+
+    ;(coord as any)._resetCircuitBreakers()
+
+    // Per-worker file deleted
+    expect(fs.existsSync(path.join(storeDir, '.circuit_breaker_state_worker-0'))).toBe(false)
+    // Legacy file starts with the prefix too, so it gets matched by the filter
+    // The method deletes files starting with '.circuit_breaker_state_' — the legacy file
+    // (without underscore suffix) should NOT be matched
+    const remaining = fs.readdirSync(storeDir).filter(f => f === '.circuit_breaker_state')
+    expect(remaining).toEqual(['.circuit_breaker_state'])
+  })
 })
 
