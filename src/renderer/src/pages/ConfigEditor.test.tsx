@@ -237,6 +237,38 @@ describe('SettingsSection — structured form', () => {
     expect(container.innerHTML).toContain('validation failed')
     expect(container.querySelector('.alert-danger')).not.toBeNull()
   })
+
+  test('shows alert-danger when config.read fails', async () => {
+    mocks.mockConfigRead.mockResolvedValueOnce({ ok: false, error: 'permission denied' })
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    expect(container.querySelector('.alert-danger')).not.toBeNull()
+    expect(container.innerHTML).toContain('permission denied')
+  })
+
+  test('Save button is disabled and config.write not called when a field has a validation error', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    // Set maxCallsPerHour to 0 (below min of 1) to trigger a validation error.
+    // Use the native input value setter so React's synthetic onChange fires.
+    const numberInputs = container.querySelectorAll('input[type="number"]')
+    const maxCallsInput = Array.from(numberInputs).find(
+      inp => (inp as HTMLInputElement).value === '100'
+    ) as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(maxCallsInput, '0')
+      maxCallsInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    expect(saveBtn.disabled).toBe(true)
+    await act(async () => { saveBtn.click() })
+    expect(mocks.mockConfigWrite).not.toHaveBeenCalled()
+  })
 })
 
 describe('validateField', () => {
