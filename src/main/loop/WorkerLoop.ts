@@ -624,26 +624,6 @@ export class WorkerLoop extends EventEmitter {
       if (model) args.push('--model', model)
       if (this.config.continueSession && this.sessionId) args.push('--resume', this.sessionId)
 
-      // Attach MCP coordination server so the agent can see team status and communicate
-      const mcpServerScript = path.join(__dirname, 'mcp-coordination-server.js')
-      if (fs.existsSync(mcpServerScript)) {
-        const mcpConfig = {
-          mcpServers: {
-            coordination: {
-              command: 'node',
-              args: [mcpServerScript],
-              env: {
-                SLASHBOT_AGENT_ID: this.agentId,
-                SLASHBOT_STORE_DIR: this.paths.storeDir,
-                ...(this._currentBeadId ? { SLASHBOT_BEAD_ID: this._currentBeadId } : {}),
-              },
-            },
-          },
-        }
-        const mcpConfigPath = path.join(this.paths.storeDir, `mcp-${this.agentId}.json`)
-        fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig))
-        args.push('--mcp-config', mcpConfigPath)
-      }
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `${this.agentId}_${label}_${ts}.log`)
 
