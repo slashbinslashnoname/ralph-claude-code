@@ -3,6 +3,32 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 const mocks = vi.hoisted(() => {
+  const MOCK_CONFIG = {
+    maxCallsPerHour: 100,
+    claudeTimeoutMinutes: 15,
+    sleepDuration: 30,
+    maxRetries: 3,
+    autoSplitThreshold: 5,
+    continueSession: true,
+    autoPush: false,
+    claudeCodeCmd: 'claude',
+    allowedTools: 'Bash,Read,Write,Edit',
+    claudeOutputFormat: 'json' as const,
+    claudeModelThink: 'opus',
+    claudeModelExecute: 'sonnet',
+    claudeModelReview: 'haiku',
+    cbNoProgressThreshold: 5,
+    cbSameErrorThreshold: 3,
+    cbErrorWindowSize: 10,
+    cbErrorWindowThreshold: 5,
+    cbPermissionDenialThreshold: 3,
+    cbCooldownMinutes: 5,
+    cbMaxCooldownMinutes: 60,
+    buildMonitorCmd: 'npm run build',
+    buildMonitorInterval: 300,
+    telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' as const },
+  }
+
   const mockReadFile = vi.fn().mockResolvedValue({ ok: true, content: '' })
   const mockWriteFile = vi.fn().mockResolvedValue({ ok: true })
   const mockTelegramStatus = vi.fn().mockResolvedValue({
@@ -15,12 +41,7 @@ const mocks = vi.hoisted(() => {
   const mockTelegramConfigure = vi.fn().mockResolvedValue({ ok: true })
   const mockTelegramTest = vi.fn().mockResolvedValue({ ok: true })
   const mockTelegramDisconnect = vi.fn().mockResolvedValue({ ok: true })
-  const mockConfigRead = vi.fn().mockResolvedValue({
-    maxCallsPerHour: 100,
-    claudeTimeoutMinutes: 15,
-    continueSession: true,
-    telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' },
-  })
+  const mockConfigRead = vi.fn().mockResolvedValue({ ok: true, config: { ...MOCK_CONFIG } })
   const mockConfigWrite = vi.fn().mockResolvedValue({ ok: true })
   const mockUpdateCheck = vi.fn()
   const mockUpdateDownload = vi.fn()
@@ -81,14 +102,17 @@ const mocks = vi.hoisted(() => {
     mockUpdateOnProgress,
     mockUpdateOnDownloaded,
     mockUpdateOnError,
+    MOCK_CONFIG,
   }
 })
 
 import ConfigEditor from './ConfigEditor'
+import { validateField, NUMERIC_RANGES } from './ConfigEditor'
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.mockReadFile.mockResolvedValue({ ok: true, content: '' })
+  mocks.mockConfigRead.mockResolvedValue({ ok: true, config: { ...mocks.MOCK_CONFIG } })
   mocks.mockTelegramStatus.mockResolvedValue({
     connected: false,
     botUsername: null,
@@ -106,8 +130,9 @@ beforeEach(() => {
 })
 
 describe('ConfigEditor', () => {
-  test('renders Prompts, Telegram, and Updates outer tabs', () => {
+  test('renders Settings, Prompts, Telegram, and Updates outer tabs', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    expect(html).toContain('>Settings</button>')
     expect(html).toContain('>Prompts</button>')
     expect(html).toContain('>Telegram</button>')
     expect(html).toContain('>Updates</button>')
@@ -118,22 +143,15 @@ describe('ConfigEditor', () => {
     expect(html).not.toContain('.slashbotrc')
   })
 
-  test('renders inner prompt toggle with PROMPT.md and AGENT.md', () => {
+  test('renders Settings section with loading state on initial render', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toContain('prompt-toggle')
-    expect(html).toContain('>PROMPT.md</button>')
-    expect(html).toContain('>AGENT.md</button>')
+    // SSR renders the loading state since useEffect hasn't fired
+    expect(html).toContain('Loading configuration')
   })
 
-  test('PROMPT.md toggle is active by default', () => {
+  test('does not render .slashbotrc as an editable file tab', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toContain('prompt-toggle-btn active')
-  })
-
-  test('renders code-editor textarea in prompts mode', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toContain('code-editor')
-    expect(html).toContain('<textarea')
+    expect(html).not.toContain('Configuration (.slashbotrc)')
   })
 
   test('readFile mock is callable with project path and PROMPT.md', async () => {
@@ -146,20 +164,81 @@ describe('ConfigEditor', () => {
     expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'AGENT.md')
   })
 
-  test('renders Save button', () => {
+  test('renders Configuration header', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toContain('Saved')
+    expect(html).toContain('Configuration')
+  })
+})
+
+describe('validateField', () => {
+  test('returns null for valid numeric values within range', () => {
+    expect(validateField('maxCallsPerHour', 100)).toBeNull()
+    expect(validateField('maxRetries', 0)).toBeNull()
+    expect(validateField('maxRetries', 10)).toBeNull()
+    expect(validateField('sleepDuration', 0)).toBeNull()
   })
 
-  test('Prompts tab is active by default', () => {
+  test('returns error for values below minimum', () => {
+    expect(validateField('maxCallsPerHour', 0)).toContain('between 1 and 10000')
+    expect(validateField('maxRetries', -1)).toContain('between 0 and 10')
+  })
+
+  test('returns error for values above maximum', () => {
+    expect(validateField('maxCallsPerHour', 10001)).toContain('between 1 and 10000')
+    expect(validateField('maxRetries', 11)).toContain('between 0 and 10')
+  })
+
+  test('returns error for NaN values', () => {
+    expect(validateField('maxCallsPerHour', NaN)).toBe('Must be a number')
+  })
+
+  test('returns null for fields without numeric ranges', () => {
+    expect(validateField('claudeCodeCmd', 'claude')).toBeNull()
+    expect(validateField('continueSession', true)).toBeNull()
+  })
+
+  test('validates all circuit breaker fields', () => {
+    expect(validateField('cbNoProgressThreshold', 1)).toBeNull()
+    expect(validateField('cbSameErrorThreshold', 1000)).toBeNull()
+    expect(validateField('cbCooldownMinutes', 0)).toContain('between 1 and 1440')
+    expect(validateField('cbMaxCooldownMinutes', 1441)).toContain('between 1 and 1440')
+  })
+
+  test('validates build monitor interval', () => {
+    expect(validateField('buildMonitorInterval', 30)).toBeNull()
+    expect(validateField('buildMonitorInterval', 29)).toContain('between 30 and 86400')
+    expect(validateField('buildMonitorInterval', 86401)).toContain('between 30 and 86400')
+  })
+})
+
+describe('NUMERIC_RANGES', () => {
+  test('contains expected keys', () => {
+    const keys = Object.keys(NUMERIC_RANGES)
+    expect(keys).toContain('maxCallsPerHour')
+    expect(keys).toContain('claudeTimeoutMinutes')
+    expect(keys).toContain('sleepDuration')
+    expect(keys).toContain('cbNoProgressThreshold')
+    expect(keys).toContain('cbCooldownMinutes')
+    expect(keys).toContain('cbMaxCooldownMinutes')
+    expect(keys).toContain('maxRetries')
+    expect(keys).toContain('autoSplitThreshold')
+    expect(keys).toContain('buildMonitorInterval')
+  })
+
+  test('all ranges have min <= max', () => {
+    for (const [key, range] of Object.entries(NUMERIC_RANGES)) {
+      expect(range!.min).toBeLessThanOrEqual(range!.max)
+    }
+  })
+
+  test('Settings tab is active by default', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    // The Prompts tab button should have the active class
-    expect(html).toMatch(/tab active[^"]*">Prompts/)
+    expect(html).toMatch(/tab active[^"]*">Settings/)
   })
 })
 
 describe('TelegramSection', () => {
-  test('telegram status API is called when component mounts', () => {
+  test('telegram status API is callable', () => {
     expect(mocks.mockTelegramStatus).toBeDefined()
     expect(typeof mocks.mockTelegramStatus).toBe('function')
   })
@@ -238,11 +317,17 @@ describe('TelegramSection', () => {
 })
 
 describe('config namespace (preload bridge)', () => {
-  test('config.read returns full config shape', async () => {
-    const cfg = await window.slashbot.config.read('/my/project')
+  test('config.read returns { ok, config } shape', async () => {
+    const result = await window.slashbot.config.read('/my/project')
     expect(mocks.mockConfigRead).toHaveBeenCalledWith('/my/project')
-    expect(cfg).toMatchObject({ maxCallsPerHour: 100, continueSession: true })
-    expect(cfg.telegram).toBeDefined()
+    expect(result).toMatchObject({ ok: true, config: { maxCallsPerHour: 100 } })
+  })
+
+  test('config.read error returns { ok: false, error }', async () => {
+    mocks.mockConfigRead.mockResolvedValue({ ok: false, error: 'file not found' })
+    const result = await window.slashbot.config.read('/bad/path')
+    expect(result.ok).toBe(false)
+    expect(result.error).toBe('file not found')
   })
 
   test('config.write sends partial update and returns ok', async () => {
@@ -259,12 +344,12 @@ describe('config namespace (preload bridge)', () => {
 
   test('config.read is isolated per project path', async () => {
     mocks.mockConfigRead
-      .mockResolvedValueOnce({ maxCallsPerHour: 10 })
-      .mockResolvedValueOnce({ maxCallsPerHour: 200 })
+      .mockResolvedValueOnce({ ok: true, config: { maxCallsPerHour: 10 } })
+      .mockResolvedValueOnce({ ok: true, config: { maxCallsPerHour: 200 } })
     const a = await window.slashbot.config.read('/proj/a')
     const b = await window.slashbot.config.read('/proj/b')
-    expect(a.maxCallsPerHour).toBe(10)
-    expect(b.maxCallsPerHour).toBe(200)
+    expect(a.config.maxCallsPerHour).toBe(10)
+    expect(b.config.maxCallsPerHour).toBe(200)
   })
 })
 

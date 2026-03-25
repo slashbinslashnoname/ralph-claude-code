@@ -135,7 +135,6 @@ export interface CircuitBreakerSnapshot {
   reopen_epoch: number
   rate_limit_until?: string
   agentId?: string
-  error_window_count: number
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +236,7 @@ export interface RalphConfig {
   cbErrorWindowThreshold: number
   cbPermissionDenialThreshold: number
   cbCooldownMinutes: number
+  cbMaxCooldownMinutes: number
   autoPush: boolean
   maxRetries: number
   autoSplitThreshold: number

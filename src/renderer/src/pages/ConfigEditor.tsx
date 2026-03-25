@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { UpdateState, UpdateInfo, UpdateProgress } from '../types/ipc'
+import type { UpdateState, UpdateInfo, UpdateProgress, RalphConfig } from '../types/ipc'
 
 const sb = window.slashbot
 
 interface Props { projectPath: string }
 
-type ActiveTab = 'prompts' | 'telegram' | 'updates'
+type ActiveTab = 'settings' | 'prompts' | 'telegram' | 'updates'
 
 const PROMPT_FILES = [
   { path: 'PROMPT.md', label: 'PROMPT.md' },
@@ -18,6 +18,265 @@ const NOTIFY_LEVELS = [
   { value: 'completions', label: 'Completions' },
   { value: 'none', label: 'None' },
 ] as const
+
+// Inline validation ranges — mirrors NUMERIC_RANGES from RcParser.ts
+const NUMERIC_RANGES: Partial<Record<keyof RalphConfig, { min: number; max: number }>> = {
+  maxCallsPerHour: { min: 1, max: 10000 },
+  claudeTimeoutMinutes: { min: 1, max: 1440 },
+  sleepDuration: { min: 0, max: 3600 },
+  cbNoProgressThreshold: { min: 1, max: 1000 },
+  cbSameErrorThreshold: { min: 1, max: 1000 },
+  cbErrorWindowSize: { min: 1, max: 1000 },
+  cbErrorWindowThreshold: { min: 1, max: 1000 },
+  cbPermissionDenialThreshold: { min: 1, max: 1000 },
+  cbCooldownMinutes: { min: 1, max: 1440 },
+  cbMaxCooldownMinutes: { min: 1, max: 1440 },
+  maxRetries: { min: 0, max: 10 },
+  autoSplitThreshold: { min: 1, max: 100 },
+  buildMonitorInterval: { min: 30, max: 86400 },
+}
+
+const OUTPUT_FORMATS = [
+  { value: 'json', label: 'JSON' },
+  { value: 'text', label: 'Text' },
+] as const
+
+// ---------------------------------------------------------------------------
+// Validation helper
+// ---------------------------------------------------------------------------
+
+function validateField(key: keyof RalphConfig, value: string | number | boolean): string | null {
+  const range = NUMERIC_RANGES[key]
+  if (range && typeof value === 'number') {
+    if (isNaN(value)) return 'Must be a number'
+    if (value < range.min || value > range.max) return `Must be between ${range.min} and ${range.max}`
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Reusable form field components
+// ---------------------------------------------------------------------------
+
+interface NumberFieldProps {
+  label: string
+  configKey: keyof RalphConfig
+  value: number
+  onChange: (key: keyof RalphConfig, value: number) => void
+  errors: Record<string, string | null>
+}
+
+function NumberField({ label, configKey, value, onChange, errors }: NumberFieldProps) {
+  const range = NUMERIC_RANGES[configKey]
+  const error = errors[configKey]
+  return (
+    <div className="form-group">
+      <label>{label}</label>
+      <input
+        type="number"
+        className={`input ${error ? 'input-error' : ''}`}
+        value={value}
+        min={range?.min}
+        max={range?.max}
+        onChange={e => onChange(configKey, Number(e.target.value))}
+      />
+      {error && <span className="field-error">{error}</span>}
+      {range && !error && <span className="field-hint">{range.min}–{range.max}</span>}
+    </div>
+  )
+}
+
+interface TextFieldProps {
+  label: string
+  configKey: keyof RalphConfig
+  value: string
+  onChange: (key: keyof RalphConfig, value: string) => void
+}
+
+function TextField({ label, configKey, value, onChange }: TextFieldProps) {
+  return (
+    <div className="form-group">
+      <label>{label}</label>
+      <input
+        type="text"
+        className="input"
+        value={value}
+        onChange={e => onChange(configKey, e.target.value)}
+      />
+    </div>
+  )
+}
+
+interface CheckboxFieldProps {
+  label: string
+  configKey: keyof RalphConfig
+  checked: boolean
+  onChange: (key: keyof RalphConfig, value: boolean) => void
+}
+
+function CheckboxField({ label, configKey, checked, onChange }: CheckboxFieldProps) {
+  return (
+    <label className="toggle-label">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(configKey, e.target.checked)}
+      />
+      {label}
+    </label>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SettingsSection — structured form for .slashbotrc
+// ---------------------------------------------------------------------------
+
+function SettingsSection({ projectPath }: { projectPath: string }) {
+  const [config, setConfig] = useState<RalphConfig | null>(null)
+  const [errors, setErrors] = useState<Record<string, string | null>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  // Load config on mount
+  useEffect(() => {
+    setLoading(true)
+    setLoadError(null)
+    sb.config.read(projectPath).then(r => {
+      if (r.ok && r.config) {
+        setConfig(r.config)
+      } else {
+        setLoadError(r.error ?? 'Failed to load configuration')
+      }
+      setLoading(false)
+    })
+  }, [projectPath])
+
+  const handleChange = useCallback((key: keyof RalphConfig, value: string | number | boolean) => {
+    if (!config) return
+    const err = validateField(key, value)
+    setErrors(prev => ({ ...prev, [key]: err }))
+    setConfig(prev => prev ? { ...prev, [key]: value } : prev)
+    setFeedback(null)
+  }, [config])
+
+  const hasErrors = Object.values(errors).some(e => e != null)
+
+  const handleSave = useCallback(async () => {
+    if (!config || hasErrors) return
+    setSaving(true)
+    setFeedback(null)
+    try {
+      // Send only non-telegram fields
+      const { telegram: _tg, ...updates } = config
+      const r = await sb.config.write(projectPath, updates)
+      if (r.ok) {
+        setFeedback({ ok: true, message: 'Configuration saved.' })
+      } else {
+        setFeedback({ ok: false, message: r.error ?? 'Save failed' })
+      }
+    } catch (e) {
+      setFeedback({ ok: false, message: e instanceof Error ? e.message : String(e) })
+    }
+    setSaving(false)
+  }, [config, hasErrors, projectPath])
+
+  if (loading) return <div className="settings-loading">Loading configuration...</div>
+  if (loadError) return <div className="alert alert-danger">{loadError}</div>
+  if (!config) return null
+
+  return (
+    <div className="settings-form">
+      {/* Execution */}
+      <fieldset className="settings-section">
+        <legend>Execution</legend>
+        <div className="settings-grid">
+          <NumberField label="Max calls / hour" configKey="maxCallsPerHour" value={config.maxCallsPerHour} onChange={handleChange} errors={errors} />
+          <NumberField label="Claude timeout (min)" configKey="claudeTimeoutMinutes" value={config.claudeTimeoutMinutes} onChange={handleChange} errors={errors} />
+          <NumberField label="Sleep duration (s)" configKey="sleepDuration" value={config.sleepDuration} onChange={handleChange} errors={errors} />
+          <NumberField label="Max retries" configKey="maxRetries" value={config.maxRetries} onChange={handleChange} errors={errors} />
+          <NumberField label="Auto-split threshold" configKey="autoSplitThreshold" value={config.autoSplitThreshold} onChange={handleChange} errors={errors} />
+        </div>
+        <div className="settings-checkboxes">
+          <CheckboxField label="Continue session" configKey="continueSession" checked={config.continueSession} onChange={handleChange} />
+          <CheckboxField label="Auto push" configKey="autoPush" checked={config.autoPush} onChange={handleChange} />
+        </div>
+      </fieldset>
+
+      {/* Claude CLI */}
+      <fieldset className="settings-section">
+        <legend>Claude CLI</legend>
+        <div className="settings-grid">
+          <TextField label="Claude command" configKey="claudeCodeCmd" value={config.claudeCodeCmd} onChange={handleChange} />
+          <TextField label="Allowed tools" configKey="allowedTools" value={config.allowedTools} onChange={handleChange} />
+          <div className="form-group">
+            <label>Output format</label>
+            <select
+              className="select"
+              value={config.claudeOutputFormat}
+              onChange={e => handleChange('claudeOutputFormat', e.target.value)}
+            >
+              {OUTPUT_FORMATS.map(f => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </fieldset>
+
+      {/* Model Routing */}
+      <fieldset className="settings-section">
+        <legend>Model Routing</legend>
+        <div className="settings-grid">
+          <TextField label="Think model" configKey="claudeModelThink" value={config.claudeModelThink} onChange={handleChange} />
+          <TextField label="Execute model" configKey="claudeModelExecute" value={config.claudeModelExecute} onChange={handleChange} />
+          <TextField label="Review model" configKey="claudeModelReview" value={config.claudeModelReview} onChange={handleChange} />
+        </div>
+      </fieldset>
+
+      {/* Circuit Breaker */}
+      <fieldset className="settings-section">
+        <legend>Circuit Breaker</legend>
+        <div className="settings-grid">
+          <NumberField label="No-progress threshold" configKey="cbNoProgressThreshold" value={config.cbNoProgressThreshold} onChange={handleChange} errors={errors} />
+          <NumberField label="Same-error threshold" configKey="cbSameErrorThreshold" value={config.cbSameErrorThreshold} onChange={handleChange} errors={errors} />
+          <NumberField label="Error window size" configKey="cbErrorWindowSize" value={config.cbErrorWindowSize} onChange={handleChange} errors={errors} />
+          <NumberField label="Error window threshold" configKey="cbErrorWindowThreshold" value={config.cbErrorWindowThreshold} onChange={handleChange} errors={errors} />
+          <NumberField label="Permission denial threshold" configKey="cbPermissionDenialThreshold" value={config.cbPermissionDenialThreshold} onChange={handleChange} errors={errors} />
+          <NumberField label="Cooldown (min)" configKey="cbCooldownMinutes" value={config.cbCooldownMinutes} onChange={handleChange} errors={errors} />
+          <NumberField label="Max cooldown (min)" configKey="cbMaxCooldownMinutes" value={config.cbMaxCooldownMinutes} onChange={handleChange} errors={errors} />
+        </div>
+      </fieldset>
+
+      {/* Build Monitor */}
+      <fieldset className="settings-section">
+        <legend>Build Monitor</legend>
+        <div className="settings-grid">
+          <TextField label="Build command" configKey="buildMonitorCmd" value={config.buildMonitorCmd} onChange={handleChange} />
+          <NumberField label="Interval (s)" configKey="buildMonitorInterval" value={config.buildMonitorInterval} onChange={handleChange} errors={errors} />
+        </div>
+      </fieldset>
+
+      {/* Save */}
+      <div className="form-actions" style={{ marginTop: 16 }}>
+        <button
+          className="btn btn-primary"
+          onClick={handleSave}
+          disabled={saving || hasErrors}
+        >
+          {saving ? 'Saving...' : 'Save Settings'}
+        </button>
+      </div>
+
+      {feedback && (
+        <div className={`alert ${feedback.ok ? 'alert-success' : 'alert-danger'}`} style={{ marginTop: 10 }}>
+          {feedback.message}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Updates section
@@ -361,8 +620,12 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// ConfigEditor (main component)
+// ---------------------------------------------------------------------------
+
 export default function ConfigEditor({ projectPath }: Props) {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('prompts')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('settings')
   const [activeFile, setActiveFile] = useState('PROMPT.md')
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
@@ -396,6 +659,12 @@ export default function ConfigEditor({ projectPath }: Props) {
       </header>
       <div className="config-tabs">
         <button
+          className={`tab ${activeTab === 'settings' ? 'active' : ''}`}
+          onClick={() => setActiveTab('settings')}
+        >
+          Settings
+        </button>
+        <button
           className={`tab ${activeTab === 'prompts' ? 'active' : ''}`}
           onClick={() => setActiveTab('prompts')}
         >
@@ -414,6 +683,7 @@ export default function ConfigEditor({ projectPath }: Props) {
           Updates
         </button>
       </div>
+      {activeTab === 'settings' && <SettingsSection projectPath={projectPath} />}
       {activeTab === 'prompts' && (
         <>
           <div className="prompt-toggle">
@@ -442,3 +712,6 @@ export default function ConfigEditor({ projectPath }: Props) {
     </div>
   )
 }
+
+// Export for testing
+export { SettingsSection, NumberField, CheckboxField, TextField, validateField, NUMERIC_RANGES }
