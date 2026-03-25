@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import type { TelegramBot } from './TelegramBot'
 import type { BdClient } from './BdClient'
-import type { ActivityEvent, BeadStats, TelegramNotifyLevel } from '../types'
+import type { ActivityEvent, AgentInfo, BeadStats, TelegramNotifyLevel } from '../types'
 
 type SwarmOrchestrator = EventEmitter & {
   injectPlan(request: string): { id: string }
@@ -10,6 +10,7 @@ type SwarmOrchestrator = EventEmitter & {
   gracefulStopWorkers(): void
   startWorkers(n?: number): Promise<void>
   getStats(): Promise<BeadStats>
+  getAgents(): AgentInfo[]
   coordinator: { bdClient: BdClient }
 }
 
@@ -339,14 +340,50 @@ export class TelegramBridge {
       }
     })
 
-    this.bot.onCommand('status', () => {
+    this.bot.onCommand('status', async () => {
       const status = this.bot.getStatus()
       const lines = [
-        `🤖 Bot: @${status.botUsername ?? 'unknown'}`,
-        `📨 Sent: ${status.messagesSent} | Received: ${status.messagesReceived}`,
-        `🔗 Connected: ${status.connected}`,
+        '🤖 Bot Status',
+        `Bot: @${status.botUsername ?? 'unknown'}`,
+        `Sent: ${status.messagesSent} | Received: ${status.messagesReceived}`,
+        `Connected: ${status.connected}`,
       ]
       if (status.lastError) lines.push(`⚠️ Last error: ${status.lastError}`)
+
+      // Bead stats section
+      try {
+        const stats = await this.orchestrator.getStats()
+        lines.push(
+          '',
+          '📊 Bead Stats',
+          `Total: ${stats.total} | Done: ${stats.done} (${stats.pct}%)`,
+          `Pending: ${stats.pending} | Ready: ${stats.ready}`,
+          `Claimed: ${stats.claimed} | Failed: ${stats.failed}`,
+        )
+      } catch {
+        lines.push('', '📊 Bead Stats: unavailable')
+      }
+
+      // Active workers section
+      try {
+        const agents = this.orchestrator.getAgents()
+        if (agents.length === 0) {
+          lines.push('', '👷 Workers: none active')
+        } else {
+          lines.push('', `👷 Workers (${agents.length})`)
+          const shown = agents.slice(0, 10)
+          for (const a of shown) {
+            const bead = a.currentBeadTitle ?? a.currentBeadId ?? 'idle'
+            lines.push(`• ${a.id} [${a.phase}] — ${bead}`)
+          }
+          if (agents.length > 10) {
+            lines.push(`… and ${agents.length - 10} more`)
+          }
+        }
+      } catch {
+        lines.push('', '👷 Workers: unavailable')
+      }
+
       this.bot.sendMessage(lines.join('\n')).catch(() => {})
     })
   }
