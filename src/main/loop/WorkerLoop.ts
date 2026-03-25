@@ -6,6 +6,7 @@ import { RalphConfig, Bead, SplitDecision } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { analyze, detectApiLimit, extractResultFromJsonStream } from './ResponseAnalyzer'
 import { CircuitBreaker } from './CircuitBreaker'
+import { classifyError } from './ErrorClassifier'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 import { ProjectPaths } from './ProjectStore'
@@ -27,6 +28,23 @@ const BD_SYSTEM_PROMPT = `
 - Commit your changes with a descriptive message when done.
 - If you discover new issues, note them in your output — do not try to fix everything.
 `
+
+/**
+ * Extract a retry-after delay from Claude CLI output.
+ * Looks for patterns like `"retry_after": 3600` or `Retry-After: 60`.
+ * Returns delay in milliseconds, or undefined if not found.
+ */
+export function extractRetryAfter(output: string): number | undefined {
+  // JSON format: "retry_after": 3600
+  const jsonMatch = output.match(/"retry_after"\s*:\s*(\d+)/)
+  if (jsonMatch) return parseInt(jsonMatch[1], 10) * 1000
+
+  // HTTP header format: Retry-After: 60
+  const headerMatch = output.match(/Retry-After:\s*(\d+)/i)
+  if (headerMatch) return parseInt(headerMatch[1], 10) * 1000
+
+  return undefined
+}
 
 export class WorkerLoop extends EventEmitter {
   running = false
@@ -219,8 +237,22 @@ export class WorkerLoop extends EventEmitter {
     this.coordinator.heartbeat(this.agentId)
     this.emit('heartbeat')
 
-    const cb = new CircuitBreaker(this.paths.storeDir, this.config)
+    const cb = new CircuitBreaker(this.paths.storeDir, this.config, this.agentId)
     cb.load()
+
+    // Listen for circuit state changes and post activity
+    cb.on('open', (payload: { agentId: string; reason: string; totalOpens: number }) => {
+      this.coordinator.postActivity({
+        agentId: this.agentId, type: 'failed',
+        summary: `Circuit breaker OPEN: ${payload.reason} (opens: ${payload.totalOpens})`
+      })
+    })
+    cb.on('closed', (payload: { agentId: string }) => {
+      this.coordinator.postActivity({
+        agentId: this.agentId, type: 'completed',
+        summary: 'Circuit breaker recovered (CLOSED)'
+      })
+    })
 
     try {
     while (this.running && !this.stopped && !this._gracefulStopping) {
@@ -453,7 +485,9 @@ export class WorkerLoop extends EventEmitter {
       // ── Phase 5: Close, retry, or permanently fail bead ──────────
       // Record circuit breaker outcome for error paths (success path is below)
       if (mergeFailed || executeFailed) {
-        cb.recordError(mergeFailed ? 'merge failed' : 'execution failed')
+        const errorMsg = mergeFailed ? 'merge failed' : 'execution failed'
+        const category = classifyError(errorMsg)
+        cb.recordError(errorMsg, category)
         cb.save()
       }
 
@@ -512,13 +546,16 @@ export class WorkerLoop extends EventEmitter {
       if (apiLimited) {
         // Don't fail the bead — it's a quota issue, not a bead issue.
         // Reopen the bead so it can be retried after cooldown.
+        const retryMs = extractRetryAfter(executeOutput)
+        cb.recordRateLimit(retryMs)
+        cb.save()
         await this.coordinator.reopenBead(this.agentId, bead.id)
         this._setPhase('rate_limited')
         this.coordinator.postActivity({
           agentId: this.agentId, type: 'failed', beadId: bead.id,
           beadTitle: bead.title, summary: 'API quota exhausted — waiting for reset'
         })
-        await this._waitForQuotaReset()
+        await this._waitForQuotaReset(cb)
         continue
       }
       if (this.stopped) {
@@ -536,7 +573,8 @@ export class WorkerLoop extends EventEmitter {
         } else if (analysis.hasProgress) {
           cb.recordProgress(this.loopCount)
         } else if (analysis.isStuck) {
-          cb.recordError(analysis.workSummary)
+          const category = classifyError(analysis.workSummary)
+          cb.recordError(analysis.workSummary, category)
         } else {
           cb.recordNoProgress(analysis.askingQuestions)
         }
@@ -553,6 +591,7 @@ export class WorkerLoop extends EventEmitter {
     }
     this._exit('stopped')
     } finally {
+      cb.removeAllListeners()
       clearInterval(heartbeatTimer)
     }
   }
@@ -937,33 +976,31 @@ DO NOT write any implementation code. Analysis only.`
     }
   }
 
-  /** Wait for API quota to reset, probing periodically. Like main branch: wait 5min, then probe every 5min up to ~60min. */
-  private async _waitForQuotaReset(): Promise<void> {
-    const probeIntervalMs = 5 * 60_000 // 5 min between probes
-    const maxProbes = 12 // up to ~60 min total
+  /**
+   * Wait for API quota to reset by polling the circuit breaker's rateLimitLifted().
+   * Falls back to a max wait of ~60 min with periodic checks every 30s.
+   */
+  private async _waitForQuotaReset(cb?: CircuitBreaker): Promise<void> {
+    const pollIntervalMs = 30_000 // 30s between checks
+    const maxPolls = 120 // up to ~60 min total
 
-    for (let attempt = 1; attempt <= maxProbes; attempt++) {
-      const waitMin = (attempt * 5)
-      this._log('WARN', `[${this.agentId}] API quota exhausted — probe ${attempt}/${maxProbes}, next check in 5 min (${waitMin} min elapsed)`)
-      this.emit('output', `\n── API quota exhausted — waiting (${waitMin}/${maxProbes * 5} min) ──\n\n`)
-      await this._sleep(probeIntervalMs)
+    for (let attempt = 1; attempt <= maxPolls; attempt++) {
+      const elapsedMin = Math.round((attempt * pollIntervalMs) / 60_000)
+      this._log('WARN', `[${this.agentId}] API quota exhausted — poll ${attempt}/${maxPolls} (${elapsedMin} min elapsed)`)
+      this.emit('output', `\n── API quota exhausted — waiting (${elapsedMin} min) ──\n\n`)
+      await this._sleep(pollIntervalMs)
 
       if (this.stopped) return
 
-      // Probe: run a minimal Claude call to see if quota is back
-      try {
-        const output = await this._runClaude('Reply with only the word OK', 'probe', this.projectPath)
-        if (!detectApiLimit(stripAnsi(output))) {
-          this._log('SUCCESS', `[${this.agentId}] API quota restored after ${waitMin} min`)
-          this.emit('output', `\n── API quota restored — resuming ──\n\n`)
-          return
-        }
-      } catch {
-        // Probe failed — quota still exhausted, keep waiting
+      // Check if rate limit has lifted via CB
+      if (cb && cb.rateLimitLifted()) {
+        this._log('SUCCESS', `[${this.agentId}] Rate limit lifted after ${elapsedMin} min`)
+        this.emit('output', `\n── API quota restored — resuming ──\n\n`)
+        return
       }
     }
 
-    this._log('WARN', `[${this.agentId}] API quota still exhausted after ${maxProbes * 5} min — resuming anyway`)
+    this._log('WARN', `[${this.agentId}] API quota still exhausted after ${Math.round((maxPolls * pollIntervalMs) / 60_000)} min — resuming anyway`)
   }
 
   private _setPhase(phase: string, beadId?: string, beadTitle?: string): void {

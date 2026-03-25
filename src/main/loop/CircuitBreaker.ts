@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
 import { RalphConfig, CircuitBreakerSnapshot } from '../types'
@@ -18,7 +19,7 @@ export function computedCooldown(
   return Math.min(base * Math.pow(2, reopenEpoch - 1), max)
 }
 
-export class CircuitBreaker {
+export class CircuitBreaker extends EventEmitter {
   private state: 'CLOSED' | 'HALF_OPEN' | 'OPEN' = 'CLOSED'
   private consecutiveNoProgress = 0
   private errorWindow: Array<{ ts: number; error: string }> = []
@@ -35,7 +36,9 @@ export class CircuitBreaker {
     private slashbotDir: string,
     private config: RalphConfig,
     private agentId: string = 'shared'
-  ) {}
+  ) {
+    super()
+  }
 
   private get _stateFile(): string {
     return path.join(this.slashbotDir, `.circuit_breaker_state_${this.agentId}`)
@@ -150,6 +153,7 @@ export class CircuitBreaker {
       this.state = 'CLOSED'
       this.reopenEpoch = 0
       this.reason = 'Progress detected, circuit recovered'
+      this.emit('closed', { agentId: this.agentId })
     }
   }
 
@@ -220,5 +224,6 @@ export class CircuitBreaker {
     this.totalOpens++
     this.reopenEpoch++
     this.openedAt = new Date().toISOString()
+    this.emit('open', { agentId: this.agentId, reason, totalOpens: this.totalOpens })
   }
 }
