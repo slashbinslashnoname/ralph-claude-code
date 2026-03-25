@@ -565,18 +565,22 @@ export class WorkerLoop extends EventEmitter {
         continue
       }
       if (apiLimited) {
-        // Don't fail the bead — it's a quota issue, not a bead issue.
-        // Reopen the bead so it can be retried after cooldown.
+        // Don't fail or reopen the bead — keep it claimed (in_progress) so:
+        // 1. The beads page shows it as "In Progress" during the wait
+        // 2. Other workers don't try to claim and rate-limit on the same bead
+        // 3. After the wait, we go back to routing and pick up where we left off
         const retryMs = extractRetryAfter(executeOutput)
         cb.recordRateLimit(retryMs)
         cb.save()
-        await this.coordinator.reopenBead(this.agentId, bead.id)
         this._setPhase('rate_limited')
         this.coordinator.postActivity({
-          agentId: this.agentId, type: 'failed', beadId: bead.id,
-          beadTitle: bead.title, summary: 'API quota exhausted — waiting for reset'
+          agentId: this.agentId, type: 'rate_limited', beadId: bead.id,
+          beadTitle: bead.title, summary: 'API quota exhausted — keeping bead claimed, waiting for reset'
         })
         await this._waitForQuotaReset(cb)
+        // Now reopen so it goes back to the pool for a fresh attempt
+        await this.coordinator.reopenBead(this.agentId, bead.id)
+        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
         continue
       }
       if (this.stopped) {
