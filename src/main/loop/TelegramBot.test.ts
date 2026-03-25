@@ -87,7 +87,7 @@ describe('TelegramBot', () => {
       expect(mockSetMyCommands).toHaveBeenCalledTimes(1)
       const menu = mockSetMyCommands.mock.calls[0][0]
       expect(menu).toHaveLength(8)
-      expect(menu[0]).toEqual({ command: 'start', description: 'Show welcome message and available commands' })
+      expect(menu[0]).toEqual({ command: 'start', description: 'Start workers: /start [1-10]' })
       expect(menu.map((m: { command: string }) => m.command)).toEqual([
         'start', 'status', 'beads', 'bead', 'plan', 'pause', 'resume', 'stop',
       ])
