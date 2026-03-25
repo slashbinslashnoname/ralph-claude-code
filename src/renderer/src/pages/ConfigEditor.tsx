@@ -110,7 +110,7 @@ function UpdatesSection() {
         ? `Downloading… ${Math.round(state.progress.percent)}% — ${formatSpeed(state.progress.bytesPerSecond)}`
         : 'Downloading…'
       case 'downloaded': return `Version ${state.info?.version ?? 'unknown'} is ready to install.`
-      case 'error': return `Update error: ${state.error ?? 'Unknown error'}`
+      case 'error': return 'An error occurred while checking for updates.'
     }
   }
 
