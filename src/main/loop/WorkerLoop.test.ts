@@ -31,7 +31,9 @@ vi.mock('fs', async (importOriginal) => {
     mkdirSync: vi.fn(),
     writeFileSync: vi.fn(),
     appendFileSync: vi.fn(),
-    readFileSync: vi.fn()
+    readFileSync: vi.fn(),
+    renameSync: vi.fn(),
+    unlinkSync: vi.fn()
   }
 })
 
@@ -116,6 +118,7 @@ function makeCoordinator() {
     releaseAllForAgent: vi.fn(),
     claimBestBead: vi.fn(async () => null),
     hasOpenWork: vi.fn(() => false),
+    hasOpenWorkAsync: vi.fn(async () => false),
     createWorktree: vi.fn(() => null),
     mergeWorktree: vi.fn(async () => ({ merged: true, filesChanged: ['src/foo.ts'], error: undefined })),
     completeBead: vi.fn(),
@@ -2215,7 +2218,7 @@ None.
           claimCount++
           return makeBead({ id: `sb-${claimCount}`, title: `Bead ${claimCount}` })
         })
-        coord.createWorktree.mockReturnValue(null)
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/agent-0', branch: 'worker/agent-0' })
         coord.completeBead.mockResolvedValue(undefined)
 
         const config = makeConfig({ cbNoProgressThreshold: threshold })
@@ -2271,7 +2274,7 @@ None.
           return makeBead({ id: `sb-${claimCount}`, title: `Bead ${claimCount}` })
         })
         coord.hasOpenWork.mockReturnValue(false)
-        coord.createWorktree.mockReturnValue(null)
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/agent-0', branch: 'worker/agent-0' })
         coord.completeBead.mockResolvedValue(undefined)
 
         const config = makeConfig({ cbNoProgressThreshold: 3 })
@@ -2317,7 +2320,7 @@ None.
           return makeBead({ id: 'sb-fail', title: 'Failing bead' })
         })
         coord.hasOpenWork.mockReturnValue(false)
-        coord.createWorktree.mockReturnValue(null)
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/agent-0', branch: 'worker/agent-0' })
 
         const config = makeConfig({ cbNoProgressThreshold: 3, maxRetries: 0 })
         const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
@@ -2401,6 +2404,56 @@ None.
         worker.stop()
         for (let i = 0; i < 140; i++) {
           await vi.advanceTimersByTimeAsync(1000)
+        }
+        await startPromise.catch(() => {})
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('open event from CircuitBreaker posts circuit_open activity', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        // Always return the same bead — we stop the worker before a second claim
+        coord.claimBestBead.mockResolvedValue(makeBead({ id: 'sb-1', title: 'Bead 1' }))
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/agent-0', branch: 'worker/agent-0' })
+
+        // cbErrorWindowThreshold: 1 → circuit opens after the very first error
+        const config = makeConfig({ cbErrorWindowThreshold: 1, cbErrorWindowSize: 10, cbNoProgressThreshold: 99, maxRetries: 0 })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        // Think succeeds; execute throws → executeFailed → recordError → circuit opens → emits 'open'
+        let callIdx = 0
+        ;(worker as any)._runClaude = vi.fn(async () => {
+          callIdx++
+          if (callIdx % 2 === 1) return '{"type":"result","result":"analysis done"}' // think
+          throw new Error('execute crashed')
+        })
+
+        const startPromise = worker.start()
+
+        // Advance past the bead execution (think+execute are sync mocks, merge is instant).
+        // The circuit opens before the failBead sleep (3s), so a few advances is enough.
+        for (let i = 0; i < 10; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+
+        // Verify the 'open' event listener posted circuit_open activity
+        const circuitOpenCalls = coord.postActivity.mock.calls.filter(
+          ([arg]) => arg.type === 'circuit_open'
+        )
+        expect(circuitOpenCalls.length).toBeGreaterThanOrEqual(1)
+        expect(circuitOpenCalls[0][0]).toMatchObject({
+          agentId: 'agent-0',
+          type: 'circuit_open',
+          summary: expect.stringContaining('Circuit breaker OPEN')
+        })
+
+        // Stop the worker to allow clean exit
+        worker.stop()
+        for (let i = 0; i < 4; i++) {
+          await vi.advanceTimersByTimeAsync(500)
         }
         await startPromise.catch(() => {})
       } finally {

@@ -48,6 +48,8 @@ export interface WorkerContext {
   worktreeBranch: string | null
   /** Raw output from the thinking phase */
   thinkingOutput: string
+  /** Raw output from the execute phase */
+  executeOutput: string
   /** Flags set during execution */
   flags: WorkerFlags
   /** Injected capabilities — IO and side effects separated from state logic */
@@ -152,6 +154,7 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
   ctx.worktreePath = null
   ctx.worktreeBranch = null
   ctx.thinkingOutput = ''
+  ctx.executeOutput = ''
   ctx.flags.executeFailed = false
   ctx.flags.apiLimited = false
   ctx.flags.mergeFailed = false
@@ -336,6 +339,7 @@ export async function executing(ctx: WorkerContext): Promise<StateId> {
       ctx.capabilities.buildExecutePrompt(bead, ctx.thinkingOutput),
       'execute', workDir, ctx.config.claudeModelExecute
     )
+    ctx.executeOutput = executeOutput
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     log(ctx, 'ERROR', `[${ctx.agentId}] Execute failed: ${msg}`)
@@ -511,7 +515,10 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
   // ── API rate limited → record rate limit on CB, reopen and wait ──
   if (ctx.flags.apiLimited) {
     if (cb) {
-      const retryMs = ctx.capabilities.extractRetryAfter(ctx.thinkingOutput)
+      // Use execute output preferentially (rate limit most often appears there);
+      // fall back to thinking output if execute phase never ran.
+      const rateLimitSource = ctx.executeOutput || ctx.thinkingOutput
+      const retryMs = ctx.capabilities.extractRetryAfter(rateLimitSource)
       cb.recordRateLimit(retryMs)
       cb.save()
     }
@@ -614,6 +621,7 @@ export function createWorkerContext(
     worktreePath: null,
     worktreeBranch: null,
     thinkingOutput: '',
+    executeOutput: '',
     flags: {
       executeFailed: false,
       apiLimited: false,

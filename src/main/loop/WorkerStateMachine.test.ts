@@ -164,6 +164,7 @@ function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
     worktreePath: null,
     worktreeBranch: null,
     thinkingOutput: '',
+    executeOutput: '',
     flags: makeFlags(),
     capabilities: makeCapabilities(),
     circuitBreaker: null,
@@ -1118,7 +1119,7 @@ describe('WorkerStateMachine', () => {
         expect(cb.save).toHaveBeenCalled()
       })
 
-      it('records rate limit on CB when apiLimited', async () => {
+      it('records rate limit on CB when apiLimited, using executeOutput', async () => {
         const cb = makeMockCB()
         const caps = makeCapabilities()
         ;(caps.extractRetryAfter as any).mockReturnValue(30000)
@@ -1128,14 +1129,39 @@ describe('WorkerStateMachine', () => {
           coordinator,
           capabilities: caps,
           circuitBreaker: cb,
+          executeOutput: '{"retry_after":30}',
+          thinkingOutput: 'thinking output without retry info',
           flags: makeFlags({ apiLimited: true })
         })
 
         await closing(ctx)
 
+        // extractRetryAfter should be called with executeOutput (not thinkingOutput)
+        expect(caps.extractRetryAfter).toHaveBeenCalledWith('{"retry_after":30}')
         expect(cb.recordRateLimit).toHaveBeenCalledWith(30000)
         expect(cb.save).toHaveBeenCalled()
         expect(caps.waitForQuotaReset).toHaveBeenCalledWith(cb)
+      })
+
+      it('falls back to thinkingOutput when executeOutput is empty on apiLimited', async () => {
+        const cb = makeMockCB()
+        const caps = makeCapabilities()
+        ;(caps.extractRetryAfter as any).mockReturnValue(undefined)
+        const coordinator = makeCoordinator()
+        const ctx = makeCtx({
+          currentBead: makeBead(),
+          coordinator,
+          capabilities: caps,
+          circuitBreaker: cb,
+          executeOutput: '',
+          thinkingOutput: 'thinking output with retry info',
+          flags: makeFlags({ apiLimited: true })
+        })
+
+        await closing(ctx)
+
+        expect(caps.extractRetryAfter).toHaveBeenCalledWith('thinking output with retry info')
+        expect(cb.recordRateLimit).toHaveBeenCalledWith(undefined)
       })
 
       it('records progress on CB on success', async () => {
