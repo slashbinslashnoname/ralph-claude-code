@@ -1,13 +1,15 @@
 import { EventEmitter } from 'events'
 import type { TelegramBot } from './TelegramBot'
 import type { BdClient } from './BdClient'
-import type { ActivityEvent, TelegramNotifyLevel } from '../types'
+import type { ActivityEvent, BeadStats, TelegramNotifyLevel } from '../types'
 
 type SwarmOrchestrator = EventEmitter & {
   injectPlan(request: string): { id: string }
   pauseAllWorkers(): void
   resumeAllWorkers(): void
   gracefulStopWorkers(): void
+  startWorkers(n?: number): Promise<void>
+  getStats(): Promise<BeadStats>
   coordinator: { bdClient: BdClient }
 }
 
@@ -24,6 +26,12 @@ const EMOJI: Record<ActivityEvent['type'], string> = {
   resumed: '▶️',
   rollback: '↩️',
   split: '✂️',
+  heartbeat: '💓',
+  dead_agent: '💀',
+  claim_timeout: '⏰',
+  info: 'ℹ️',
+  circuit_open: '🔴',
+  circuit_closed: '🟢',
 }
 
 const BATCH_WINDOW_MS = 1000
@@ -68,6 +76,9 @@ function extractReadableText(chunk: string): string {
   return textParts.join('\n')
 }
 
+/** Events that always notify regardless of level (critical system events) */
+const CRITICAL_TYPES: Set<ActivityEvent['type']> = new Set(['circuit_open'])
+
 /** Events considered "errors" for filtering */
 const ERROR_TYPES: Set<ActivityEvent['type']> = new Set(['failed', 'rollback'])
 
@@ -81,6 +92,7 @@ const COMPLETION_TYPES: Set<ActivityEvent['type']> = new Set([
 ])
 
 function shouldNotify(level: TelegramNotifyLevel, eventType: ActivityEvent['type']): boolean {
+  if (CRITICAL_TYPES.has(eventType)) return true
   switch (level) {
     case 'all':
       return true
@@ -97,6 +109,14 @@ function shouldNotify(level: TelegramNotifyLevel, eventType: ActivityEvent['type
 
 function formatEvent(event: ActivityEvent): string {
   const emoji = EMOJI[event.type] ?? '❓'
+  if (event.type === 'circuit_open') {
+    const summary = event.summary ?? 'unknown reason'
+    return `🔴 Circuit OPEN — worker ${event.agentId}: ${summary}`
+  }
+  if (event.type === 'circuit_closed') {
+    const summary = event.summary ?? 'recovered'
+    return `🟢 Circuit CLOSED — worker ${event.agentId}: ${summary}`
+  }
   const agent = event.agentId
   const bead = event.beadTitle ?? event.beadId ?? ''
   const beadPart = bead ? ` [${bead}]` : ''
@@ -252,6 +272,71 @@ export class TelegramBridge {
     this.bot.onCommand('stop', () => {
       this.orchestrator.gracefulStopWorkers()
       this.bot.sendMessage('🛑 Graceful stop initiated').catch(() => {})
+    })
+
+    this.bot.onCommand('start', async (args) => {
+      let n: number | undefined
+      if (args) {
+        const parsed = parseInt(args, 10)
+        if (isNaN(parsed) || parsed < 1 || parsed > 10) {
+          this.bot.sendMessage('Usage: /start [1-10]').catch(() => {})
+          return
+        }
+        n = parsed
+      }
+      try {
+        await this.orchestrator.startWorkers(n)
+        this.bot.sendMessage(`🚀 Started ${n ?? 'default'} worker(s)`).catch(() => {})
+      } catch (err) {
+        this.bot.sendMessage(`❌ Failed to start workers: ${err}`).catch(() => {})
+      }
+    })
+
+    this.bot.onCommand('beads', async (args) => {
+      if (!args) {
+        try {
+          const stats = await this.orchestrator.getStats()
+          const lines = [
+            '📊 Bead Stats',
+            `Total: ${stats.total} | Done: ${stats.done} (${stats.pct}%)`,
+            `Pending: ${stats.pending} | Ready: ${stats.ready}`,
+            `Claimed: ${stats.claimed} | Failed: ${stats.failed}`,
+          ]
+          this.bot.sendMessage(lines.join('\n')).catch(() => {})
+        } catch (err) {
+          this.bot.sendMessage(`❌ Failed to get stats: ${err}`).catch(() => {})
+        }
+        return
+      }
+
+      const filter = args.trim().toLowerCase()
+      const validFilters: Record<string, string[]> = {
+        open: ['pending', 'ready'],
+        active: ['claimed'],
+        done: ['done', 'failed'],
+      }
+      if (!(filter in validFilters)) {
+        this.bot.sendMessage('Usage: /beads [open|active|done]').catch(() => {})
+        return
+      }
+
+      try {
+        const all = this.orchestrator.coordinator.bdClient.listAll()
+        const statuses = validFilters[filter]
+        const matched = all.filter((b) => statuses.includes(b.status))
+        const limit = 15
+        const shown = matched.slice(0, limit)
+        const lines = shown.map((b) => `• [${b.status}] ${b.id}: ${b.title}`)
+        if (matched.length > limit) {
+          lines.push(`… and ${matched.length - limit} more`)
+        }
+        if (lines.length === 0) {
+          lines.push(`No ${filter} beads found.`)
+        }
+        this.bot.sendMessage(lines.join('\n')).catch(() => {})
+      } catch (err) {
+        this.bot.sendMessage(`❌ Failed to list beads: ${err}`).catch(() => {})
+      }
     })
 
     this.bot.onCommand('status', () => {

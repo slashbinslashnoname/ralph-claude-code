@@ -293,13 +293,24 @@ describe('ipc handlers use centralized ProjectPaths', () => {
   })
 
   describe('circuit:reset', () => {
-    it('constructs CircuitBreaker with storeDir', () => {
+    it('constructs CircuitBreaker with storeDir and agentId when agentId provided', () => {
       const projectPath = '/test/project'
       const storeDir = computeStoreDir(projectPath)
 
-      invoke('circuit:reset', projectPath)
+      mockCircuitBreaker.mockClear()
+      invoke('circuit:reset', projectPath, { agentId: 'worker-0' })
 
-      expect(mockCircuitBreaker).toHaveBeenCalledWith(storeDir, expect.any(Object))
+      expect(mockCircuitBreaker).toHaveBeenCalledWith(storeDir, expect.any(Object), 'worker-0')
+    })
+
+    it('returns ok:true without calling CircuitBreaker when no per-worker files exist', () => {
+      const projectPath = '/test/project'
+
+      mockCircuitBreaker.mockClear()
+      const result = invoke('circuit:reset', projectPath)
+
+      expect(result).toEqual({ ok: true })
+      expect(mockCircuitBreaker).not.toHaveBeenCalled()
     })
   })
 

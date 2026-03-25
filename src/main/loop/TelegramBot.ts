@@ -10,7 +10,7 @@ const VALID_COMMANDS = ['bead', 'plan', 'status', 'pause', 'resume', 'stop', 'st
 type ValidCommand = (typeof VALID_COMMANDS)[number]
 
 const COMMAND_MENU = [
-  { command: 'start', description: 'Show welcome message and available commands' },
+  { command: 'start', description: 'Start workers: /start [1-10]' },
   { command: 'status', description: 'Show swarm status and bot info' },
   { command: 'beads', description: 'List current open beads' },
   { command: 'bead', description: 'Create a new bead: /bead <title>' },
