@@ -5,15 +5,16 @@ const sb = window.slashbot
 
 interface Props {
   projectPath: string
-  circuit: CircuitBreakerSnapshot | null
+  circuits: Record<string, CircuitBreakerSnapshot>
   onNavigate: (page: string) => void
 }
 
-export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
+export default function Dashboard({ projectPath, circuits, onNavigate }: Props) {
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null)
   const [beadStats, setBeadStats] = useState<ProgressStats | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [workerCount, setWorkerCount] = useState(2)
+  const [circuitsExpanded, setCircuitsExpanded] = useState(false)
 
   // Sync local count from actual running count
   useEffect(() => {
@@ -166,30 +167,55 @@ export default function Dashboard({ projectPath, circuit, onNavigate }: Props) {
           </div>
         </div>
 
-        {/* Circuit breaker */}
+        {/* Circuit breaker — per-worker */}
         <div className="card">
-          <h3>Circuit Breaker</h3>
+          <h3>
+            Circuit Breakers
+            {(() => {
+              const states = Object.values(circuits).map(c => c.state)
+              if (states.includes('OPEN')) return <span className="pill pill-red" data-testid="circuit-warning-pill">OPEN</span>
+              if (states.includes('HALF_OPEN')) return <span className="pill pill-amber" data-testid="circuit-warning-pill">HALF_OPEN</span>
+              return null
+            })()}
+          </h3>
           <div className="card-body">
-            <div className="kv-row">
-              <span>State</span>
-              <span className={`badge badge-${(circuit?.state ?? 'CLOSED').toLowerCase()}`}>
-                {circuit?.state ?? 'CLOSED'}
-              </span>
-            </div>
-            <div className="kv-row">
-              <span>No-Progress</span>
-              <span>{circuit?.consecutive_no_progress ?? 0}</span>
-            </div>
-            <div className="kv-row">
-              <span>Same-Error</span>
-              <span>{circuit?.consecutive_same_error ?? 0}</span>
-            </div>
-            {circuit?.state === 'OPEN' && (
-              <button className="btn btn-sm btn-warning mt-2"
-                onClick={() => sb.resetCircuit(projectPath)}>
-                Reset Circuit
-              </button>
-            )}
+            {(() => {
+              const entries = Object.entries(circuits)
+              if (entries.length === 0) {
+                return <p className="hint">No circuit breaker data yet</p>
+              }
+              const collapsed = !circuitsExpanded && entries.length > 3
+              const visible = collapsed ? entries.slice(0, 3) : entries
+              return (
+                <>
+                  {visible.map(([agentId, cb]) => (
+                    <div key={agentId} className="circuit-row">
+                      <div className="kv-row">
+                        <span className="agent-mini">{agentId}</span>
+                        <span className={`badge badge-${cb.state.toLowerCase()}`}>{cb.state}</span>
+                      </div>
+                      <div className="circuit-details">
+                        <span>Errors: {cb.error_window_count ?? 0}</span>
+                        {cb.reopen_epoch > 0 && <span>Reopen: {cb.reopen_epoch}</span>}
+                        {cb.rate_limit_until && <span>Rate-limit: {cb.rate_limit_until}</span>}
+                      </div>
+                      {cb.state === 'OPEN' && (
+                        <button className="btn btn-xs btn-warning"
+                          onClick={() => sb.resetCircuit(projectPath, agentId)}>
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {entries.length > 3 && (
+                    <button className="btn btn-xs btn-ghost mt-1"
+                      onClick={() => setCircuitsExpanded(e => !e)}>
+                      {circuitsExpanded ? 'Show less' : `Show ${entries.length - 3} more`}
+                    </button>
+                  )}
+                </>
+              )
+            })()}
           </div>
         </div>
 

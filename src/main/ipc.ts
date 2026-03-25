@@ -233,10 +233,21 @@ export function registerIpc(
 
   ipcMain.handle('status:read', (_e, projectPath: string) => {
     const paths = getProjectPaths(projectPath)
+    // Build per-worker circuits map from .circuit_breaker_state_<agentId> files
+    const circuits: Record<string, unknown> = {}
+    try {
+      const files = fs.readdirSync(paths.storeDir).filter(f => f.startsWith('.circuit_breaker_state_'))
+      for (const file of files) {
+        const agentId = file.slice('.circuit_breaker_state_'.length)
+        const data = readJson(path.join(paths.storeDir, file))
+        if (data) circuits[agentId] = { ...data, agentId }
+      }
+    } catch { /* storeDir may not exist yet */ }
     return {
       status: readJson(path.join(paths.storeDir, 'status.json')),
       progress: readJson(path.join(paths.storeDir, 'progress.json')),
       circuit: readJson(paths.circuitBreakerState),
+      circuits,
       analysis: readJson(path.join(paths.storeDir, '.response_analysis'))
     }
   })

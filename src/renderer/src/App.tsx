@@ -29,7 +29,7 @@ interface TabState {
   path: string
   page: Page
   isEnabled: boolean
-  circuit: CircuitBreakerSnapshot | null
+  circuits: Record<string, CircuitBreakerSnapshot>
 }
 
 // Global agent output + activity buffers (survive page navigation)
@@ -55,7 +55,7 @@ export default function App() {
           path: p,
           page: 'dashboard' as Page,
           isEnabled: false,
-          circuit: null,
+          circuits: {},
         })))
         setActiveIdx(Math.min(saved.active, saved.paths.length - 1))
       }
@@ -92,7 +92,7 @@ export default function App() {
         setTabs(prev => {
           const next = [...prev]
           if (next[i]) {
-            next[i] = { ...next[i], circuit: s.circuit ?? null }
+            next[i] = { ...next[i], circuits: s.circuits ?? {} }
           }
           return next
         })
@@ -124,8 +124,11 @@ export default function App() {
     }
 
     const unsubs = [
-      sb.onCircuitUpdate((proj: string, c: CircuitBreakerSnapshot) => {
-        setTabs(prev => prev.map(t => t.path === proj ? { ...t, circuit: c } : t))
+      sb.onCircuitUpdate((proj: string, c: CircuitBreakerSnapshot & { agentId?: string }) => {
+        if (!c.agentId) return
+        setTabs(prev => prev.map(t =>
+          t.path === proj ? { ...t, circuits: { ...t.circuits, [c.agentId!]: c } } : t
+        ))
       }),
       sb.swarm.onOutput((_p: string, agentId: string, chunk: string) => {
         globalAgentOutputs[agentId] = (globalAgentOutputs[agentId] ?? '').slice(-50000) + chunk
@@ -166,7 +169,7 @@ export default function App() {
       path: p,
       page: 'dashboard',
       isEnabled: false,
-      circuit: null,
+      circuits: {},
     }
     setTabs(prev => [...prev, newTab])
     setActiveIdx(tabs.length)
@@ -283,7 +286,7 @@ export default function App() {
             <SetupWizard projectPath={current.path} onComplete={() => { setTabEnabled(true); setTabPage('dashboard') }} />
           )}
           {current.page === 'dashboard' && current.isEnabled && (
-            <Dashboard projectPath={current.path} circuit={current.circuit} onNavigate={(p) => setTabPage(p as Page)} />
+            <Dashboard projectPath={current.path} circuits={current.circuits} onNavigate={(p) => setTabPage(p as Page)} />
           )}
           {current.page === 'beads' && current.isEnabled && <BeadsPage projectPath={current.path} />}
           {current.page === 'swarm' && current.isEnabled && (
@@ -306,11 +309,14 @@ export default function App() {
       {/* Status bar */}
       {current && (
         <footer className="status-bar">
-          {current.circuit && (
-            <span className={`circuit-badge ${current.circuit.state?.toLowerCase()}`}>
-              CB: {current.circuit.state}
-            </span>
-          )}
+          {(() => {
+            const states = Object.values(current.circuits).map(c => c.state)
+            const hasOpen = states.includes('OPEN')
+            const hasHalfOpen = states.includes('HALF_OPEN')
+            if (hasOpen) return <span className="circuit-badge open">CB: OPEN</span>
+            if (hasHalfOpen) return <span className="circuit-badge half_open">CB: HALF_OPEN</span>
+            return null
+          })()}
           <span className="status-spacer" />
           <span className="status-path">{current.path}</span>
         </footer>
