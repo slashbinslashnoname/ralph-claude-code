@@ -1011,6 +1011,44 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   font-size: 12px;
 }
 
+/* ── Updates section ──────────────────────────────────────────────────────── */
+.updates-section { padding: 4px 0; }
+
+.updates-status-text {
+  color: var(--text-1);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.updates-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.updates-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 200ms ease;
+}
+
+.updates-version-info {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.updates-version-label { color: var(--text-0); font-weight: 500; }
+.updates-release-date { color: var(--text-2); font-size: 12px; margin-top: 2px; }
+.updates-release-notes { color: var(--text-1); margin-top: 8px; white-space: pre-wrap; font-size: 12px; }
+
 /* ── Setup ────────────────────────────────────────────────────────────────── */
 .setup-page {
   display: flex;
