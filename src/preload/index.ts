@@ -119,6 +119,13 @@ contextBridge.exposeInMainWorld('slashbot', {
     disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
   },
 
+  // ── Config (structured settings) ────────────────────────────────────
+  config: {
+    read: (projectPath: string) => ipcRenderer.invoke('config:read', projectPath),
+    write: (projectPath: string, updates: Record<string, unknown>) =>
+      ipcRenderer.invoke('config:write', projectPath, updates),
+  },
+
   // ── Update ─────────────────────────────────────────────────────────
   update: {
     check: () => ipcRenderer.invoke('update:check'),

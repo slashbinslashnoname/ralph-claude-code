@@ -208,3 +208,39 @@ export type UpdateEvent =
   | { type: 'progress'; progress: UpdateProgress }
   | { type: 'downloaded'; info: UpdateInfo }
   | { type: 'error'; error: string }
+
+// ---------------------------------------------------------------------------
+// Config types (structured .slashbotrc)
+// ---------------------------------------------------------------------------
+
+export type TelegramNotifyLevel = 'all' | 'errors' | 'completions' | 'none'
+
+export interface TelegramConfig {
+  botToken: string
+  chatId: string
+  enabled: boolean
+  notifyOn: TelegramNotifyLevel
+}
+
+export interface RalphConfig {
+  maxCallsPerHour: number
+  claudeTimeoutMinutes: number
+  claudeOutputFormat: 'json' | 'text'
+  claudeCodeCmd: string
+  allowedTools: string
+  sleepDuration: number
+  continueSession: boolean
+  cbNoProgressThreshold: number
+  cbSameErrorThreshold: number
+  cbPermissionDenialThreshold: number
+  cbCooldownMinutes: number
+  autoPush: boolean
+  maxRetries: number
+  autoSplitThreshold: number
+  buildMonitorCmd: string
+  buildMonitorInterval: number
+  claudeModelThink: string
+  claudeModelExecute: string
+  claudeModelReview: string
+  telegram?: TelegramConfig
+}
