@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()) }))
 import * as fs from 'fs'
 import * as path from 'path'
-import { CircuitBreaker } from './CircuitBreaker'
+import { CircuitBreaker, computedCooldown } from './CircuitBreaker'
 import { RalphConfig } from '../types'
 
 const SLASHBOT_DIR = '/tmp/test-slashbot'
@@ -32,6 +32,7 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     claudeModelThink: 'sonnet',
     claudeModelExecute: 'opus',
     claudeModelReview: 'sonnet',
+    cbMaxCooldownMinutes: 480,
     ...overrides
   }
 }
@@ -569,6 +570,173 @@ describe('CircuitBreaker', () => {
       cb.reset()
       cb.recordPermissionDenial() // opens again
       expect(cb.snapshot().total_opens).toBe(2)
+    })
+  })
+
+  describe('exponential backoff (reopenEpoch)', () => {
+    it('epoch starts at 0 and snapshot reflects it', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      expect(cb.snapshot().reopen_epoch).toBe(0)
+    })
+
+    it('epoch increments on each _open via recordError', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 1, cbErrorWindowSize: 10 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('err', 'transient') // opens — epoch 1
+      expect(cb.snapshot().reopen_epoch).toBe(1)
+
+      cb.reset()
+      // reset clears epoch
+      expect(cb.snapshot().reopen_epoch).toBe(0)
+    })
+
+    it('epoch increments across multiple opens without reset', () => {
+      const config = makeConfig({ cbPermissionDenialThreshold: 1, cbCooldownMinutes: 0, cbMaxCooldownMinutes: 480 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordPermissionDenial() // open — epoch 1
+      expect(cb.snapshot().reopen_epoch).toBe(1)
+
+      // Simulate cooldown elapsed by loading state
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'HALF_OPEN',
+          reopen_epoch: 1,
+          total_opens: 1,
+          consecutive_permission_denials: 0
+        })
+      )
+      const cb2 = new CircuitBreaker(SLASHBOT_DIR, config)
+      cb2.load()
+      expect(cb2.snapshot().reopen_epoch).toBe(1)
+
+      cb2.recordPermissionDenial() // open again — epoch 2
+      expect(cb2.snapshot().reopen_epoch).toBe(2)
+    })
+
+    it('epoch resets to 0 on HALF_OPEN → CLOSED via recordProgress', () => {
+      const config = makeConfig({ cbNoProgressThreshold: 2, cbPermissionDenialThreshold: 1 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordPermissionDenial() // open — epoch 1
+      expect(cb.snapshot().reopen_epoch).toBe(1)
+
+      cb.reset()
+      cb.recordNoProgress(false)
+      cb.recordNoProgress(false) // HALF_OPEN
+      expect(cb.snapshot().state).toBe('HALF_OPEN')
+
+      // Simulate another open to get epoch > 0
+      cb.recordNoProgress(false) // OPEN — epoch 1
+      expect(cb.snapshot().reopen_epoch).toBe(1)
+
+      // Now simulate cooldown by loading HALF_OPEN with epoch 1
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'HALF_OPEN',
+          reopen_epoch: 1,
+          total_opens: 2
+        })
+      )
+      const cb2 = new CircuitBreaker(SLASHBOT_DIR, config)
+      cb2.load()
+      expect(cb2.snapshot().reopen_epoch).toBe(1)
+
+      cb2.recordProgress(10) // HALF_OPEN → CLOSED resets epoch
+      expect(cb2.snapshot().reopen_epoch).toBe(0)
+      expect(cb2.snapshot().state).toBe('CLOSED')
+    })
+
+    it('load uses exponential cooldown — higher epoch needs longer cooldown', () => {
+      // base=10, max=480, epoch=3 → cooldown = 10 * 2^2 = 40
+      const openedAt = new Date(NOW - 25 * 60_000).toISOString() // 25 min ago
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'OPEN',
+          opened_at: openedAt,
+          reopen_epoch: 3,
+          total_opens: 3
+        })
+      )
+
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 10, cbMaxCooldownMinutes: 480 }))
+      cb.load()
+      // 25 min elapsed < 40 min cooldown → still OPEN
+      expect(cb.snapshot().state).toBe('OPEN')
+    })
+
+    it('load transitions to HALF_OPEN when exponential cooldown elapsed', () => {
+      // base=10, max=480, epoch=3 → cooldown = 40
+      const openedAt = new Date(NOW - 45 * 60_000).toISOString() // 45 min ago
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'OPEN',
+          opened_at: openedAt,
+          reopen_epoch: 3,
+          total_opens: 3
+        })
+      )
+
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 10, cbMaxCooldownMinutes: 480 }))
+      cb.load()
+      // 45 min elapsed >= 40 min cooldown → HALF_OPEN
+      expect(cb.snapshot().state).toBe('HALF_OPEN')
+    })
+
+    it('persists reopen_epoch via save and restores via load', () => {
+      const config = makeConfig({ cbPermissionDenialThreshold: 1 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+      cb.recordPermissionDenial() // open — epoch 1
+      cb.save()
+
+      const savedJson = (fs.writeFileSync as any).mock.calls[0][1] as string
+      const saved = JSON.parse(savedJson)
+      expect(saved.reopen_epoch).toBe(1)
+
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(savedJson)
+
+      const cb2 = new CircuitBreaker(SLASHBOT_DIR, config)
+      cb2.load()
+      expect(cb2.snapshot().reopen_epoch).toBe(1)
+    })
+  })
+
+  describe('computedCooldown (pure function)', () => {
+    const cfg = { cbCooldownMinutes: 10, cbMaxCooldownMinutes: 480 }
+
+    it('returns base cooldown when epoch <= 0', () => {
+      expect(computedCooldown(cfg, 0)).toBe(10)
+      expect(computedCooldown(cfg, -1)).toBe(10)
+    })
+
+    it('returns base for epoch 1 (2^0 = 1)', () => {
+      expect(computedCooldown(cfg, 1)).toBe(10)
+    })
+
+    it('doubles cooldown per epoch', () => {
+      expect(computedCooldown(cfg, 2)).toBe(20)  // 10 * 2^1
+      expect(computedCooldown(cfg, 3)).toBe(40)  // 10 * 2^2
+      expect(computedCooldown(cfg, 4)).toBe(80)  // 10 * 2^3
+      expect(computedCooldown(cfg, 5)).toBe(160) // 10 * 2^4
+    })
+
+    it('caps at cbMaxCooldownMinutes', () => {
+      expect(computedCooldown(cfg, 10)).toBe(480) // 10 * 2^9 = 5120, capped at 480
+      expect(computedCooldown(cfg, 100)).toBe(480)
+    })
+
+    it('works with different base/max values', () => {
+      const cfg2 = { cbCooldownMinutes: 30, cbMaxCooldownMinutes: 120 }
+      expect(computedCooldown(cfg2, 1)).toBe(30)
+      expect(computedCooldown(cfg2, 2)).toBe(60)
+      expect(computedCooldown(cfg2, 3)).toBe(120) // 30 * 4 = 120, at cap
+      expect(computedCooldown(cfg2, 4)).toBe(120) // capped
     })
   })
 

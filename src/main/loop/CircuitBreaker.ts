@@ -4,6 +4,20 @@ import { RalphConfig, CircuitBreakerSnapshot } from '../types'
 import { atomicWriteSync } from './utils'
 import { classifyError, ErrorCategory } from './ErrorClassifier'
 
+/**
+ * Compute cooldown duration with exponential backoff.
+ * Returns base * 2^(epoch-1) capped at max, or base when epoch <= 0.
+ */
+export function computedCooldown(
+  config: Pick<RalphConfig, 'cbCooldownMinutes' | 'cbMaxCooldownMinutes'>,
+  reopenEpoch: number
+): number {
+  const base = config.cbCooldownMinutes
+  const max = config.cbMaxCooldownMinutes
+  if (reopenEpoch <= 0) return base
+  return Math.min(base * Math.pow(2, reopenEpoch - 1), max)
+}
+
 export class CircuitBreaker {
   private state: 'CLOSED' | 'HALF_OPEN' | 'OPEN' = 'CLOSED'
   private consecutiveNoProgress = 0
@@ -11,6 +25,7 @@ export class CircuitBreaker {
   private consecutivePermissionDenials = 0
   private lastProgressLoop = 0
   private totalOpens = 0
+  private reopenEpoch = 0
   private reason = 'Initialized'
   private currentLoop = 0
   private openedAt?: string
@@ -43,10 +58,11 @@ export class CircuitBreaker {
       this.totalOpens = data.total_opens ?? 0
       this.reason = data.reason ?? ''
       this.currentLoop = data.current_loop ?? 0
+      this.reopenEpoch = data.reopen_epoch ?? 0
       this.openedAt = data.opened_at
       if (this.state === 'OPEN' && this.openedAt) {
         const elapsed = (Date.now() - new Date(this.openedAt).getTime()) / 60_000
-        if (elapsed >= this.config.cbCooldownMinutes) {
+        if (elapsed >= computedCooldown(this.config, this.reopenEpoch)) {
           this.state = 'HALF_OPEN'
           this.reason = `Cooldown elapsed (${Math.round(elapsed)}m), entering HALF_OPEN`
         }
@@ -67,7 +83,7 @@ export class CircuitBreaker {
       total_opens: this.totalOpens,
       reason: this.reason,
       current_loop: this.currentLoop,
-      reopen_epoch: 0,
+      reopen_epoch: this.reopenEpoch,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
     atomicWriteSync(
@@ -81,6 +97,7 @@ export class CircuitBreaker {
     this.consecutiveNoProgress = 0
     this.errorWindow = []
     this.consecutivePermissionDenials = 0
+    this.reopenEpoch = 0
     this.reason = 'Manual reset'
     this.openedAt = undefined
     this.save()
@@ -101,6 +118,7 @@ export class CircuitBreaker {
     this.consecutivePermissionDenials = 0
     if (this.state === 'HALF_OPEN') {
       this.state = 'CLOSED'
+      this.reopenEpoch = 0
       this.reason = 'Progress detected, circuit recovered'
     }
   }
@@ -145,7 +163,7 @@ export class CircuitBreaker {
       total_opens: this.totalOpens,
       reason: this.reason,
       current_loop: this.currentLoop,
-      reopen_epoch: 0,
+      reopen_epoch: this.reopenEpoch,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
   }
@@ -168,6 +186,7 @@ export class CircuitBreaker {
     this.state = 'OPEN'
     this.reason = reason
     this.totalOpens++
+    this.reopenEpoch++
     this.openedAt = new Date().toISOString()
   }
 }
