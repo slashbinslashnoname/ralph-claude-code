@@ -12,9 +12,12 @@ import {
 
 describe('validateRelPath', () => {
   it('accepts allowed config files', () => {
-    expect(validateRelPath('.slashbotrc')).toBe('.slashbotrc')
     expect(validateRelPath('PROMPT.md')).toBe('PROMPT.md')
     expect(validateRelPath('AGENT.md')).toBe('AGENT.md')
+  })
+
+  it('rejects .slashbotrc (migrated to structured config)', () => {
+    expect(() => validateRelPath('.slashbotrc')).toThrow(/Not an editable file/)
   })
 
   it('rejects old .slashbot/ prefixed paths', () => {
@@ -43,8 +46,8 @@ describe('validateRelPath', () => {
 
 describe('validateContainment', () => {
   it('allows paths within project', () => {
-    const resolved = validateContainment('/home/user/project', '.slashbotrc')
-    expect(resolved).toBe('/home/user/project/.slashbotrc')
+    const resolved = validateContainment('/home/user/project', 'PROMPT.md')
+    expect(resolved).toBe('/home/user/project/PROMPT.md')
   })
 
   it('allows nested paths within project', () => {
@@ -119,10 +122,10 @@ describe('validateConfigProjectPath', () => {
 
 describe('validateConfigRead', () => {
   it('validates and resolves allowed path against projectPath', () => {
-    const r = validateConfigRead('/proj', '.slashbotrc')
+    const r = validateConfigRead('/proj', 'PROMPT.md')
     expect(r.projectPath).toBe('/proj')
-    expect(r.relPath).toBe('.slashbotrc')
-    expect(r.resolvedPath).toBe('/proj/.slashbotrc')
+    expect(r.relPath).toBe('PROMPT.md')
+    expect(r.resolvedPath).toBe('/proj/PROMPT.md')
   })
 
   it('resolves against configDir when provided', () => {
@@ -143,7 +146,7 @@ describe('validateConfigRead', () => {
   })
 
   it('throws on invalid projectPath', () => {
-    expect(() => validateConfigRead('', '.slashbotrc')).toThrow(/non-empty/)
+    expect(() => validateConfigRead('', 'PROMPT.md')).toThrow(/non-empty/)
   })
 
   it('throws on non-string relPath', () => {
@@ -184,19 +187,19 @@ describe('validateConfigWrite', () => {
 
   it('throws on non-string content', () => {
     expect(
-      () => validateConfigWrite('/proj', '.slashbotrc', 123)
+      () => validateConfigWrite('/proj', 'PROMPT.md', 123)
     ).toThrow(/must be a string/)
   })
 
   it('throws on oversized content', () => {
     expect(
-      () => validateConfigWrite('/proj', '.slashbotrc', 'x'.repeat(1_000_001))
+      () => validateConfigWrite('/proj', 'PROMPT.md', 'x'.repeat(1_000_001))
     ).toThrow(/1000000 characters/)
   })
 
   it('throws on invalid projectPath', () => {
     expect(
-      () => validateConfigWrite(null, '.slashbotrc', 'content')
+      () => validateConfigWrite(null, 'PROMPT.md', 'content')
     ).toThrow(/non-empty string/)
   })
 })

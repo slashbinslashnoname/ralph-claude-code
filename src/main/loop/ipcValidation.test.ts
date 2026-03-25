@@ -52,8 +52,8 @@ describe('validatePath', () => {
   // ── containment ──────────────────────────────────────────────────────────
 
   it('resolves path within container', () => {
-    const result = validatePath('.slashbotrc', { containIn: '/home/project' })
-    expect(result).toBe('/home/project/.slashbotrc')
+    const result = validatePath('PROMPT.md', { containIn: '/home/project' })
+    expect(result).toBe('/home/project/PROMPT.md')
   })
 
   it('resolves nested path within container', () => {
