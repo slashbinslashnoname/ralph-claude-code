@@ -24,6 +24,12 @@ const EMOJI: Record<ActivityEvent['type'], string> = {
   resumed: '▶️',
   rollback: '↩️',
   split: '✂️',
+  heartbeat: '💓',
+  dead_agent: '💀',
+  claim_timeout: '⏰',
+  info: 'ℹ️',
+  circuit_open: '🔴',
+  circuit_closed: '🟢',
 }
 
 const BATCH_WINDOW_MS = 1000
@@ -68,6 +74,9 @@ function extractReadableText(chunk: string): string {
   return textParts.join('\n')
 }
 
+/** Events that always notify regardless of level (critical system events) */
+const CRITICAL_TYPES: Set<ActivityEvent['type']> = new Set(['circuit_open'])
+
 /** Events considered "errors" for filtering */
 const ERROR_TYPES: Set<ActivityEvent['type']> = new Set(['failed', 'rollback'])
 
@@ -81,6 +90,7 @@ const COMPLETION_TYPES: Set<ActivityEvent['type']> = new Set([
 ])
 
 function shouldNotify(level: TelegramNotifyLevel, eventType: ActivityEvent['type']): boolean {
+  if (CRITICAL_TYPES.has(eventType)) return true
   switch (level) {
     case 'all':
       return true
@@ -97,6 +107,14 @@ function shouldNotify(level: TelegramNotifyLevel, eventType: ActivityEvent['type
 
 function formatEvent(event: ActivityEvent): string {
   const emoji = EMOJI[event.type] ?? '❓'
+  if (event.type === 'circuit_open') {
+    const summary = event.summary ?? 'unknown reason'
+    return `🔴 Circuit OPEN — worker ${event.agentId}: ${summary}`
+  }
+  if (event.type === 'circuit_closed') {
+    const summary = event.summary ?? 'recovered'
+    return `🟢 Circuit CLOSED — worker ${event.agentId}: ${summary}`
+  }
   const agent = event.agentId
   const bead = event.beadTitle ?? event.beadId ?? ''
   const beadPart = bead ? ` [${bead}]` : ''

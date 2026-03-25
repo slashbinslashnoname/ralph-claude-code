@@ -124,10 +124,57 @@ describe('TelegramBridge', () => {
       expect(msg).not.toContain('thinking')
     })
 
-    it('none: forwards nothing', () => {
+    it('none: forwards nothing except critical events', () => {
       createBridge('none')
       orchestrator.emit('activity', makeEvent({ type: 'completed' }))
       orchestrator.emit('activity', makeEvent({ type: 'failed' }))
+      vi.advanceTimersByTime(1000)
+      expect(bot.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('circuit_open always notifies regardless of notifyOn level', () => {
+      for (const level of ['none', 'errors', 'completions', 'all'] as TelegramNotifyLevel[]) {
+        bot = createMockBot()
+        orchestrator = createMockOrchestrator()
+        bridge = new TelegramBridge({
+          orchestrator: orchestrator as any,
+          bot: bot as any,
+          notifyOn: level,
+          logger: () => {},
+        })
+        bridge.start()
+        orchestrator.emit(
+          'activity',
+          makeEvent({ type: 'circuit_open', agentId: 'worker-3', summary: 'too many errors' }),
+        )
+        vi.advanceTimersByTime(1000)
+        expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+        const msg = bot.sendMessage.mock.calls[0][0] as string
+        expect(msg).toContain('🔴')
+        expect(msg).toContain('Circuit OPEN')
+        expect(msg).toContain('worker-3')
+        expect(msg).toContain('too many errors')
+        bridge.stop()
+      }
+    })
+
+    it('circuit_closed notifies only at all level', () => {
+      createBridge('all')
+      orchestrator.emit(
+        'activity',
+        makeEvent({ type: 'circuit_closed', agentId: 'worker-1', summary: 'recovered' }),
+      )
+      vi.advanceTimersByTime(1000)
+      expect(bot.sendMessage).toHaveBeenCalledTimes(1)
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('🟢')
+      expect(msg).toContain('Circuit CLOSED')
+      expect(msg).toContain('worker-1')
+    })
+
+    it('circuit_closed does not notify at errors level', () => {
+      createBridge('errors')
+      orchestrator.emit('activity', makeEvent({ type: 'circuit_closed' }))
       vi.advanceTimersByTime(1000)
       expect(bot.sendMessage).not.toHaveBeenCalled()
     })
@@ -156,6 +203,12 @@ describe('TelegramBridge', () => {
       ['resumed', '▶️'],
       ['rollback', '↩️'],
       ['split', '✂️'],
+      ['heartbeat', '💓'],
+      ['dead_agent', '💀'],
+      ['claim_timeout', '⏰'],
+      ['info', 'ℹ️'],
+      ['circuit_open', '🔴'],
+      ['circuit_closed', '🟢'],
     ] as [ActivityEvent['type'], string][])(
       'maps %s to %s',
       (type, expectedEmoji) => {
