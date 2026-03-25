@@ -76,6 +76,8 @@ describe('App TabState type contracts', () => {
       total_opens: 0,
       reason: '',
       current_loop: 10,
+      reopen_epoch: 0,
+      error_window_count: 0,
     }
     expect(snapshot.state).toBe('CLOSED')
     expect(snapshot.total_opens).toBe(0)
@@ -104,6 +106,8 @@ describe('App TabState type contracts', () => {
       total_opens: 1,
       reason: 'No progress detected',
       current_loop: 10,
+      reopen_epoch: 0,
+      error_window_count: 0,
       opened_at: '2026-03-21T10:05:00Z',
     }
     expect(snapshot.opened_at).toBe('2026-03-21T10:05:00Z')

@@ -173,6 +173,14 @@ describe('parseRcFile', () => {
     const result = parseRcFile(tmpDir)
     expect(result.buildMonitorInterval).toBe(60)
   })
+
+  it('parses new circuit breaker window/backoff keys', () => {
+    writeRc('CB_ERROR_WINDOW_SIZE=20\nCB_ERROR_WINDOW_THRESHOLD=8\nCB_MAX_COOLDOWN_MINUTES=120')
+    const result = parseRcFile(tmpDir)
+    expect(result.cbErrorWindowSize).toBe(20)
+    expect(result.cbErrorWindowThreshold).toBe(8)
+    expect(result.cbMaxCooldownMinutes).toBe(120)
+  })
 })
 
 // ── validateConfig ──────────────────────────────────────────────────────────
@@ -704,5 +712,75 @@ describe('serializeConfig', () => {
   it('ends with a trailing newline', () => {
     const serialized = serializeConfig(DEFAULT_CONFIG)
     expect(serialized.endsWith('\n')).toBe(true)
+  })
+
+  it('includes new CB config keys in serialized output', () => {
+    const serialized = serializeConfig(DEFAULT_CONFIG)
+    expect(serialized).toContain('CB_ERROR_WINDOW_SIZE=10')
+    expect(serialized).toContain('CB_ERROR_WINDOW_THRESHOLD=5')
+    expect(serialized).toContain('CB_MAX_COOLDOWN_MINUTES=480')
+  })
+})
+
+// ── backward compat ─────────────────────────────────────────────────────────
+
+describe('backward compatibility', () => {
+  it('loadConfig returns correct defaults when .slashbotrc has no new CB fields', () => {
+    writeRc(
+      [
+        'MAX_CALLS_PER_HOUR=200',
+        'CLAUDE_TIMEOUT_MINUTES=30',
+        'CB_NO_PROGRESS_THRESHOLD=5',
+        'CB_COOLDOWN_MINUTES=15',
+        'AUTO_PUSH=true'
+      ].join('\n')
+    )
+    const config = loadConfig(tmpDir)
+
+    // Explicitly set fields
+    expect(config.maxCallsPerHour).toBe(200)
+    expect(config.claudeTimeoutMinutes).toBe(30)
+    expect(config.cbNoProgressThreshold).toBe(5)
+    expect(config.cbCooldownMinutes).toBe(15)
+
+    // New fields should fall back to defaults
+    expect(config.cbErrorWindowSize).toBe(10)
+    expect(config.cbErrorWindowThreshold).toBe(5)
+    expect(config.cbMaxCooldownMinutes).toBe(480)
+  })
+
+  it('validates new CB fields with range checks', () => {
+    const { config, warnings } = validateConfig({
+      cbErrorWindowSize: 0,
+      cbErrorWindowThreshold: 0,
+      cbMaxCooldownMinutes: 0
+    })
+    expect(warnings.length).toBe(3)
+    expect(config.cbErrorWindowSize).toBe(DEFAULT_CONFIG.cbErrorWindowSize)
+    expect(config.cbErrorWindowThreshold).toBe(DEFAULT_CONFIG.cbErrorWindowThreshold)
+    expect(config.cbMaxCooldownMinutes).toBe(DEFAULT_CONFIG.cbMaxCooldownMinutes)
+  })
+
+  it('accepts valid new CB field values', () => {
+    const { config, warnings } = validateConfig({
+      cbErrorWindowSize: 20,
+      cbErrorWindowThreshold: 8,
+      cbMaxCooldownMinutes: 120
+    })
+    expect(warnings).toEqual([])
+    expect(config.cbErrorWindowSize).toBe(20)
+    expect(config.cbErrorWindowThreshold).toBe(8)
+    expect(config.cbMaxCooldownMinutes).toBe(120)
+  })
+
+  it('round-trips new CB fields through serialize/load', () => {
+    const config = { ...DEFAULT_CONFIG, cbErrorWindowSize: 25, cbErrorWindowThreshold: 10, cbMaxCooldownMinutes: 240 }
+    const serialized = serializeConfig(config)
+    const roundTripPath = path.join(tmpDir, '.slashbotrc-cb')
+    fs.writeFileSync(roundTripPath, serialized, 'utf8')
+    const reloaded = loadConfig(tmpDir, roundTripPath)
+    expect(reloaded.cbErrorWindowSize).toBe(25)
+    expect(reloaded.cbErrorWindowThreshold).toBe(10)
+    expect(reloaded.cbMaxCooldownMinutes).toBe(240)
   })
 })

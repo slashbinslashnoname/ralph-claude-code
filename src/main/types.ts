@@ -39,6 +39,9 @@ export interface RalphConfig {
   claudeModelThink: string
   claudeModelExecute: string
   claudeModelReview: string
+  cbErrorWindowSize: number
+  cbErrorWindowThreshold: number
+  cbMaxCooldownMinutes: number
   telegram?: TelegramConfig
 }
 
@@ -54,6 +57,10 @@ export interface CircuitBreakerSnapshot {
   reason: string
   current_loop: number
   opened_at?: string
+  reopen_epoch: number
+  rate_limit_until?: string
+  agentId?: string
+  error_window_count: number
 }
 
 export type BeadStatus = 'pending' | 'ready' | 'claimed' | 'done' | 'failed'
