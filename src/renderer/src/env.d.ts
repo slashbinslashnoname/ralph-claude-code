@@ -67,7 +67,7 @@ interface SlashbotAPI {
   listLogs: (p: string) => Promise<string[]>
   readFile: (p: string, rel: string) => Promise<{ ok: boolean; content?: string; error?: string }>
   writeFile: (p: string, rel: string, c: string) => Promise<{ ok: boolean; error?: string }>
-  resetCircuit: (p: string) => Promise<{ ok: boolean }>
+  resetCircuit: (p: string, agentId?: string) => Promise<{ ok: boolean }>
   resetSession: (p: string) => Promise<{ ok: boolean }>
   beads: {
     check: (p: string) => Promise<{ available: boolean; reason?: string }>
