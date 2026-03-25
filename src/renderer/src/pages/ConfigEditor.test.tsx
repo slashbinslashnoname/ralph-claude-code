@@ -43,6 +43,16 @@ const mocks = vi.hoisted(() => {
   const mockTelegramDisconnect = vi.fn().mockResolvedValue({ ok: true })
   const mockConfigRead = vi.fn().mockResolvedValue({ ok: true, config: { ...MOCK_CONFIG } })
   const mockConfigWrite = vi.fn().mockResolvedValue({ ok: true })
+  const mockUpdateCheck = vi.fn()
+  const mockUpdateDownload = vi.fn()
+  const mockUpdateInstall = vi.fn()
+  const mockUpdateGetState = vi.fn().mockResolvedValue(null)
+  const mockUpdateOnChecking = vi.fn(() => () => {})
+  const mockUpdateOnAvailable = vi.fn(() => () => {})
+  const mockUpdateOnNotAvailable = vi.fn(() => () => {})
+  const mockUpdateOnProgress = vi.fn(() => () => {})
+  const mockUpdateOnDownloaded = vi.fn(() => () => {})
+  const mockUpdateOnError = vi.fn(() => () => {})
 
   ;(globalThis as any).window = {
     slashbot: {
@@ -58,6 +68,18 @@ const mocks = vi.hoisted(() => {
         read: mockConfigRead,
         write: mockConfigWrite,
       },
+      update: {
+        check: mockUpdateCheck,
+        download: mockUpdateDownload,
+        install: mockUpdateInstall,
+        getState: mockUpdateGetState,
+        onChecking: mockUpdateOnChecking,
+        onAvailable: mockUpdateOnAvailable,
+        onNotAvailable: mockUpdateOnNotAvailable,
+        onProgress: mockUpdateOnProgress,
+        onDownloaded: mockUpdateOnDownloaded,
+        onError: mockUpdateOnError,
+      },
     },
   }
 
@@ -70,6 +92,16 @@ const mocks = vi.hoisted(() => {
     mockTelegramDisconnect,
     mockConfigRead,
     mockConfigWrite,
+    mockUpdateCheck,
+    mockUpdateDownload,
+    mockUpdateInstall,
+    mockUpdateGetState,
+    mockUpdateOnChecking,
+    mockUpdateOnAvailable,
+    mockUpdateOnNotAvailable,
+    mockUpdateOnProgress,
+    mockUpdateOnDownloaded,
+    mockUpdateOnError,
     MOCK_CONFIG,
   }
 })
@@ -94,14 +126,16 @@ beforeEach(() => {
     continueSession: true,
     telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' },
   })
+  mocks.mockUpdateGetState.mockResolvedValue(null)
 })
 
 describe('ConfigEditor', () => {
-  test('renders Settings, Prompts, and Telegram outer tabs', () => {
+  test('renders Settings, Prompts, Telegram, and Updates outer tabs', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
     expect(html).toContain('>Settings</button>')
     expect(html).toContain('>Prompts</button>')
     expect(html).toContain('>Telegram</button>')
+    expect(html).toContain('>Updates</button>')
   })
 
   test('does not render .slashbotrc tab', () => {
@@ -316,5 +350,109 @@ describe('config namespace (preload bridge)', () => {
     const b = await window.slashbot.config.read('/proj/b')
     expect(a.config.maxCallsPerHour).toBe(10)
     expect(b.config.maxCallsPerHour).toBe(200)
+  })
+})
+
+describe('UpdatesSection — source analysis', () => {
+  const src = (() => {
+    const { readFileSync } = require('fs')
+    const { resolve, dirname } = require('path')
+    return readFileSync(resolve(__dirname, 'ConfigEditor.tsx'), 'utf-8') as string
+  })()
+
+  test('imports UpdateState, UpdateInfo, UpdateProgress from types', () => {
+    expect(src).toContain("import type { UpdateState, UpdateInfo, UpdateProgress } from '../types/ipc'")
+  })
+
+  test('defines UpdatesSectionState with required fields', () => {
+    expect(src).toContain('phase: UpdateState')
+    expect(src).toContain('info: UpdateInfo | null')
+    expect(src).toContain('progress: UpdateProgress | null')
+    expect(src).toContain('error: string | null')
+    expect(src).toContain('installing: boolean')
+  })
+
+  test('subscribes to all six update events', () => {
+    expect(src).toContain('sb.update.onChecking(')
+    expect(src).toContain('sb.update.onAvailable(')
+    expect(src).toContain('sb.update.onNotAvailable(')
+    expect(src).toContain('sb.update.onProgress(')
+    expect(src).toContain('sb.update.onDownloaded(')
+    expect(src).toContain('sb.update.onError(')
+  })
+
+  test('unsubscribes on unmount via cleanup return', () => {
+    expect(src).toContain('unsubs.forEach(u => u())')
+  })
+
+  test('hydrates from sb.update.getState() on mount', () => {
+    expect(src).toContain('sb.update.getState()')
+  })
+
+  test('has Check for Updates button', () => {
+    expect(src).toContain('Check for Updates')
+  })
+
+  test('has Install & Restart button', () => {
+    expect(src).toContain('Install & Restart')
+  })
+
+  test('has Download button for available state', () => {
+    expect(src).toContain("state.phase === 'available'")
+    expect(src).toContain('handleDownload')
+  })
+
+  test('has progress bar elements', () => {
+    expect(src).toContain('updates-progress-bar')
+    expect(src).toContain('updates-progress-fill')
+  })
+
+  test('has formatSpeed helper for download speed display', () => {
+    expect(src).toContain('formatSpeed')
+    expect(src).toContain('MB/s')
+    expect(src).toContain('KB/s')
+    expect(src).toContain('B/s')
+  })
+
+  test('disables check button during checking and downloading', () => {
+    expect(src).toContain("state.phase === 'checking' || state.phase === 'downloading'")
+  })
+
+  test('shows version info when available', () => {
+    expect(src).toContain('updates-version-info')
+    expect(src).toContain('state.info.version')
+  })
+})
+
+describe('UpdatesSection — update namespace mock bridge', () => {
+  test('update.getState returns null by default', async () => {
+    const state = await window.slashbot.update.getState()
+    expect(state).toBeNull()
+  })
+
+  test('update.getState returns hydrated state', async () => {
+    mocks.mockUpdateGetState.mockResolvedValue({ state: 'available', info: { version: '1.2.3' } })
+    const state = await window.slashbot.update.getState()
+    expect(state).toEqual({ state: 'available', info: { version: '1.2.3' } })
+  })
+
+  test('update.check calls through', () => {
+    window.slashbot.update.check()
+    expect(mocks.mockUpdateCheck).toHaveBeenCalledTimes(1)
+  })
+
+  test('update.download calls through', () => {
+    window.slashbot.update.download()
+    expect(mocks.mockUpdateDownload).toHaveBeenCalledTimes(1)
+  })
+
+  test('update.install calls through', () => {
+    window.slashbot.update.install()
+    expect(mocks.mockUpdateInstall).toHaveBeenCalledTimes(1)
+  })
+
+  test('event listener mocks return unsubscribe functions', () => {
+    const unsub = window.slashbot.update.onChecking(() => {})
+    expect(typeof unsub).toBe('function')
   })
 })

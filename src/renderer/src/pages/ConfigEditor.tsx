@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { RalphConfig } from '../types/ipc'
+import type { UpdateState, UpdateInfo, UpdateProgress, RalphConfig } from '../types/ipc'
 
 const sb = window.slashbot
 
 interface Props { projectPath: string }
 
-type ActiveTab = 'settings' | 'prompts' | 'telegram'
+type ActiveTab = 'settings' | 'prompts' | 'telegram' | 'updates'
 
 const PROMPT_FILES = [
   { path: 'PROMPT.md', label: 'PROMPT.md' },
@@ -279,7 +279,162 @@ function SettingsSection({ projectPath }: { projectPath: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// TelegramSection (unchanged)
+// Updates section
+// ---------------------------------------------------------------------------
+
+interface UpdatesSectionState {
+  phase: UpdateState
+  info: UpdateInfo | null
+  progress: UpdateProgress | null
+  error: string | null
+  installing: boolean
+}
+
+const UPDATES_INITIAL: UpdatesSectionState = {
+  phase: 'idle',
+  info: null,
+  progress: null,
+  error: null,
+  installing: false,
+}
+
+function formatSpeed(bytesPerSecond: number): string {
+  if (bytesPerSecond >= 1_000_000) return `${(bytesPerSecond / 1_000_000).toFixed(1)} MB/s`
+  if (bytesPerSecond >= 1_000) return `${(bytesPerSecond / 1_000).toFixed(0)} KB/s`
+  return `${bytesPerSecond} B/s`
+}
+
+function UpdatesSection() {
+  const [state, setState] = useState<UpdatesSectionState>(UPDATES_INITIAL)
+
+  // Hydrate from current updater state on mount
+  useEffect(() => {
+    sb.update.getState().then(s => {
+      if (!s) return
+      setState(prev => ({
+        ...prev,
+        phase: s.state,
+        info: s.info ?? null,
+        progress: s.progress ?? null,
+        error: s.error ?? null,
+      }))
+    }).catch(() => {/* ignore */})
+  }, [])
+
+  // Subscribe to update events
+  useEffect(() => {
+    const unsubs = [
+      sb.update.onChecking(() => {
+        setState(prev => ({ ...prev, phase: 'checking', error: null }))
+      }),
+      sb.update.onAvailable((info: UpdateInfo) => {
+        setState(prev => ({ ...prev, phase: 'available', info, error: null }))
+      }),
+      sb.update.onNotAvailable(() => {
+        setState(prev => ({ ...prev, phase: 'not-available' }))
+      }),
+      sb.update.onProgress((progress: UpdateProgress) => {
+        setState(prev => ({ ...prev, phase: 'downloading', progress }))
+      }),
+      sb.update.onDownloaded((info: UpdateInfo) => {
+        setState(prev => ({ ...prev, phase: 'downloaded', info, error: null }))
+      }),
+      sb.update.onError((error: string) => {
+        setState(prev => ({ ...prev, phase: 'error', error }))
+      }),
+    ]
+    return () => unsubs.forEach(u => u())
+  }, [])
+
+  const handleCheck = useCallback(() => {
+    sb.update.check()
+  }, [])
+
+  const handleDownload = useCallback(() => {
+    sb.update.download()
+  }, [])
+
+  const handleInstall = useCallback(() => {
+    setState(prev => ({ ...prev, installing: true }))
+    sb.update.install()
+  }, [])
+
+  const statusText = (): string => {
+    switch (state.phase) {
+      case 'idle': return 'No updates checked yet.'
+      case 'checking': return 'Checking for updates…'
+      case 'available': return `Version ${state.info?.version ?? 'unknown'} is available.`
+      case 'not-available': return 'You are on the latest version.'
+      case 'downloading': return state.progress
+        ? `Downloading… ${Math.round(state.progress.percent)}% — ${formatSpeed(state.progress.bytesPerSecond)}`
+        : 'Downloading…'
+      case 'downloaded': return `Version ${state.info?.version ?? 'unknown'} is ready to install.`
+      case 'error': return 'An error occurred while checking for updates.'
+    }
+  }
+
+  return (
+    <div className="updates-section">
+      <div className="updates-status-text">{statusText()}</div>
+
+      {state.phase === 'downloading' && (
+        <div className="updates-progress-bar">
+          <div
+            className="updates-progress-fill"
+            style={{ width: state.progress ? `${Math.round(state.progress.percent)}%` : '0%' }}
+          />
+        </div>
+      )}
+
+      <div className="form-actions" style={{ marginTop: 12 }}>
+        <button
+          className="btn btn-primary"
+          onClick={handleCheck}
+          disabled={state.phase === 'checking' || state.phase === 'downloading'}
+        >
+          {state.phase === 'checking' ? 'Checking…' : 'Check for Updates'}
+        </button>
+
+        {state.phase === 'available' && (
+          <button className="btn btn-primary" onClick={handleDownload}>
+            Download
+          </button>
+        )}
+
+        {state.phase === 'downloaded' && (
+          <button
+            className="btn btn-primary"
+            onClick={handleInstall}
+            disabled={state.installing}
+          >
+            {state.installing ? 'Restarting…' : 'Install & Restart'}
+          </button>
+        )}
+      </div>
+
+      {state.info && state.phase !== 'idle' && state.phase !== 'not-available' && (
+        <div className="updates-version-info">
+          <div className="updates-version-label">Version {state.info.version}</div>
+          {state.info.releaseDate && (
+            <div className="updates-release-date">{state.info.releaseDate}</div>
+          )}
+          {state.info.releaseNotes && (
+            <div className="updates-release-notes">{state.info.releaseNotes}</div>
+          )}
+        </div>
+      )}
+
+      {state.phase === 'error' && (
+        <div className="alert alert-danger" style={{ marginTop: 10 }}>
+          {state.error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Telegram section
 // ---------------------------------------------------------------------------
 
 interface TelegramStatus {
@@ -521,6 +676,12 @@ export default function ConfigEditor({ projectPath }: Props) {
         >
           Telegram
         </button>
+        <button
+          className={`tab ${activeTab === 'updates' ? 'active' : ''}`}
+          onClick={() => setActiveTab('updates')}
+        >
+          Updates
+        </button>
       </div>
       {activeTab === 'settings' && <SettingsSection projectPath={projectPath} />}
       {activeTab === 'prompts' && (
@@ -547,6 +708,7 @@ export default function ConfigEditor({ projectPath }: Props) {
         </>
       )}
       {activeTab === 'telegram' && <TelegramSection projectPath={projectPath} />}
+      {activeTab === 'updates' && <UpdatesSection />}
     </div>
   )
 }

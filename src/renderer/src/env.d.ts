@@ -3,7 +3,7 @@
 import type {
   Bead, BeadType, ActivityEvent, KnowledgeEntry,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
-  RalphConfig,
+  RalphConfig, UpdateState, UpdateInfo, UpdateProgress,
 } from './types/ipc'
 
 export {}
@@ -131,6 +131,18 @@ interface SlashbotAPI {
   config: {
     read: (p: string) => Promise<{ ok: boolean; config?: RalphConfig; error?: string }>
     write: (p: string, updates: Partial<RalphConfig>) => Promise<{ ok: boolean; error?: string }>
+  }
+  update: {
+    check: () => Promise<void>
+    download: () => Promise<void>
+    install: () => Promise<void>
+    getState: () => Promise<{ state: UpdateState; info?: UpdateInfo; progress?: UpdateProgress; error?: string } | null>
+    onChecking: (cb: () => void) => () => void
+    onAvailable: (cb: (info: UpdateInfo) => void) => () => void
+    onNotAvailable: (cb: () => void) => () => void
+    onProgress: (cb: (progress: UpdateProgress) => void) => () => void
+    onDownloaded: (cb: (info: UpdateInfo) => void) => () => void
+    onError: (cb: (error: string) => void) => () => void
   }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>
