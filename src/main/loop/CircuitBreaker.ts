@@ -55,6 +55,8 @@ export class CircuitBreaker {
       total_opens: this.totalOpens,
       reason: this.reason,
       current_loop: this.currentLoop,
+      reopen_epoch: 0,
+      error_window_count: 0,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
     atomicWriteSync(
@@ -128,6 +130,8 @@ export class CircuitBreaker {
       total_opens: this.totalOpens,
       reason: this.reason,
       current_loop: this.currentLoop,
+      reopen_epoch: 0,
+      error_window_count: 0,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
   }

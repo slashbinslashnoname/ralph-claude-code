@@ -149,7 +149,9 @@ describe('IPC types', () => {
       last_progress_loop: 0,
       total_opens: 0,
       reason: '',
-      current_loop: 1
+      current_loop: 1,
+      reopen_epoch: 0,
+      error_window_count: 0
     }
     expect(cb.state).toBe('CLOSED')
     expect(cb.opened_at).toBeUndefined()

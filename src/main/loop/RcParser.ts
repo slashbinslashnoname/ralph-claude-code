@@ -29,6 +29,9 @@ export const DEFAULT_CONFIG: RalphConfig = {
   claudeModelThink: 'sonnet',
   claudeModelExecute: 'opus',
   claudeModelReview: 'sonnet',
+  cbErrorWindowSize: 10,
+  cbErrorWindowThreshold: 5,
+  cbMaxCooldownMinutes: 480,
   telegram: { ...DEFAULT_TELEGRAM_CONFIG }
 }
 
@@ -51,7 +54,10 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   BUILD_MONITOR_INTERVAL: 'buildMonitorInterval',
   CLAUDE_MODEL_THINK: 'claudeModelThink',
   CLAUDE_MODEL_EXECUTE: 'claudeModelExecute',
-  CLAUDE_MODEL_REVIEW: 'claudeModelReview'
+  CLAUDE_MODEL_REVIEW: 'claudeModelReview',
+  CB_ERROR_WINDOW_SIZE: 'cbErrorWindowSize',
+  CB_ERROR_WINDOW_THRESHOLD: 'cbErrorWindowThreshold',
+  CB_MAX_COOLDOWN_MINUTES: 'cbMaxCooldownMinutes'
 }
 
 const TELEGRAM_KEY_MAP: Record<string, keyof TelegramConfig> = {
@@ -135,7 +141,10 @@ const NUMERIC_RANGES: Partial<Record<keyof RalphConfig, NumericRule>> = {
   cbCooldownMinutes: { min: 1, max: 1440 },
   maxRetries: { min: 0, max: 10 },
   autoSplitThreshold: { min: 1, max: 100 },
-  buildMonitorInterval: { min: 30, max: 86400 }
+  buildMonitorInterval: { min: 30, max: 86400 },
+  cbErrorWindowSize: { min: 1, max: 1000 },
+  cbErrorWindowThreshold: { min: 1, max: 1000 },
+  cbMaxCooldownMinutes: { min: 1, max: 1440 }
 }
 
 export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
@@ -238,7 +247,7 @@ const KEY_GROUPS: Array<{ header: string; keys: string[] }> = [
   { header: 'Timeouts', keys: ['CLAUDE_TIMEOUT_MINUTES', 'SLEEP_DURATION'] },
   { header: 'Session', keys: ['CONTINUE_SESSION'] },
   { header: 'Claude settings', keys: ['CLAUDE_OUTPUT_FORMAT', 'CLAUDE_CODE_CMD', 'CLAUDE_ALLOWED_TOOLS'] },
-  { header: 'Circuit breaker', keys: ['CB_NO_PROGRESS_THRESHOLD', 'CB_SAME_ERROR_THRESHOLD', 'CB_PERMISSION_DENIAL_THRESHOLD', 'CB_COOLDOWN_MINUTES'] },
+  { header: 'Circuit breaker', keys: ['CB_NO_PROGRESS_THRESHOLD', 'CB_SAME_ERROR_THRESHOLD', 'CB_PERMISSION_DENIAL_THRESHOLD', 'CB_COOLDOWN_MINUTES', 'CB_ERROR_WINDOW_SIZE', 'CB_ERROR_WINDOW_THRESHOLD', 'CB_MAX_COOLDOWN_MINUTES'] },
   { header: 'Retries & splitting', keys: ['AUTO_PUSH', 'MAX_RETRIES', 'AUTO_SPLIT_THRESHOLD'] },
   { header: 'Build monitor', keys: ['BUILD_MONITOR_CMD', 'BUILD_MONITOR_INTERVAL'] },
   { header: 'Model overrides', keys: ['CLAUDE_MODEL_THINK', 'CLAUDE_MODEL_EXECUTE', 'CLAUDE_MODEL_REVIEW'] }
@@ -284,19 +293,3 @@ export function loadConfig(projectPath: string, rcPath?: string): RalphConfig {
   return config
 }
 
-export function serializeConfig(config: RalphConfig): string {
-  const lines: string[] = []
-
-  for (const [rcKey, configKey] of Object.entries(KEY_MAP)) {
-    lines.push(`${rcKey}=${String(config[configKey])}`)
-  }
-
-  if (config.telegram) {
-    lines.push('')
-    for (const [rcKey, tgKey] of Object.entries(TELEGRAM_KEY_MAP)) {
-      lines.push(`${rcKey}=${String(config.telegram[tgKey])}`)
-    }
-  }
-
-  return lines.join('\n') + '\n'
-}

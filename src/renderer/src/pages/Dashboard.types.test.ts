@@ -62,6 +62,8 @@ describe('Dashboard type contracts', () => {
       total_opens: 0,
       reason: '',
       current_loop: 10,
+      reopen_epoch: 0,
+      error_window_count: 0,
     }
     expect(circuit.state).toBe('CLOSED')
   })
