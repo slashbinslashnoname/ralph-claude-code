@@ -1,5 +1,6 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest'
-import React from 'react'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import React, { act } from 'react'
+import ReactDOM from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 const mocks = vi.hoisted(() => {
@@ -54,32 +55,35 @@ const mocks = vi.hoisted(() => {
   const mockUpdateOnDownloaded = vi.fn(() => () => {})
   const mockUpdateOnError = vi.fn(() => () => {})
 
-  ;(globalThis as any).window = {
-    slashbot: {
-      readFile: mockReadFile,
-      writeFile: mockWriteFile,
-      telegram: {
-        status: mockTelegramStatus,
-        configure: mockTelegramConfigure,
-        test: mockTelegramTest,
-        disconnect: mockTelegramDisconnect,
-      },
-      config: {
-        read: mockConfigRead,
-        write: mockConfigWrite,
-      },
-      update: {
-        check: mockUpdateCheck,
-        download: mockUpdateDownload,
-        install: mockUpdateInstall,
-        getState: mockUpdateGetState,
-        onChecking: mockUpdateOnChecking,
-        onAvailable: mockUpdateOnAvailable,
-        onNotAvailable: mockUpdateOnNotAvailable,
-        onProgress: mockUpdateOnProgress,
-        onDownloaded: mockUpdateOnDownloaded,
-        onError: mockUpdateOnError,
-      },
+  // Preserve jsdom window (needed for ReactDOM.createRoot); only inject slashbot namespace.
+  if (typeof (globalThis as any).window === 'undefined') {
+    ;(globalThis as any).window = {}
+  }
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  ;(globalThis as any).window.slashbot = {
+    readFile: mockReadFile,
+    writeFile: mockWriteFile,
+    telegram: {
+      status: mockTelegramStatus,
+      configure: mockTelegramConfigure,
+      test: mockTelegramTest,
+      disconnect: mockTelegramDisconnect,
+    },
+    config: {
+      read: mockConfigRead,
+      write: mockConfigWrite,
+    },
+    update: {
+      check: mockUpdateCheck,
+      download: mockUpdateDownload,
+      install: mockUpdateInstall,
+      getState: mockUpdateGetState,
+      onChecking: mockUpdateOnChecking,
+      onAvailable: mockUpdateOnAvailable,
+      onNotAvailable: mockUpdateOnNotAvailable,
+      onProgress: mockUpdateOnProgress,
+      onDownloaded: mockUpdateOnDownloaded,
+      onError: mockUpdateOnError,
     },
   }
 
@@ -107,7 +111,7 @@ const mocks = vi.hoisted(() => {
 })
 
 import ConfigEditor from './ConfigEditor'
-import { validateField, NUMERIC_RANGES } from './ConfigEditor'
+import { SettingsSection, validateField, NUMERIC_RANGES } from './ConfigEditor'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -119,12 +123,6 @@ beforeEach(() => {
     lastError: null,
     messagesSent: 0,
     messagesReceived: 0,
-  })
-  mocks.mockConfigRead.mockResolvedValue({
-    maxCallsPerHour: 100,
-    claudeTimeoutMinutes: 15,
-    continueSession: true,
-    telegram: { botToken: '', chatId: '', enabled: false, notifyOn: 'errors' },
   })
   mocks.mockUpdateGetState.mockResolvedValue(null)
 })
@@ -138,35 +136,138 @@ describe('ConfigEditor', () => {
     expect(html).toContain('>Updates</button>')
   })
 
-  test('does not render .slashbotrc tab', () => {
+  test('Settings tab is active by default', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).not.toContain('.slashbotrc')
-  })
-
-  test('renders Settings section with loading state on initial render', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    // SSR renders the loading state since useEffect hasn't fired
-    expect(html).toContain('Loading configuration')
-  })
-
-  test('does not render .slashbotrc as an editable file tab', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).not.toContain('Configuration (.slashbotrc)')
-  })
-
-  test('readFile mock is callable with project path and PROMPT.md', async () => {
-    await window.slashbot.readFile('/my/project', 'PROMPT.md')
-    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'PROMPT.md')
-  })
-
-  test('readFile mock is callable with AGENT.md', async () => {
-    await window.slashbot.readFile('/my/project', 'AGENT.md')
-    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'AGENT.md')
+    expect(html).toMatch(/tab active[^"]*">Settings/)
   })
 
   test('renders Configuration header', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
     expect(html).toContain('Configuration')
+  })
+
+  test('renders Settings section with loading state on initial render', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    expect(html).toContain('Loading configuration')
+  })
+})
+
+describe('SettingsSection — structured form', () => {
+  let container: HTMLElement
+  let root: ReturnType<typeof ReactDOM.createRoot>
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = ReactDOM.createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => { root.unmount() })
+    document.body.removeChild(container)
+  })
+
+  test('renders all section headings after config load', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    const html = container.innerHTML
+    expect(html).toContain('Execution')
+    expect(html).toContain('Claude CLI')
+    expect(html).toContain('Model Routing')
+    expect(html).toContain('Circuit Breaker')
+    expect(html).toContain('Build Monitor')
+  })
+
+  test('renders number inputs for numeric fields', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    const numberInputs = container.querySelectorAll('input[type="number"]')
+    expect(numberInputs.length).toBeGreaterThan(0)
+  })
+
+  test('renders text inputs for text fields', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    const textInputs = container.querySelectorAll('input[type="text"]')
+    expect(textInputs.length).toBeGreaterThan(0)
+  })
+
+  test('renders checkbox inputs for boolean fields', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    const checkboxInputs = container.querySelectorAll('input[type="checkbox"]')
+    expect(checkboxInputs.length).toBeGreaterThan(0)
+  })
+
+  test('Save button calls sb.config.write with shape excluding telegram', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    expect(saveBtn).not.toBeNull()
+    await act(async () => {
+      saveBtn.click()
+    })
+    expect(mocks.mockConfigWrite).toHaveBeenCalledTimes(1)
+    const [path, payload] = mocks.mockConfigWrite.mock.calls[0]
+    expect(path).toBe('/test')
+    expect(payload).not.toHaveProperty('telegram')
+    expect(payload).toHaveProperty('maxCallsPerHour')
+  })
+
+  test('error from config.write is displayed inline', async () => {
+    mocks.mockConfigWrite.mockResolvedValueOnce({ ok: false, error: 'validation failed' })
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => {
+      saveBtn.click()
+    })
+    expect(container.innerHTML).toContain('validation failed')
+    expect(container.querySelector('.alert-danger')).not.toBeNull()
+  })
+
+  test('shows alert-danger when config.read fails', async () => {
+    mocks.mockConfigRead.mockResolvedValueOnce({ ok: false, error: 'permission denied' })
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    expect(container.querySelector('.alert-danger')).not.toBeNull()
+    expect(container.innerHTML).toContain('permission denied')
+  })
+
+  test('Save button is disabled and config.write not called when a field has a validation error', async () => {
+    await act(async () => {
+      root.render(<SettingsSection projectPath="/test" />)
+    })
+    await act(async () => {})
+    // Set maxCallsPerHour to 0 (below min of 1) to trigger a validation error.
+    // Use the native input value setter so React's synthetic onChange fires.
+    const numberInputs = container.querySelectorAll('input[type="number"]')
+    const maxCallsInput = Array.from(numberInputs).find(
+      inp => (inp as HTMLInputElement).value === '100'
+    ) as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(maxCallsInput, '0')
+      maxCallsInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    expect(saveBtn.disabled).toBe(true)
+    await act(async () => { saveBtn.click() })
+    expect(mocks.mockConfigWrite).not.toHaveBeenCalled()
   })
 })
 
@@ -226,14 +327,90 @@ describe('NUMERIC_RANGES', () => {
   })
 
   test('all ranges have min <= max', () => {
-    for (const [key, range] of Object.entries(NUMERIC_RANGES)) {
+    for (const [_key, range] of Object.entries(NUMERIC_RANGES)) {
       expect(range!.min).toBeLessThanOrEqual(range!.max)
     }
   })
+})
 
-  test('Settings tab is active by default', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toMatch(/tab active[^"]*">Settings/)
+describe('Prompts tab', () => {
+  let container: HTMLElement
+  let root: ReturnType<typeof ReactDOM.createRoot>
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = ReactDOM.createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => { root.unmount() })
+    document.body.removeChild(container)
+  })
+
+  test('renders textarea for PROMPT.md editing', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# My Prompt' })
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    // Click Prompts tab
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => {
+      promptsTab.click()
+    })
+    await act(async () => {})
+    const textarea = container.querySelector('textarea.code-editor') as HTMLTextAreaElement
+    expect(textarea).not.toBeNull()
+    expect(textarea.value).toBe('# My Prompt')
+  })
+
+  test('has sub-tab toggle for PROMPT.md and AGENT.md', async () => {
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => {
+      promptsTab.click()
+    })
+    await act(async () => {})
+    const toggleBtns = container.querySelectorAll('.prompt-toggle-btn')
+    const labels = Array.from(toggleBtns).map(b => b.textContent)
+    expect(labels).toContain('PROMPT.md')
+    expect(labels).toContain('AGENT.md')
+  })
+})
+
+describe('Updates tab', () => {
+  let container: HTMLElement
+  let root: ReturnType<typeof ReactDOM.createRoot>
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = ReactDOM.createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => { root.unmount() })
+    document.body.removeChild(container)
+  })
+
+  test('renders Check for Updates button', async () => {
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    // Click Updates tab
+    const tabs = container.querySelectorAll('.tab')
+    const updatesTab = Array.from(tabs).find(t => t.textContent === 'Updates') as HTMLButtonElement
+    await act(async () => {
+      updatesTab.click()
+    })
+    await act(async () => {})
+    const buttons = container.querySelectorAll('button.btn-primary')
+    const checkBtn = Array.from(buttons).find(b => b.textContent === 'Check for Updates')
+    expect(checkBtn).toBeDefined()
   })
 })
 
@@ -294,26 +471,6 @@ describe('TelegramSection', () => {
     expect(status.botUsername).toBe('mybot')
     expect(status.messagesSent).toBe(5)
   })
-
-  test('config.read returns telegram fields for TelegramSection', async () => {
-    mocks.mockConfigRead.mockResolvedValue({
-      maxCallsPerHour: 100,
-      telegram: {
-        botToken: '123:abc',
-        chatId: '-100123',
-        enabled: true,
-        notifyOn: 'all',
-      },
-    })
-    const cfg = await window.slashbot.config.read('/test')
-    expect(mocks.mockConfigRead).toHaveBeenCalledWith('/test')
-    expect(cfg.telegram).toEqual({
-      botToken: '123:abc',
-      chatId: '-100123',
-      enabled: true,
-      notifyOn: 'all',
-    })
-  })
 })
 
 describe('config namespace (preload bridge)', () => {
@@ -350,77 +507,6 @@ describe('config namespace (preload bridge)', () => {
     const b = await window.slashbot.config.read('/proj/b')
     expect(a.config.maxCallsPerHour).toBe(10)
     expect(b.config.maxCallsPerHour).toBe(200)
-  })
-})
-
-describe('UpdatesSection — source analysis', () => {
-  const src = (() => {
-    const { readFileSync } = require('fs')
-    const { resolve, dirname } = require('path')
-    return readFileSync(resolve(__dirname, 'ConfigEditor.tsx'), 'utf-8') as string
-  })()
-
-  test('imports UpdateState, UpdateInfo, UpdateProgress from types', () => {
-    expect(src).toContain("import type { UpdateState, UpdateInfo, UpdateProgress } from '../types/ipc'")
-  })
-
-  test('defines UpdatesSectionState with required fields', () => {
-    expect(src).toContain('phase: UpdateState')
-    expect(src).toContain('info: UpdateInfo | null')
-    expect(src).toContain('progress: UpdateProgress | null')
-    expect(src).toContain('error: string | null')
-    expect(src).toContain('installing: boolean')
-  })
-
-  test('subscribes to all six update events', () => {
-    expect(src).toContain('sb.update.onChecking(')
-    expect(src).toContain('sb.update.onAvailable(')
-    expect(src).toContain('sb.update.onNotAvailable(')
-    expect(src).toContain('sb.update.onProgress(')
-    expect(src).toContain('sb.update.onDownloaded(')
-    expect(src).toContain('sb.update.onError(')
-  })
-
-  test('unsubscribes on unmount via cleanup return', () => {
-    expect(src).toContain('unsubs.forEach(u => u())')
-  })
-
-  test('hydrates from sb.update.getState() on mount', () => {
-    expect(src).toContain('sb.update.getState()')
-  })
-
-  test('has Check for Updates button', () => {
-    expect(src).toContain('Check for Updates')
-  })
-
-  test('has Install & Restart button', () => {
-    expect(src).toContain('Install & Restart')
-  })
-
-  test('has Download button for available state', () => {
-    expect(src).toContain("state.phase === 'available'")
-    expect(src).toContain('handleDownload')
-  })
-
-  test('has progress bar elements', () => {
-    expect(src).toContain('updates-progress-bar')
-    expect(src).toContain('updates-progress-fill')
-  })
-
-  test('has formatSpeed helper for download speed display', () => {
-    expect(src).toContain('formatSpeed')
-    expect(src).toContain('MB/s')
-    expect(src).toContain('KB/s')
-    expect(src).toContain('B/s')
-  })
-
-  test('disables check button during checking and downloading', () => {
-    expect(src).toContain("state.phase === 'checking' || state.phase === 'downloading'")
-  })
-
-  test('shows version info when available', () => {
-    expect(src).toContain('updates-version-info')
-    expect(src).toContain('state.info.version')
   })
 })
 
