@@ -178,6 +178,20 @@ describe('TelegramBridge', () => {
       vi.advanceTimersByTime(1000)
       expect(bot.sendMessage).not.toHaveBeenCalled()
     })
+
+    it('circuit_closed does not notify at completions level', () => {
+      createBridge('completions')
+      orchestrator.emit('activity', makeEvent({ type: 'circuit_closed' }))
+      vi.advanceTimersByTime(1000)
+      expect(bot.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('circuit_closed does not notify at none level', () => {
+      createBridge('none')
+      orchestrator.emit('activity', makeEvent({ type: 'circuit_closed' }))
+      vi.advanceTimersByTime(1000)
+      expect(bot.sendMessage).not.toHaveBeenCalled()
+    })
   })
 
   // ── Emoji formatting ───────────────────────────────────────────────────
