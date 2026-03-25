@@ -107,9 +107,9 @@ describe('SwarmPage type contracts', () => {
     const validTypes: ActivityEvent['type'][] = [
       'started', 'thinking', 'claimed', 'executing', 'merged',
       'completed', 'failed', 'stopped', 'paused', 'resumed',
-      'rollback', 'split',
+      'rollback', 'split', 'circuit_open', 'circuit_closed',
     ]
-    expect(validTypes).toHaveLength(12)
+    expect(validTypes).toHaveLength(14)
     expect(validTypes).not.toContain('bead-created')
   })
 })

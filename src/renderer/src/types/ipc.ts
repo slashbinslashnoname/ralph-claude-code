@@ -80,6 +80,8 @@ export interface ActivityEvent {
     | 'resumed'
     | 'rollback'
     | 'split'
+    | 'circuit_open'
+    | 'circuit_closed'
   beadId?: string
   beadTitle?: string
   summary?: string
