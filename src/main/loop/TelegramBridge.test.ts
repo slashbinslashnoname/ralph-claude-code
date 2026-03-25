@@ -28,6 +28,7 @@ function createMockOrchestrator() {
     pauseAllWorkers: vi.fn(),
     resumeAllWorkers: vi.fn(),
     gracefulStopWorkers: vi.fn(),
+    startWorkers: vi.fn().mockResolvedValue(undefined),
     coordinator: {
       bdClient: {
         create: vi.fn().mockReturnValue({ id: 'sb-abc' }),
@@ -444,6 +445,52 @@ describe('TelegramBridge', () => {
       bot._handlers.get('bead')!('', '123')
       expect(orchestrator.coordinator.bdClient.create).not.toHaveBeenCalled()
       expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+    })
+
+    it('routes /start with no args to orchestrator.startWorkers(undefined)', async () => {
+      createBridge('all')
+      const handler = bot._handlers.get('start')!
+      await handler('', '123')
+      expect(orchestrator.startWorkers).toHaveBeenCalledWith(undefined)
+      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Started default'))
+    })
+
+    it('routes /start 3 to orchestrator.startWorkers(3)', async () => {
+      createBridge('all')
+      const handler = bot._handlers.get('start')!
+      await handler('3', '123')
+      expect(orchestrator.startWorkers).toHaveBeenCalledWith(3)
+      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Started 3'))
+    })
+
+    it('/start rejects invalid numeric arg (0)', async () => {
+      createBridge('all')
+      await bot._handlers.get('start')!('0', '123')
+      expect(orchestrator.startWorkers).not.toHaveBeenCalled()
+      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+    })
+
+    it('/start rejects numeric arg > 10', async () => {
+      createBridge('all')
+      await bot._handlers.get('start')!('11', '123')
+      expect(orchestrator.startWorkers).not.toHaveBeenCalled()
+      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+    })
+
+    it('/start rejects non-numeric arg', async () => {
+      createBridge('all')
+      await bot._handlers.get('start')!('abc', '123')
+      expect(orchestrator.startWorkers).not.toHaveBeenCalled()
+      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+    })
+
+    it('/start sends error message when orchestrator throws', async () => {
+      createBridge('all')
+      orchestrator.startWorkers.mockRejectedValueOnce(new Error('health check failed'))
+      await bot._handlers.get('start')!('', '123')
+      expect(bot.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to start workers'),
+      )
     })
   })
 

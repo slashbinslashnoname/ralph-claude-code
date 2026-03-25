@@ -8,6 +8,7 @@ type SwarmOrchestrator = EventEmitter & {
   pauseAllWorkers(): void
   resumeAllWorkers(): void
   gracefulStopWorkers(): void
+  startWorkers(n?: number): Promise<void>
   coordinator: { bdClient: BdClient }
 }
 
@@ -270,6 +271,24 @@ export class TelegramBridge {
     this.bot.onCommand('stop', () => {
       this.orchestrator.gracefulStopWorkers()
       this.bot.sendMessage('🛑 Graceful stop initiated').catch(() => {})
+    })
+
+    this.bot.onCommand('start', async (args) => {
+      let n: number | undefined
+      if (args) {
+        const parsed = parseInt(args, 10)
+        if (isNaN(parsed) || parsed < 1 || parsed > 10) {
+          this.bot.sendMessage('Usage: /start [1-10]').catch(() => {})
+          return
+        }
+        n = parsed
+      }
+      try {
+        await this.orchestrator.startWorkers(n)
+        this.bot.sendMessage(`🚀 Started ${n ?? 'default'} worker(s)`).catch(() => {})
+      } catch (err) {
+        this.bot.sendMessage(`❌ Failed to start workers: ${err}`).catch(() => {})
+      }
     })
 
     this.bot.onCommand('status', () => {
