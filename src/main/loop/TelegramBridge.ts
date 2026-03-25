@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import type { TelegramBot } from './TelegramBot'
 import type { BdClient } from './BdClient'
-import type { ActivityEvent, TelegramNotifyLevel } from '../types'
+import type { ActivityEvent, BeadStats, TelegramNotifyLevel } from '../types'
 
 type SwarmOrchestrator = EventEmitter & {
   injectPlan(request: string): { id: string }
@@ -9,6 +9,7 @@ type SwarmOrchestrator = EventEmitter & {
   resumeAllWorkers(): void
   gracefulStopWorkers(): void
   startWorkers(n?: number): Promise<void>
+  getStats(): Promise<BeadStats>
   coordinator: { bdClient: BdClient }
 }
 
@@ -288,6 +289,53 @@ export class TelegramBridge {
         this.bot.sendMessage(`🚀 Started ${n ?? 'default'} worker(s)`).catch(() => {})
       } catch (err) {
         this.bot.sendMessage(`❌ Failed to start workers: ${err}`).catch(() => {})
+      }
+    })
+
+    this.bot.onCommand('beads', async (args) => {
+      if (!args) {
+        try {
+          const stats = await this.orchestrator.getStats()
+          const lines = [
+            '📊 Bead Stats',
+            `Total: ${stats.total} | Done: ${stats.done} (${stats.pct}%)`,
+            `Pending: ${stats.pending} | Ready: ${stats.ready}`,
+            `Claimed: ${stats.claimed} | Failed: ${stats.failed}`,
+          ]
+          this.bot.sendMessage(lines.join('\n')).catch(() => {})
+        } catch (err) {
+          this.bot.sendMessage(`❌ Failed to get stats: ${err}`).catch(() => {})
+        }
+        return
+      }
+
+      const filter = args.trim().toLowerCase()
+      const validFilters: Record<string, string[]> = {
+        open: ['pending', 'ready'],
+        active: ['claimed'],
+        done: ['done', 'failed'],
+      }
+      if (!(filter in validFilters)) {
+        this.bot.sendMessage('Usage: /beads [open|active|done]').catch(() => {})
+        return
+      }
+
+      try {
+        const all = this.orchestrator.coordinator.bdClient.listAll()
+        const statuses = validFilters[filter]
+        const matched = all.filter((b) => statuses.includes(b.status))
+        const limit = 15
+        const shown = matched.slice(0, limit)
+        const lines = shown.map((b) => `• [${b.status}] ${b.id}: ${b.title}`)
+        if (matched.length > limit) {
+          lines.push(`… and ${matched.length - limit} more`)
+        }
+        if (lines.length === 0) {
+          lines.push(`No ${filter} beads found.`)
+        }
+        this.bot.sendMessage(lines.join('\n')).catch(() => {})
+      } catch (err) {
+        this.bot.sendMessage(`❌ Failed to list beads: ${err}`).catch(() => {})
       }
     })
 

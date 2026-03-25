@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'events'
-import type { ActivityEvent, TelegramNotifyLevel } from '../types'
+import type { ActivityEvent, Bead, TelegramNotifyLevel } from '../types'
 
 // Minimal mock TelegramBot
 function createMockBot() {
@@ -29,9 +29,19 @@ function createMockOrchestrator() {
     resumeAllWorkers: vi.fn(),
     gracefulStopWorkers: vi.fn(),
     startWorkers: vi.fn().mockResolvedValue(undefined),
+    getStats: vi.fn().mockResolvedValue({
+      total: 10,
+      pending: 2,
+      ready: 3,
+      claimed: 1,
+      done: 3,
+      failed: 1,
+      pct: 30,
+    }),
     coordinator: {
       bdClient: {
         create: vi.fn().mockReturnValue({ id: 'sb-abc' }),
+        listAll: vi.fn().mockReturnValue([]),
       },
     },
   })
@@ -490,6 +500,115 @@ describe('TelegramBridge', () => {
       await bot._handlers.get('start')!('', '123')
       expect(bot.sendMessage).toHaveBeenCalledWith(
         expect.stringContaining('Failed to start workers'),
+      )
+    })
+
+    // ── /beads command ────────────────────────────────────────────────────
+
+    it('/beads with no args shows stats summary', async () => {
+      createBridge('all')
+      await bot._handlers.get('beads')!('', '123')
+      expect(orchestrator.getStats).toHaveBeenCalled()
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('📊 Bead Stats')
+      expect(msg).toContain('Total: 10')
+      expect(msg).toContain('Done: 3 (30%)')
+      expect(msg).toContain('Pending: 2')
+      expect(msg).toContain('Ready: 3')
+      expect(msg).toContain('Claimed: 1')
+      expect(msg).toContain('Failed: 1')
+    })
+
+    it('/beads with no args sends error when getStats throws', async () => {
+      createBridge('all')
+      orchestrator.getStats.mockRejectedValueOnce(new Error('bd not found'))
+      await bot._handlers.get('beads')!('', '123')
+      expect(bot.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to get stats'),
+      )
+    })
+
+    it('/beads open lists pending and ready beads', async () => {
+      createBridge('all')
+      const beads: Bead[] = [
+        { id: 'sb-1', title: 'Task A', status: 'pending', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+        { id: 'sb-2', title: 'Task B', status: 'ready', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+        { id: 'sb-3', title: 'Task C', status: 'claimed', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+      ]
+      orchestrator.coordinator.bdClient.listAll.mockReturnValue(beads)
+      await bot._handlers.get('beads')!('open', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('sb-1')
+      expect(msg).toContain('Task A')
+      expect(msg).toContain('sb-2')
+      expect(msg).toContain('Task B')
+      expect(msg).not.toContain('sb-3')
+    })
+
+    it('/beads active lists claimed beads', async () => {
+      createBridge('all')
+      const beads: Bead[] = [
+        { id: 'sb-1', title: 'Task A', status: 'pending', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+        { id: 'sb-2', title: 'Task B', status: 'claimed', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+      ]
+      orchestrator.coordinator.bdClient.listAll.mockReturnValue(beads)
+      await bot._handlers.get('beads')!('active', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('sb-2')
+      expect(msg).toContain('Task B')
+      expect(msg).not.toContain('sb-1')
+    })
+
+    it('/beads done lists done and failed beads', async () => {
+      createBridge('all')
+      const beads: Bead[] = [
+        { id: 'sb-1', title: 'Done bead', status: 'done', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+        { id: 'sb-2', title: 'Failed bead', status: 'failed', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+        { id: 'sb-3', title: 'Active', status: 'claimed', description: '', type: 'task', deps: [], files: [], priority: 1, tags: [] },
+      ]
+      orchestrator.coordinator.bdClient.listAll.mockReturnValue(beads)
+      await bot._handlers.get('beads')!('done', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('sb-1')
+      expect(msg).toContain('sb-2')
+      expect(msg).not.toContain('sb-3')
+    })
+
+    it('/beads limits output to 15 beads with overflow suffix', async () => {
+      createBridge('all')
+      const beads: Bead[] = Array.from({ length: 20 }, (_, i) => ({
+        id: `sb-${i}`, title: `Task ${i}`, status: 'pending' as const,
+        description: '', type: 'task' as const, deps: [], files: [], priority: 1, tags: [],
+      }))
+      orchestrator.coordinator.bdClient.listAll.mockReturnValue(beads)
+      await bot._handlers.get('beads')!('open', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      const lines = msg.split('\n')
+      expect(lines).toHaveLength(16) // 15 beads + overflow line
+      expect(msg).toContain('… and 5 more')
+    })
+
+    it('/beads shows empty message when no beads match', async () => {
+      createBridge('all')
+      orchestrator.coordinator.bdClient.listAll.mockReturnValue([])
+      await bot._handlers.get('beads')!('active', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('No active beads found.')
+    })
+
+    it('/beads rejects invalid filter', async () => {
+      createBridge('all')
+      await bot._handlers.get('beads')!('invalid', '123')
+      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage'))
+      expect(orchestrator.coordinator.bdClient.listAll).not.toHaveBeenCalled()
+    })
+
+    it('/beads sends error when listAll throws', async () => {
+      createBridge('all')
+      orchestrator.coordinator.bdClient.listAll.mockImplementation(() => { throw new Error('bd crashed') })
+      await bot._handlers.get('beads')!('open', '123')
+      expect(bot.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to list beads'),
       )
     })
   })
