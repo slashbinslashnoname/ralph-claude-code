@@ -73,42 +73,59 @@ beforeEach(() => {
 })
 
 describe('ConfigEditor', () => {
-  test('renders file editor tabs and Telegram tab', () => {
+  test('renders Prompts and Telegram outer tabs', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
-    expect(html).toContain('Configuration (.slashbotrc)')
-    expect(html).toContain('Prompt (PROMPT.md)')
-    expect(html).toContain('Agent (AGENT.md)')
-    expect(html).toContain('Telegram')
+    expect(html).toContain('>Prompts</button>')
+    expect(html).toContain('>Telegram</button>')
   })
 
-  test('renders code-editor textarea in file mode', () => {
+  test('does not render .slashbotrc tab', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    expect(html).not.toContain('.slashbotrc')
+  })
+
+  test('renders inner prompt toggle with PROMPT.md and AGENT.md', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    expect(html).toContain('prompt-toggle')
+    expect(html).toContain('>PROMPT.md</button>')
+    expect(html).toContain('>AGENT.md</button>')
+  })
+
+  test('PROMPT.md toggle is active by default', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    expect(html).toContain('prompt-toggle-btn active')
+  })
+
+  test('renders code-editor textarea in prompts mode', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
     expect(html).toContain('code-editor')
     expect(html).toContain('<textarea')
   })
 
-  test('readFile mock is callable with project path', async () => {
-    // useEffect doesn't fire in SSR, so we verify the mock contract directly
-    await window.slashbot.readFile('/my/project', '.slashbotrc')
-    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', '.slashbotrc')
+  test('readFile mock is callable with project path and PROMPT.md', async () => {
+    await window.slashbot.readFile('/my/project', 'PROMPT.md')
+    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'PROMPT.md')
+  })
+
+  test('readFile mock is callable with AGENT.md', async () => {
+    await window.slashbot.readFile('/my/project', 'AGENT.md')
+    expect(mocks.mockReadFile).toHaveBeenCalledWith('/my/project', 'AGENT.md')
   })
 
   test('renders Save button', () => {
     const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
     expect(html).toContain('Saved')
   })
+
+  test('Prompts tab is active by default', () => {
+    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    // The Prompts tab button should have the active class
+    expect(html).toMatch(/tab active[^"]*">Prompts/)
+  })
 })
 
 describe('TelegramSection', () => {
-  // We test the telegram section by rendering ConfigEditor — the section
-  // is rendered internally when activeTab is 'telegram'. Since we use SSR
-  // (renderToStaticMarkup), we verify presence of key elements by checking
-  // that the TelegramSection component renders its static elements.
-
   test('telegram status API is called when component mounts', () => {
-    // TelegramSection is only rendered when activeTab === 'telegram',
-    // which requires user interaction. But we can verify that the
-    // telegram.status mock is accessible and properly configured.
     expect(mocks.mockTelegramStatus).toBeDefined()
     expect(typeof mocks.mockTelegramStatus).toBe('function')
   })

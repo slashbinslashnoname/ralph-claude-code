@@ -4,12 +4,11 @@ const sb = window.slashbot
 
 interface Props { projectPath: string }
 
-type ActiveTab = 'file' | 'telegram'
+type ActiveTab = 'prompts' | 'telegram'
 
-const EDITABLE_FILES = [
-  { path: '.slashbotrc', label: 'Configuration (.slashbotrc)' },
-  { path: 'PROMPT.md', label: 'Prompt (PROMPT.md)' },
-  { path: 'AGENT.md', label: 'Agent (AGENT.md)' },
+const PROMPT_FILES = [
+  { path: 'PROMPT.md', label: 'PROMPT.md' },
+  { path: 'AGENT.md', label: 'AGENT.md' },
 ]
 
 const NOTIFY_LEVELS = [
@@ -203,14 +202,14 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
 }
 
 export default function ConfigEditor({ projectPath }: Props) {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('file')
-  const [activeFile, setActiveFile] = useState('.slashbotrc')
+  const [activeTab, setActiveTab] = useState<ActiveTab>('prompts')
+  const [activeFile, setActiveFile] = useState('PROMPT.md')
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (activeTab !== 'file') return
+    if (activeTab !== 'prompts') return
     sb.readFile(projectPath, activeFile).then(r => {
       if (r.ok) { setContent(r.content!); setSaved(true); setError('') }
       else setError(r.error ?? 'Failed to read file')
@@ -227,7 +226,7 @@ export default function ConfigEditor({ projectPath }: Props) {
     <div className="page">
       <header className="page-header">
         <h2>Configuration</h2>
-        {activeTab === 'file' && (
+        {activeTab === 'prompts' && (
           <div className="header-actions">
             <button className="btn btn-primary" onClick={save} disabled={saved}>
               {saved ? 'Saved' : 'Save'}
@@ -236,12 +235,12 @@ export default function ConfigEditor({ projectPath }: Props) {
         )}
       </header>
       <div className="config-tabs">
-        {EDITABLE_FILES.map(f => (
-          <button key={f.path} className={`tab ${activeTab === 'file' && activeFile === f.path ? 'active' : ''}`}
-            onClick={() => { setActiveTab('file'); setActiveFile(f.path) }}>
-            {f.label}
-          </button>
-        ))}
+        <button
+          className={`tab ${activeTab === 'prompts' ? 'active' : ''}`}
+          onClick={() => setActiveTab('prompts')}
+        >
+          Prompts
+        </button>
         <button
           className={`tab ${activeTab === 'telegram' ? 'active' : ''}`}
           onClick={() => setActiveTab('telegram')}
@@ -249,8 +248,19 @@ export default function ConfigEditor({ projectPath }: Props) {
           Telegram
         </button>
       </div>
-      {activeTab === 'file' && (
+      {activeTab === 'prompts' && (
         <>
+          <div className="prompt-toggle">
+            {PROMPT_FILES.map(f => (
+              <button
+                key={f.path}
+                className={`prompt-toggle-btn ${activeFile === f.path ? 'active' : ''}`}
+                onClick={() => setActiveFile(f.path)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
           {error && <div className="alert alert-danger">{error}</div>}
           <textarea
             className="code-editor"
