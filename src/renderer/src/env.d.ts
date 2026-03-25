@@ -129,7 +129,7 @@ interface SlashbotAPI {
     disconnect: (p: string) => Promise<{ ok: boolean; error?: string }>
   }
   config: {
-    read: (p: string) => Promise<RalphConfig>
+    read: (p: string) => Promise<{ ok: boolean; config?: RalphConfig; error?: string }>
     write: (p: string, updates: Partial<RalphConfig>) => Promise<{ ok: boolean; error?: string }>
   }
   shell: { openExternal: (url: string) => Promise<void> }
