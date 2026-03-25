@@ -145,6 +145,7 @@ describe('IPC types', () => {
       last_change: '2026-03-21T10:00:00Z',
       consecutive_no_progress: 0,
       consecutive_same_error: 0,
+      error_window_count: 0,
       consecutive_permission_denials: 0,
       last_progress_loop: 0,
       total_opens: 0,
