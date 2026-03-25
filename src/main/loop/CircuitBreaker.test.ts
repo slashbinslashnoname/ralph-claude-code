@@ -740,6 +740,144 @@ describe('CircuitBreaker', () => {
     })
   })
 
+  describe('rate-limit awareness', () => {
+    it('recordRateLimit opens circuit and sets rateLimitUntil', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit(30_000)
+      expect(cb.isOpen()).toBe(true)
+      expect(cb.snapshot().state).toBe('OPEN')
+      expect(cb.snapshot().reason).toBe('API rate limit')
+      expect(cb.snapshot().rate_limit_until).toBeDefined()
+    })
+
+    it('recordRateLimit defaults to 60s when no retryAfterMs given', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit()
+      expect(cb.isOpen()).toBe(true)
+      const rlUntil = new Date(cb.snapshot().rate_limit_until!).getTime()
+      expect(rlUntil).toBe(NOW + 60_000)
+    })
+
+    it('isOpen stays true until rateLimitUntil passes even if state transitions to HALF_OPEN', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 0 }))
+      cb.recordRateLimit(120_000) // rate limit for 2 min
+
+      // Advance time past cooldown but before rate limit expires
+      dateNowSpy.mockReturnValue(NOW + 60_000) // 1 min later
+
+      // Load to trigger cooldown transition
+      ;(fs.existsSync as any).mockReturnValue(true)
+      // Even if state were somehow HALF_OPEN, rateLimitUntil keeps isOpen true
+      expect(cb.isOpen()).toBe(true)
+    })
+
+    it('isOpen returns false once rateLimitUntil has passed and state is not OPEN', () => {
+      const config = makeConfig({ cbCooldownMinutes: 0 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+      cb.recordRateLimit(30_000)
+      expect(cb.isOpen()).toBe(true)
+
+      // Advance past rate limit
+      dateNowSpy.mockReturnValue(NOW + 31_000)
+
+      // State is still OPEN (no cooldown transition without load), so isOpen still true
+      expect(cb.isOpen()).toBe(true)
+
+      // But after reset + time past rate limit, it should be false
+      cb.reset()
+      expect(cb.isOpen()).toBe(false)
+    })
+
+    it('rateLimitLifted returns true when no rate limit is set', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      expect(cb.rateLimitLifted()).toBe(true)
+    })
+
+    it('rateLimitLifted returns false while rate limit is active', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit(60_000)
+      expect(cb.rateLimitLifted()).toBe(false)
+    })
+
+    it('rateLimitLifted returns true and clears field once expired', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit(30_000)
+      expect(cb.rateLimitLifted()).toBe(false)
+
+      dateNowSpy.mockReturnValue(NOW + 31_000)
+      expect(cb.rateLimitLifted()).toBe(true)
+      // After clearing, snapshot should not have rate_limit_until
+      expect(cb.snapshot().rate_limit_until).toBeUndefined()
+    })
+
+    it('recordProgress clears rateLimitUntil', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit(60_000)
+      expect(cb.snapshot().rate_limit_until).toBeDefined()
+
+      cb.recordProgress(1)
+      expect(cb.snapshot().rate_limit_until).toBeUndefined()
+    })
+
+    it('reset clears rateLimitUntil', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit(60_000)
+      expect(cb.snapshot().rate_limit_until).toBeDefined()
+
+      cb.reset()
+      expect(cb.snapshot().rate_limit_until).toBeUndefined()
+    })
+
+    it('save persists rate_limit_until as ISO string', () => {
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.recordRateLimit(60_000)
+      cb.save()
+
+      const written = JSON.parse(
+        (fs.writeFileSync as any).mock.calls[0][1] as string
+      )
+      expect(written.rate_limit_until).toBe(new Date(NOW + 60_000).toISOString())
+    })
+
+    it('load restores unexpired rate_limit_until', () => {
+      const futureDate = new Date(NOW + 120_000).toISOString()
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'OPEN',
+          opened_at: new Date(NOW).toISOString(),
+          rate_limit_until: futureDate,
+          total_opens: 1,
+          reason: 'API rate limit'
+        })
+      )
+
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig({ cbCooldownMinutes: 60 }))
+      cb.load()
+      expect(cb.snapshot().rate_limit_until).toBe(futureDate)
+      expect(cb.isOpen()).toBe(true)
+    })
+
+    it('load clears expired rate_limit_until', () => {
+      const pastDate = new Date(NOW - 10_000).toISOString()
+      ;(fs.existsSync as any).mockReturnValue(true)
+      ;(fs.readFileSync as any).mockReturnValue(
+        JSON.stringify({
+          state: 'HALF_OPEN',
+          rate_limit_until: pastDate,
+          total_opens: 1,
+          reason: 'API rate limit'
+        })
+      )
+
+      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
+      cb.load()
+      expect(cb.snapshot().rate_limit_until).toBeUndefined()
+      // state is HALF_OPEN, rate limit expired → not open
+      expect(cb.isOpen()).toBe(false)
+    })
+  })
+
   describe('persistence round-trip', () => {
     it('save then load preserves state', () => {
       const config = makeConfig({ cbNoProgressThreshold: 2 })

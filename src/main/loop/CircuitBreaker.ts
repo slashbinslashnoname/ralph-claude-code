@@ -29,6 +29,7 @@ export class CircuitBreaker {
   private reason = 'Initialized'
   private currentLoop = 0
   private openedAt?: string
+  private rateLimitUntil?: Date
 
   constructor(
     private slashbotDir: string,
@@ -60,6 +61,12 @@ export class CircuitBreaker {
       this.currentLoop = data.current_loop ?? 0
       this.reopenEpoch = data.reopen_epoch ?? 0
       this.openedAt = data.opened_at
+      if (data.rate_limit_until) {
+        const rlDate = new Date(data.rate_limit_until)
+        if (Date.now() < rlDate.getTime()) {
+          this.rateLimitUntil = rlDate
+        }
+      }
       if (this.state === 'OPEN' && this.openedAt) {
         const elapsed = (Date.now() - new Date(this.openedAt).getTime()) / 60_000
         if (elapsed >= computedCooldown(this.config, this.reopenEpoch)) {
@@ -84,7 +91,8 @@ export class CircuitBreaker {
       reason: this.reason,
       current_loop: this.currentLoop,
       reopen_epoch: this.reopenEpoch,
-      ...(this.openedAt ? { opened_at: this.openedAt } : {})
+      ...(this.openedAt ? { opened_at: this.openedAt } : {}),
+      ...(this.rateLimitUntil ? { rate_limit_until: this.rateLimitUntil.toISOString() } : {})
     }
     atomicWriteSync(
       path.join(this.slashbotDir, '.circuit_breaker_state'),
@@ -100,6 +108,7 @@ export class CircuitBreaker {
     this.reopenEpoch = 0
     this.reason = 'Manual reset'
     this.openedAt = undefined
+    this.rateLimitUntil = undefined
     this.save()
   }
 
@@ -108,7 +117,22 @@ export class CircuitBreaker {
   }
 
   isOpen(): boolean {
-    return this.state === 'OPEN'
+    return this.state === 'OPEN' || (!!this.rateLimitUntil && Date.now() < this.rateLimitUntil.getTime())
+  }
+
+  recordRateLimit(retryAfterMs?: number): void {
+    const delay = retryAfterMs ?? 60_000
+    this.rateLimitUntil = new Date(Date.now() + delay)
+    this._open('API rate limit')
+  }
+
+  rateLimitLifted(): boolean {
+    if (!this.rateLimitUntil) return true
+    if (Date.now() >= this.rateLimitUntil.getTime()) {
+      this.rateLimitUntil = undefined
+      return true
+    }
+    return false
   }
 
   recordProgress(loop: number): void {
@@ -116,6 +140,7 @@ export class CircuitBreaker {
     this.consecutiveNoProgress = 0
     this.errorWindow = []
     this.consecutivePermissionDenials = 0
+    this.rateLimitUntil = undefined
     if (this.state === 'HALF_OPEN') {
       this.state = 'CLOSED'
       this.reopenEpoch = 0
@@ -164,7 +189,8 @@ export class CircuitBreaker {
       reason: this.reason,
       current_loop: this.currentLoop,
       reopen_epoch: this.reopenEpoch,
-      ...(this.openedAt ? { opened_at: this.openedAt } : {})
+      ...(this.openedAt ? { opened_at: this.openedAt } : {}),
+      ...(this.rateLimitUntil ? { rate_limit_until: this.rateLimitUntil.toISOString() } : {})
     }
   }
 
