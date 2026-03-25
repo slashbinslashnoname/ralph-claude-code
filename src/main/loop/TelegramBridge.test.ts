@@ -38,6 +38,7 @@ function createMockOrchestrator() {
       failed: 1,
       pct: 30,
     }),
+    getAgents: vi.fn().mockReturnValue([]),
     coordinator: {
       bdClient: {
         create: vi.fn().mockReturnValue({ id: 'sb-abc' }),
@@ -436,11 +437,74 @@ describe('TelegramBridge', () => {
       expect(orchestrator.gracefulStopWorkers).toHaveBeenCalled()
     })
 
-    it('routes /status and sends bot status', () => {
+    it('routes /status and sends bot status with stats and workers', async () => {
       createBridge('all')
-      bot._handlers.get('status')!('', '123')
+      orchestrator.getAgents.mockReturnValue([
+        { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'sb-1', currentBeadTitle: 'Fix auth', loopCount: 3, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
+        { id: 'worker-1', index: 1, phase: 'thinking', currentBeadId: 'sb-2', currentBeadTitle: null, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
+      ])
+      await bot._handlers.get('status')!('', '123')
       expect(bot.getStatus).toHaveBeenCalled()
-      expect(bot.sendMessage).toHaveBeenCalledWith(expect.stringContaining('@testbot'))
+      expect(orchestrator.getStats).toHaveBeenCalled()
+      expect(orchestrator.getAgents).toHaveBeenCalled()
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('@testbot')
+      expect(msg).toContain('📊 Bead Stats')
+      expect(msg).toContain('Total: 10')
+      expect(msg).toContain('Done: 3 (30%)')
+      expect(msg).toContain('👷 Workers (2)')
+      expect(msg).toContain('worker-0 [executing] — Fix auth')
+      expect(msg).toContain('worker-1 [thinking] — sb-2')
+    })
+
+    it('/status shows no active workers when getAgents returns empty', async () => {
+      createBridge('all')
+      await bot._handlers.get('status')!('', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('Workers: none active')
+    })
+
+    it('/status handles getStats failure gracefully', async () => {
+      createBridge('all')
+      orchestrator.getStats.mockRejectedValueOnce(new Error('bd error'))
+      await bot._handlers.get('status')!('', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('@testbot')
+      expect(msg).toContain('Bead Stats: unavailable')
+    })
+
+    it('/status handles getAgents failure gracefully', async () => {
+      createBridge('all')
+      orchestrator.getAgents.mockImplementation(() => { throw new Error('no coordinator') })
+      await bot._handlers.get('status')!('', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('@testbot')
+      expect(msg).toContain('Workers: unavailable')
+    })
+
+    it('/status caps worker list at 10 with overflow', async () => {
+      createBridge('all')
+      const agents = Array.from({ length: 12 }, (_, i) => ({
+        id: `worker-${i}`, index: i, phase: 'executing', currentBeadId: `sb-${i}`,
+        currentBeadTitle: `Task ${i}`, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null,
+      }))
+      orchestrator.getAgents.mockReturnValue(agents)
+      await bot._handlers.get('status')!('', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('Workers (12)')
+      expect(msg).toContain('worker-9')
+      expect(msg).not.toContain('worker-10')
+      expect(msg).toContain('… and 2 more')
+    })
+
+    it('/status shows idle when worker has no bead', async () => {
+      createBridge('all')
+      orchestrator.getAgents.mockReturnValue([
+        { id: 'worker-0', index: 0, phase: 'idle', currentBeadId: null, currentBeadTitle: null, loopCount: 0, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
+      ])
+      await bot._handlers.get('status')!('', '123')
+      const msg = bot.sendMessage.mock.calls[0][0] as string
+      expect(msg).toContain('worker-0 [idle] — idle')
     })
 
     it('sends usage message when /plan has no args', () => {
