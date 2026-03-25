@@ -62,6 +62,8 @@ describe('Telegram types', () => {
       continueSession: true,
       cbNoProgressThreshold: 3,
       cbSameErrorThreshold: 5,
+      cbErrorWindowSize: 20,
+      cbErrorWindowThreshold: 5,
       cbPermissionDenialThreshold: 2,
       cbCooldownMinutes: 30,
       autoPush: true,

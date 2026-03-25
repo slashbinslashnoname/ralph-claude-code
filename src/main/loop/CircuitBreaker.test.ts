@@ -20,6 +20,8 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     continueSession: false,
     cbNoProgressThreshold: 3,
     cbSameErrorThreshold: 3,
+    cbErrorWindowSize: 20,
+    cbErrorWindowThreshold: 5,
     cbPermissionDenialThreshold: 3,
     cbCooldownMinutes: 30,
     autoPush: false,
@@ -66,6 +68,7 @@ describe('CircuitBreaker', () => {
         state: 'CLOSED',
         consecutive_no_progress: 0,
         consecutive_same_error: 0,
+        error_window_count: 0,
         consecutive_permission_denials: 0,
         last_progress_loop: 0,
         total_opens: 0,
@@ -325,64 +328,78 @@ describe('CircuitBreaker', () => {
     })
   })
 
-  describe('recordError', () => {
-    it('does not increment on first occurrence of an error', () => {
+  describe('recordError (sliding window)', () => {
+    it('accumulates errors in the window', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
-      expect(cb.snapshot().consecutive_same_error).toBe(0)
-    })
-
-    it('increments when a previously seen error repeats', () => {
-      const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
-      cb.recordError('error A')
-      cb.recordError('error A') // repeat → increment
+      expect(cb.snapshot().error_window_count).toBe(1)
       expect(cb.snapshot().consecutive_same_error).toBe(1)
-      cb.recordError('error A') // repeat → increment again
-      expect(cb.snapshot().consecutive_same_error).toBe(2)
+      cb.recordError('error B')
+      expect(cb.snapshot().error_window_count).toBe(2)
+      cb.recordError('error C')
+      expect(cb.snapshot().error_window_count).toBe(3)
     })
 
-    it('resets counter when a new unique error appears', () => {
+    it('alternating errors still accumulate in window', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 4 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+      cb.recordError('error A')
+      cb.recordError('error B')
+      cb.recordError('error A')
+      expect(cb.snapshot().error_window_count).toBe(3)
+      expect(cb.isOpen()).toBe(false)
+      cb.recordError('error B') // 4th error — hits threshold
+      expect(cb.isOpen()).toBe(true)
+      expect(cb.snapshot().reason).toContain('errors in sliding window')
+    })
+
+    it('drains window on recordProgress', () => {
       const cb = new CircuitBreaker(SLASHBOT_DIR, makeConfig())
       cb.recordError('error A')
-      cb.recordError('error A') // repeat → 1
-      cb.recordError('error A') // repeat → 2
-      expect(cb.snapshot().consecutive_same_error).toBe(2)
+      cb.recordError('error B')
+      cb.recordError('error C')
+      expect(cb.snapshot().error_window_count).toBe(3)
 
-      cb.recordError('error B') // new unique → reset to 0
+      cb.recordProgress(1)
+      expect(cb.snapshot().error_window_count).toBe(0)
       expect(cb.snapshot().consecutive_same_error).toBe(0)
     })
 
-    it('opens circuit when same-error threshold is reached', () => {
-      const config = makeConfig({ cbSameErrorThreshold: 3 })
+    it('prunes window to cbErrorWindowSize', () => {
+      const config = makeConfig({ cbErrorWindowSize: 3, cbErrorWindowThreshold: 100 })
       const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
-      cb.recordError('error A') // new → 0
-      cb.recordError('error A') // repeat → 1
-      cb.recordError('error A') // repeat → 2
-      cb.recordError('error A') // repeat → 3 — opens
-
-      expect(cb.isOpen()).toBe(true)
-      expect(cb.snapshot().reason).toContain('same error')
-    })
-
-    it('caps lastErrors at 10 entries', () => {
-      const config = makeConfig({ cbSameErrorThreshold: 100 })
-      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
-
-      // Add 15 unique errors — only last 10 are retained
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 5; i++) {
         cb.recordError(`error ${i}`)
       }
-      // All were unique, so counter resets each time
-      expect(cb.snapshot().consecutive_same_error).toBe(0)
+      // Window capped at 3 (the most recent entries)
+      expect(cb.snapshot().error_window_count).toBe(3)
+    })
 
-      // error 0 was evicted (only errors 5-14 remain), so it's treated as new
-      cb.recordError('error 0')
-      expect(cb.snapshot().consecutive_same_error).toBe(0)
+    it('opens circuit when window reaches cbErrorWindowThreshold', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 3, cbErrorWindowSize: 10 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
 
-      // error 10 is still in the buffer, so it repeats
-      cb.recordError('error 10')
-      expect(cb.snapshot().consecutive_same_error).toBe(1)
+      cb.recordError('err 1')
+      cb.recordError('err 2')
+      expect(cb.isOpen()).toBe(false)
+
+      cb.recordError('err 3') // 3rd — hits threshold
+      expect(cb.isOpen()).toBe(true)
+      expect(cb.snapshot().total_opens).toBe(1)
+      expect(cb.snapshot().reason).toContain('3 errors in sliding window')
+    })
+
+    it('does not trip when errors are drained between bursts', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 3, cbErrorWindowSize: 10 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('err 1')
+      cb.recordError('err 2')
+      cb.recordProgress(1) // drain
+      cb.recordError('err 3')
+      expect(cb.isOpen()).toBe(false)
+      expect(cb.snapshot().error_window_count).toBe(1)
     })
   })
 

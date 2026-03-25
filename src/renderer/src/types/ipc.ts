@@ -125,6 +125,7 @@ export interface CircuitBreakerSnapshot {
   last_change: string
   consecutive_no_progress: number
   consecutive_same_error: number
+  error_window_count: number
   consecutive_permission_denials: number
   last_progress_loop: number
   total_opens: number
@@ -228,6 +229,8 @@ export interface RalphConfig {
   continueSession: boolean
   cbNoProgressThreshold: number
   cbSameErrorThreshold: number
+  cbErrorWindowSize: number
+  cbErrorWindowThreshold: number
   cbPermissionDenialThreshold: number
   cbCooldownMinutes: number
   autoPush: boolean

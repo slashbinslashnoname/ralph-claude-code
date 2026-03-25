@@ -6,14 +6,13 @@ import { atomicWriteSync } from './utils'
 export class CircuitBreaker {
   private state: 'CLOSED' | 'HALF_OPEN' | 'OPEN' = 'CLOSED'
   private consecutiveNoProgress = 0
-  private consecutiveSameError = 0
+  private errorWindow: Array<{ ts: number; error: string }> = []
   private consecutivePermissionDenials = 0
   private lastProgressLoop = 0
   private totalOpens = 0
   private reason = 'Initialized'
   private currentLoop = 0
   private openedAt?: string
-  private lastErrors: string[] = []
 
   constructor(
     private slashbotDir: string,
@@ -27,7 +26,17 @@ export class CircuitBreaker {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'))
       this.state = data.state ?? 'CLOSED'
       this.consecutiveNoProgress = data.consecutive_no_progress ?? 0
-      this.consecutiveSameError = data.consecutive_same_error ?? 0
+      // Backward compat: restore window from error_window if persisted,
+      // otherwise seed from consecutive_same_error count
+      if (Array.isArray(data.error_window)) {
+        this.errorWindow = data.error_window
+      } else if (data.consecutive_same_error) {
+        // Legacy: approximate the window from the old count
+        this.errorWindow = Array.from({ length: data.consecutive_same_error }, (_, i) => ({
+          ts: Date.now() - (data.consecutive_same_error - i) * 1000,
+          error: 'legacy'
+        }))
+      }
       this.consecutivePermissionDenials = data.consecutive_permission_denials ?? 0
       this.lastProgressLoop = data.last_progress_loop ?? 0
       this.totalOpens = data.total_opens ?? 0
@@ -49,7 +58,9 @@ export class CircuitBreaker {
       state: this.state,
       last_change: new Date().toISOString(),
       consecutive_no_progress: this.consecutiveNoProgress,
-      consecutive_same_error: this.consecutiveSameError,
+      consecutive_same_error: this.errorWindow.length,
+      error_window_count: this.errorWindow.length,
+      error_window: this.errorWindow,
       consecutive_permission_denials: this.consecutivePermissionDenials,
       last_progress_loop: this.lastProgressLoop,
       total_opens: this.totalOpens,
@@ -66,7 +77,7 @@ export class CircuitBreaker {
   reset(): void {
     this.state = 'CLOSED'
     this.consecutiveNoProgress = 0
-    this.consecutiveSameError = 0
+    this.errorWindow = []
     this.consecutivePermissionDenials = 0
     this.reason = 'Manual reset'
     this.openedAt = undefined
@@ -84,9 +95,8 @@ export class CircuitBreaker {
   recordProgress(loop: number): void {
     this.lastProgressLoop = loop
     this.consecutiveNoProgress = 0
-    this.consecutiveSameError = 0
+    this.errorWindow = []
     this.consecutivePermissionDenials = 0
-    this.lastErrors = []
     if (this.state === 'HALF_OPEN') {
       this.state = 'CLOSED'
       this.reason = 'Progress detected, circuit recovered'
@@ -100,14 +110,13 @@ export class CircuitBreaker {
   }
 
   recordError(errorLine: string): void {
-    if (this.lastErrors.includes(errorLine)) {
-      this.consecutiveSameError++
-      this._checkThresholds()
-    } else {
-      this.consecutiveSameError = 0
-      this.lastErrors.push(errorLine)
-      if (this.lastErrors.length > 10) this.lastErrors.shift()
+    this.errorWindow.push({ ts: Date.now(), error: errorLine })
+    // Prune to window size
+    const maxSize = this.config.cbErrorWindowSize
+    if (this.errorWindow.length > maxSize) {
+      this.errorWindow = this.errorWindow.slice(-maxSize)
     }
+    this._checkThresholds()
   }
 
   recordPermissionDenial(): void {
@@ -122,7 +131,8 @@ export class CircuitBreaker {
       state: this.state,
       last_change: new Date().toISOString(),
       consecutive_no_progress: this.consecutiveNoProgress,
-      consecutive_same_error: this.consecutiveSameError,
+      consecutive_same_error: this.errorWindow.length,
+      error_window_count: this.errorWindow.length,
       consecutive_permission_denials: this.consecutivePermissionDenials,
       last_progress_loop: this.lastProgressLoop,
       total_opens: this.totalOpens,
@@ -141,8 +151,8 @@ export class CircuitBreaker {
         this._open(`Still no progress after HALF_OPEN (${this.consecutiveNoProgress} loops)`)
       }
     }
-    if (this.consecutiveSameError >= this.config.cbSameErrorThreshold) {
-      this._open(`${this.consecutiveSameError} loops with same error`)
+    if (this.errorWindow.length >= this.config.cbErrorWindowThreshold) {
+      this._open(`${this.errorWindow.length} errors in sliding window`)
     }
   }
 

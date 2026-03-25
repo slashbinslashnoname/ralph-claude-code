@@ -34,6 +34,8 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     continueSession: false,
     cbNoProgressThreshold: 3,
     cbSameErrorThreshold: 3,
+    cbErrorWindowSize: 20,
+    cbErrorWindowThreshold: 5,
     cbPermissionDenialThreshold: 3,
     cbCooldownMinutes: 30,
     autoPush: false,
