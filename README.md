@@ -26,7 +26,6 @@ Slashbot is an Electron desktop app that coordinates multiple Claude AI agents w
 - **Health Checks** — Pre-flight validation of `bd` CLI, `claude` CLI, and required project files before starting the swarm
 - **Knowledge Capture** — Agents extract patterns, gotchas, and architectural insights during work
 - **Auto-Retry & Auto-Split** — Configurable retries with exponential backoff; oversized beads are automatically split into children
-- **MCP Coordination Server** — Model Context Protocol server for inter-agent coordination (file reservations, team status, messaging)
 - **Multi-Tab Projects** — Open and manage multiple projects simultaneously with persistent tab state
 - **Desktop UI** — Dashboard with progress ring, Kanban board, tree browser, live agent output, activity feed, log viewer, and config editor
 
@@ -84,7 +83,6 @@ Main Process (src/main/)
     ├── TelegramBot           — Telegram API client with command handling
     ├── TelegramBridge        — Telegram ↔ Swarm event bridge with batching/throttling
     ├── AsyncSemaphore        — FIFO mutex for safe concurrency
-    ├── mcp-coordination-server — MCP server for inter-agent coordination
     ├── utils                 — Shared utilities (log rotation, helpers)
     └── *Validation           — Input validation modules (bead, config, ipc, project, swarm, telegram)
 
@@ -259,7 +257,6 @@ The `RalphEnabler` auto-detects project type (Node.js, Python, Rust, Go, Java, R
 | File watching | chokidar |
 | Terminal | node-pty |
 | Telegram | telegraf |
-| MCP | @modelcontextprotocol/sdk |
 | Task tracking | beads-rust (`bd` CLI) |
 | Package manager | Bun |
 | Testing | Vitest |
@@ -280,7 +277,7 @@ bun run test:coverage
 ```
 
 Test coverage spans the full stack:
-- **Main process** — AgentCoordinator, BdClient, CircuitBreaker, HealthCheck, PlanLoop, RcParser, ResponseAnalyzer, SwarmOrchestrator, TelegramBot, TelegramBridge, WorkerLoop, WorkerStateMachine, BuildMonitor, FileGuard, RalphEnabler, AsyncSemaphore, ProjectStore, MCP coordination server, graceful shutdown, and all validation modules
+- **Main process** — AgentCoordinator, BdClient, CircuitBreaker, HealthCheck, PlanLoop, RcParser, ResponseAnalyzer, SwarmOrchestrator, TelegramBot, TelegramBridge, WorkerLoop, WorkerStateMachine, BuildMonitor, FileGuard, RalphEnabler, AsyncSemaphore, ProjectStore, graceful shutdown, and all validation modules
 - **Renderer** — Dashboard, BeadsPage, SwarmPage, ConfigEditor, TreeBrowser, SlashbotLogo
 
 ### Project Scripts

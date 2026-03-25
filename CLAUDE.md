@@ -30,7 +30,6 @@ Slashbot — an Electron desktop app for autonomous AI development orchestration
     - `TelegramBot.ts` — Telegram API client with command handling
     - `TelegramBridge.ts` — Telegram ↔ Swarm event bridge with batching/throttling
     - `AsyncSemaphore.ts` — FIFO mutex for safe concurrency
-    - `mcp-coordination-server.ts` — MCP server for inter-agent coordination
     - `utils.ts` — Shared utilities (log rotation, helpers)
 - **Preload** (`src/preload/`): Context bridge exposing APIs to renderer
 - **Renderer** (`src/renderer/`): React UI
@@ -75,7 +74,7 @@ bun run preview      # Preview production build
 - **Runtime**: Electron 33
 - **Bundler**: electron-vite + Vite 5
 - **Frontend**: React 18, TypeScript 5
-- **Dependencies**: chokidar (file watching), node-pty (terminal), telegraf (Telegram), @modelcontextprotocol/sdk (MCP)
+- **Dependencies**: chokidar (file watching), node-pty (terminal), telegraf (Telegram)
 - **Package manager**: Bun
 - **Testing**: Vitest
 - **Task tracking**: beads-rust (`bd` CLI)
