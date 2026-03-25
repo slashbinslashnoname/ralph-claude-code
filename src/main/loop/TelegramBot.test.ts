@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // Mock telegraf before importing TelegramBot
 const mockGetMe = vi.fn()
 const mockSendMessage = vi.fn()
+const mockSetMyCommands = vi.fn()
 const mockCommand = vi.fn()
 const mockLaunch = vi.fn()
 const mockStop = vi.fn()
@@ -13,6 +14,7 @@ vi.mock('telegraf', () => ({
       telegram: {
         getMe: mockGetMe,
         sendMessage: mockSendMessage,
+        setMyCommands: mockSetMyCommands,
       },
       command: mockCommand,
       launch: mockLaunch,
@@ -43,6 +45,7 @@ describe('TelegramBot', () => {
     mockLaunch.mockResolvedValue(undefined)
     mockStop.mockResolvedValue(undefined)
     mockSendMessage.mockResolvedValue({})
+    mockSetMyCommands.mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -74,9 +77,28 @@ describe('TelegramBot', () => {
 
     it('registers command listeners for all valid commands', async () => {
       await bot.connect(validConfig)
-      expect(mockCommand).toHaveBeenCalledTimes(6) // bead, plan, status, pause, resume, stop
+      expect(mockCommand).toHaveBeenCalledTimes(8) // bead, plan, status, pause, resume, stop, start, beads
       const registeredCmds = mockCommand.mock.calls.map((c) => c[0])
-      expect(registeredCmds).toEqual(['bead', 'plan', 'status', 'pause', 'resume', 'stop'])
+      expect(registeredCmds).toEqual(['bead', 'plan', 'status', 'pause', 'resume', 'stop', 'start', 'beads'])
+    })
+
+    it('calls setMyCommands with command menu after connecting', async () => {
+      await bot.connect(validConfig)
+      expect(mockSetMyCommands).toHaveBeenCalledTimes(1)
+      const menu = mockSetMyCommands.mock.calls[0][0]
+      expect(menu).toHaveLength(8)
+      expect(menu[0]).toEqual({ command: 'start', description: 'Show welcome message and available commands' })
+      expect(menu.map((m: { command: string }) => m.command)).toEqual([
+        'start', 'status', 'beads', 'bead', 'plan', 'pause', 'resume', 'stop',
+      ])
+      expect(logs).toContain('[telegram] command menu registered')
+    })
+
+    it('continues connecting when setMyCommands fails', async () => {
+      mockSetMyCommands.mockRejectedValue(new Error('forbidden'))
+      await bot.connect(validConfig)
+      expect(bot.isConnected()).toBe(true)
+      expect(logs.some((l) => l.includes('failed to register command menu'))).toBe(true)
     })
   })
 
