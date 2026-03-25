@@ -301,6 +301,8 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       case 'stopped': return '\u25A0'
       case 'paused': return '\u23F8'
       case 'resumed': return '\u25B6'
+      case 'circuit_open': return '\u{1F534}'
+      case 'circuit_closed': return '\u{1F7E2}'
       case 'bead-created': return '\u{1F527}'
       default: return '\u2022'
     }
