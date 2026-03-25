@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { RalphConfig, CircuitBreakerSnapshot } from '../types'
 import { atomicWriteSync } from './utils'
+import { classifyError, ErrorCategory } from './ErrorClassifier'
 
 export class CircuitBreaker {
   private state: 'CLOSED' | 'HALF_OPEN' | 'OPEN' = 'CLOSED'
@@ -67,7 +68,6 @@ export class CircuitBreaker {
       reason: this.reason,
       current_loop: this.currentLoop,
       reopen_epoch: 0,
-      error_window_count: 0,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
     atomicWriteSync(
@@ -111,7 +111,12 @@ export class CircuitBreaker {
     this._checkThresholds()
   }
 
-  recordError(errorLine: string): void {
+  recordError(errorLine: string, category?: ErrorCategory): void {
+    const resolved = category ?? classifyError(errorLine)
+    if (resolved === 'permanent') {
+      this._open(`Permanent error: ${errorLine}`)
+      return
+    }
     this.errorWindow.push({ ts: Date.now(), error: errorLine })
     // Prune to window size
     const maxSize = this.config.cbErrorWindowSize
@@ -141,7 +146,6 @@ export class CircuitBreaker {
       reason: this.reason,
       current_loop: this.currentLoop,
       reopen_epoch: 0,
-      error_window_count: 0,
       ...(this.openedAt ? { opened_at: this.openedAt } : {})
     }
   }

@@ -428,6 +428,71 @@ describe('CircuitBreaker', () => {
     })
   })
 
+  describe('recordError with error categorization', () => {
+    it('permanent error trips circuit immediately, bypassing window', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 10, cbErrorWindowSize: 20 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('invalid api key detected', 'permanent')
+      expect(cb.isOpen()).toBe(true)
+      expect(cb.snapshot().reason).toContain('Permanent error')
+      expect(cb.snapshot().reason).toContain('invalid api key')
+      expect(cb.snapshot().total_opens).toBe(1)
+      // Permanent errors should NOT be added to the window
+      expect(cb.snapshot().error_window_count).toBe(0)
+    })
+
+    it('permanent error auto-classified from error text trips immediately', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 10, cbErrorWindowSize: 20 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('authentication failed for user xyz')
+      expect(cb.isOpen()).toBe(true)
+      expect(cb.snapshot().reason).toContain('Permanent error')
+    })
+
+    it('transient error accumulates in window normally', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 5, cbErrorWindowSize: 20 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('ECONNRESET on socket', 'transient')
+      expect(cb.isOpen()).toBe(false)
+      expect(cb.snapshot().error_window_count).toBe(1)
+
+      cb.recordError('ETIMEDOUT waiting for response', 'transient')
+      expect(cb.isOpen()).toBe(false)
+      expect(cb.snapshot().error_window_count).toBe(2)
+    })
+
+    it('unknown error accumulates in window normally', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 5, cbErrorWindowSize: 20 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('something weird happened', 'unknown')
+      expect(cb.isOpen()).toBe(false)
+      expect(cb.snapshot().error_window_count).toBe(1)
+    })
+
+    it('auto-classifies transient errors to window', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 5, cbErrorWindowSize: 20 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      cb.recordError('ECONNRESET')
+      expect(cb.isOpen()).toBe(false)
+      expect(cb.snapshot().error_window_count).toBe(1)
+    })
+
+    it('explicit category overrides auto-classification', () => {
+      const config = makeConfig({ cbErrorWindowThreshold: 10, cbErrorWindowSize: 20 })
+      const cb = new CircuitBreaker(SLASHBOT_DIR, config)
+
+      // "invalid api key" would auto-classify as permanent, but we override to transient
+      cb.recordError('invalid api key', 'transient')
+      expect(cb.isOpen()).toBe(false)
+      expect(cb.snapshot().error_window_count).toBe(1)
+    })
+  })
+
   describe('recordPermissionDenial', () => {
     it('increments counter on each call', () => {
       const config = makeConfig({ cbPermissionDenialThreshold: 10 })
