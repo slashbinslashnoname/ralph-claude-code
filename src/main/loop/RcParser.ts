@@ -23,6 +23,7 @@ export const DEFAULT_CONFIG: RalphConfig = {
   cbErrorWindowThreshold: 5,
   cbPermissionDenialThreshold: 2,
   cbCooldownMinutes: 30,
+  cbMaxCooldownMinutes: 480,
   autoPush: true,
   maxRetries: 2,
   autoSplitThreshold: 3,
@@ -31,9 +32,6 @@ export const DEFAULT_CONFIG: RalphConfig = {
   claudeModelThink: 'sonnet',
   claudeModelExecute: 'opus',
   claudeModelReview: 'sonnet',
-  cbErrorWindowSize: 10,
-  cbErrorWindowThreshold: 5,
-  cbMaxCooldownMinutes: 480,
   telegram: { ...DEFAULT_TELEGRAM_CONFIG }
 }
 
@@ -59,8 +57,6 @@ const KEY_MAP: Record<string, keyof RalphConfig> = {
   CLAUDE_MODEL_THINK: 'claudeModelThink',
   CLAUDE_MODEL_EXECUTE: 'claudeModelExecute',
   CLAUDE_MODEL_REVIEW: 'claudeModelReview',
-  CB_ERROR_WINDOW_SIZE: 'cbErrorWindowSize',
-  CB_ERROR_WINDOW_THRESHOLD: 'cbErrorWindowThreshold',
   CB_MAX_COOLDOWN_MINUTES: 'cbMaxCooldownMinutes'
 }
 
@@ -148,8 +144,6 @@ const NUMERIC_RANGES: Partial<Record<keyof RalphConfig, NumericRule>> = {
   maxRetries: { min: 0, max: 10 },
   autoSplitThreshold: { min: 1, max: 100 },
   buildMonitorInterval: { min: 30, max: 86400 },
-  cbErrorWindowSize: { min: 1, max: 1000 },
-  cbErrorWindowThreshold: { min: 1, max: 1000 },
   cbMaxCooldownMinutes: { min: 1, max: 1440 }
 }
 
