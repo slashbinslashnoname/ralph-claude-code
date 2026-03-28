@@ -1,7 +1,9 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import * as cp from 'child_process'
 import { ProjectContext, EnableOptions, EnableResult } from '../types'
 import { ProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { buildEnv } from './utils'
 
 const TYPE_MARKERS: [string, string, string, string, string][] = [
   ['nodejs', 'package.json', 'npm install', 'npm test', 'npm run build'],
@@ -201,6 +203,21 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
       write('.slashbot/PROMPT.md', generatePromptMd(ctx))
       write('.slashbot/AGENT.md', generateAgentMd(ctx))
     }
+    // Auto-initialize beads if useBeads is set and .beads doesn't exist
+    if (opts.useBeads && !fs.existsSync(path.join(projectPath, '.beads'))) {
+      try {
+        cp.execFileSync('bd', ['init'], {
+          cwd: projectPath,
+          env: buildEnv(),
+          timeout: 15_000,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        created.push('.beads')
+      } catch {
+        // bd not installed — skip init, user will see guidance in the wizard
+      }
+    }
+
     const gitignorePath = path.join(projectPath, '.gitignore')
     const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : ''
     if (!existing.includes('# Slashbot')) {

@@ -5,6 +5,23 @@ APP_NAME="Slashbot"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── Pre-flight: check optional dependencies ──────────────────────────────
+if ! command -v bd &>/dev/null; then
+  echo ""
+  echo "NOTE: 'bd' (beads-rust) CLI not found."
+  echo "  Slashbot uses bd for task management. Install it with:"
+  echo "    brew install beads-rust"
+  echo "  or"
+  echo "    cargo install beads-rust"
+  echo "  (You can also skip this and install later.)"
+  echo ""
+  read -rp "Continue without bd? [Y/n] " ans
+  if [[ "$ans" =~ ^[Nn] ]]; then
+    echo "Install bd first, then re-run this script."
+    exit 0
+  fi
+fi
+
 echo "==> Installing dependencies..."
 bun install
 

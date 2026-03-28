@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('slashbot', {
   // ── Beads (via bd CLI) ───────────────────────────────────────────────
   beads: {
     check: (projectPath: string) => ipcRenderer.invoke('beads:check', projectPath),
+    installCheck: () => ipcRenderer.invoke('beads:install-check'),
+    init: (projectPath: string) => ipcRenderer.invoke('beads:init', projectPath),
     list: (projectPath: string, filter?: string) =>
       ipcRenderer.invoke('beads:list', projectPath, filter ?? 'open'),
     show: (projectPath: string, id: string) => ipcRenderer.invoke('beads:show', projectPath, id),

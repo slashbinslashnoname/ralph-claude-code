@@ -71,6 +71,8 @@ interface SlashbotAPI {
   resetSession: (p: string) => Promise<{ ok: boolean }>
   beads: {
     check: (p: string) => Promise<{ available: boolean; reason?: string }>
+    installCheck: () => Promise<{ installed: boolean }>
+    init: (p: string) => Promise<{ ok: boolean; error?: string }>
     list: (p: string, filter?: string) => Promise<{ ok: boolean; tasks: Bead[] }>
     show: (p: string, id: string) => Promise<{ ok: boolean; task?: Bead }>
     create: (p: string, opts: { title: string; type?: BeadType; priority?: number; description?: string; labels?: string[]; deps?: string[] }) => Promise<{ ok: boolean; task?: Bead; error?: string }>

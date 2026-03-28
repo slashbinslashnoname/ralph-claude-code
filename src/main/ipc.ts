@@ -1,5 +1,6 @@
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron'
 import { promisify } from 'util'
+import * as cp from 'child_process'
 import { exec, execSync } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -14,6 +15,7 @@ import { CircuitBreaker } from './loop/CircuitBreaker'
 import { checkEnabled, detectProjectContext, enableRalph } from './loop/RalphEnabler'
 import { getProjectPaths, ensureStoreDirs } from './loop/ProjectStore'
 import { BdClient } from './loop/BdClient'
+import { buildEnv } from './loop/utils'
 import {
   validateBeadsList,
   validateBeadsCreate,
@@ -444,6 +446,32 @@ export function registerIpc(
   ipcMain.handle('beads:check', async (_e, projectPath: string) => {
     const bd = new BdClient(projectPath)
     return bd.checkAsync()
+  })
+
+  ipcMain.handle('beads:install-check', async () => {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        cp.exec('which bd', { env: buildEnv(), timeout: 3000 }, (err) => err ? reject(err) : resolve())
+      })
+      return { installed: true }
+    } catch {
+      return { installed: false }
+    }
+  })
+
+  ipcMain.handle('beads:init', async (_e, projectPath: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      cp.execFileSync('bd', ['init'], {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('beads:list', async (_e, projectPath: string, filter = 'open') => {
