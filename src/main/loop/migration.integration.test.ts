@@ -94,31 +94,19 @@ describe('migrateLegacyStorage (integration)', () => {
     expect(fs.readFileSync(path.join(paths.configDir, 'AGENT.md'), 'utf-8')).toBe('# Agent')
   })
 
-  it('writes .slashbotid marker in project root', () => {
+  it('does not write .slashbotid marker in project root', () => {
     fs.mkdirSync(path.join(projectRoot, '.slashbot'), { recursive: true })
-
-    const result = migrateLegacyStorage(projectRoot)
-    const paths = getProjectPaths(projectRoot)
-
-    expect(result.migrated).toContain('.slashbotid')
-    const idContent = fs.readFileSync(path.join(projectRoot, '.slashbotid'), 'utf-8')
-    expect(idContent.trim()).toBe(paths.id)
-  })
-
-  it('does not overwrite existing .slashbotid', () => {
-    fs.mkdirSync(path.join(projectRoot, '.slashbot'), { recursive: true })
-    fs.writeFileSync(path.join(projectRoot, '.slashbotid'), 'existing-id\n')
 
     const result = migrateLegacyStorage(projectRoot)
 
     expect(result.migrated).not.toContain('.slashbotid')
-    expect(fs.readFileSync(path.join(projectRoot, '.slashbotid'), 'utf-8')).toBe('existing-id\n')
+    expect(fs.existsSync(path.join(projectRoot, '.slashbotid'))).toBe(false)
   })
 
-  it('returns .slashbotid as only migrated item when no legacy files exist', () => {
+  it('returns empty migrated list when no legacy files exist', () => {
     const result = migrateLegacyStorage(projectRoot)
 
-    expect(result.migrated).toEqual(['.slashbotid'])
+    expect(result.migrated).toEqual([])
     expect(result.skipped).toEqual([])
   })
 
@@ -224,7 +212,7 @@ describe('end-to-end: migrate then cleanup', () => {
     expect(migrateResult.migrated).toContain('.slashbotrc')
     expect(migrateResult.migrated).toContain('AGENT.md')
     expect(migrateResult.migrated).toContain('logs/')
-    expect(migrateResult.migrated).toContain('.slashbotid')
+    expect(migrateResult.migrated).not.toContain('.slashbotid')
 
     // Verify data in centralized store
     expect(fs.readFileSync(path.join(paths.storeDir, 'activity.jsonl'), 'utf-8')).toBe('{"e":"start"}\n')
@@ -247,8 +235,8 @@ describe('end-to-end: migrate then cleanup', () => {
     expect(fs.existsSync(path.join(projectRoot, '.beads'))).toBe(false)
     expect(fs.existsSync(path.join(projectRoot, '.worktrees'))).toBe(false)
 
-    // .slashbotid remains
-    expect(fs.existsSync(path.join(projectRoot, '.slashbotid'))).toBe(true)
+    // .slashbotid is no longer created
+    expect(fs.existsSync(path.join(projectRoot, '.slashbotid'))).toBe(false)
 
     // .gitignore still has non-legacy entries
     expect(fs.readFileSync(path.join(projectRoot, '.gitignore'), 'utf-8')).toBe('node_modules/\n')

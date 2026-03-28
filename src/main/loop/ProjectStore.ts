@@ -181,13 +181,6 @@ export function migrateLegacyStorage(projectPath: string): { migrated: string[];
     }
   }
 
-  // Write .slashbotid marker in project root
-  const slashbotidPath = path.join(projectPath, '.slashbotid')
-  if (!fs.existsSync(slashbotidPath)) {
-    atomicWriteFile(slashbotidPath, paths.id + '\n')
-    migrated.push('.slashbotid')
-  }
-
   return { migrated, skipped }
 }
 

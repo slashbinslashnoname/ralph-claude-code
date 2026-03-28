@@ -111,7 +111,6 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
             <h3>Ready to initialize</h3>
             <p>This will create:</p>
             <ul className="setup-files">
-              <li><code>.slashbotid</code> - Project identifier</li>
               <li><code>~/.slashbot/projects/&lt;id&gt;/</code> - Centralized storage</li>
               <li><code>.slashbotrc</code> - Configuration</li>
               <li><code>PROMPT.md</code> - AI instructions</li>

@@ -216,12 +216,12 @@ describe('ProjectStore', () => {
       )
     })
 
-    it('returns .slashbotid as only migrated item when no legacy files exist', () => {
+    it('returns empty migrated list when no legacy files exist', () => {
       ;(fs.existsSync as any).mockReturnValue(false)
 
       const result = migrateLegacyStorage(PROJECT_PATH)
 
-      expect(result.migrated).toEqual(['.slashbotid'])
+      expect(result.migrated).toEqual([])
       expect(result.skipped).toEqual([])
     })
   })

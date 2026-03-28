@@ -105,7 +105,7 @@ function generateRalphrc(ctx: ProjectContext, opts: EnableOptions): string {
 
 function generatePromptMd(ctx: ProjectContext, centralized = false): string {
   const protectedFiles = centralized
-    ? '- `.slashbotid`'
+    ? ''
     : '- `.slashbot/` directory and all its contents\n- `.slashbotrc`'
   return `# Slashbot Development Instructions
 
@@ -152,7 +152,7 @@ function generateAgentMd(ctx: ProjectContext): string {
 
 function generateGitignoreAdditions(centralized = false): string {
   if (centralized) {
-    return '\n# Slashbot\n.slashbotid\n'
+    return ''
   }
   return '\n# Slashbot\n.slashbot/logs/\n.slashbot/.call_count\n.slashbot/.exit_signals\n.slashbot/.response_analysis\n.slashbot/.circuit_breaker_state\n.slashbot/.claude_session_id\n.slashbot/progress.json\n'
 }
@@ -182,12 +182,6 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
       write('.slashbotrc', generateRalphrc(ctx, opts))
       write('PROMPT.md', generatePromptMd(ctx, true))
       write('AGENT.md', generateAgentMd(ctx))
-      // Write .slashbotid pointer in project root
-      const idPath = path.join(projectPath, '.slashbotid')
-      if (!fs.existsSync(idPath) || opts.force) {
-        fs.writeFileSync(idPath, paths.id + '\n', 'utf8')
-        created.push('.slashbotid')
-      }
     } else {
       const slashbotDir = path.join(projectPath, '.slashbot')
       fs.mkdirSync(slashbotDir, { recursive: true })

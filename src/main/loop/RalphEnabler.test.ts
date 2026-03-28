@@ -399,7 +399,6 @@ describe('RalphEnabler', () => {
       expect(result.filesCreated).toContain('.slashbotrc')
       expect(result.filesCreated).toContain('PROMPT.md')
       expect(result.filesCreated).toContain('AGENT.md')
-      expect(result.filesCreated).toContain('.slashbotid')
     })
 
     it('writes .slashbotrc to configDir not project root', () => {
@@ -421,14 +420,12 @@ describe('RalphEnabler', () => {
       expect(String(agentCall![0])).toBe(path.join(fakePaths.configDir, 'AGENT.md'))
     })
 
-    it('writes .slashbotid with project id to project root', () => {
+    it('does not write .slashbotid to project root', () => {
       ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project', defaultOpts, fakePaths)
       const calls = (fs.writeFileSync as any).mock.calls
       const idCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotid'))
-      expect(idCall).toBeDefined()
-      expect(String(idCall![0])).toBe('/project/.slashbotid')
-      expect(String(idCall![1])).toBe('abc123\n')
+      expect(idCall).toBeUndefined()
     })
 
     it('calls ensureStoreDirs when paths provided', () => {
@@ -446,24 +443,29 @@ describe('RalphEnabler', () => {
       expect(mkdirCalls).not.toContain('/project/.slashbot')
     })
 
-    it('generates centralized gitignore with .slashbotid only', () => {
+    it('does not add gitignore entries in centralized mode', () => {
       ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project', defaultOpts, fakePaths)
       const calls = (fs.writeFileSync as any).mock.calls
       const gitignoreCall = calls.find((c: any) => String(c[0]).endsWith('.gitignore'))
-      expect(gitignoreCall).toBeDefined()
-      const content = String(gitignoreCall![1])
-      expect(content).toContain('.slashbotid')
-      expect(content).not.toContain('.slashbot/logs/')
+      // No gitignore write since centralized mode returns empty string and '# Slashbot' isn't in existing content
+      // but existing is '' (from mock), and generateGitignoreAdditions returns '' so nothing is appended
+      // Actually, the code checks !existing.includes('# Slashbot') which is true, then writes existing + ''
+      // Let's verify: the gitignore write may still happen but with no slashbot entries
+      if (gitignoreCall) {
+        const content = String(gitignoreCall![1])
+        expect(content).not.toContain('.slashbotid')
+        expect(content).not.toContain('.slashbot/logs/')
+      }
     })
 
-    it('PROMPT.md in centralized mode references .slashbotid not .slashbot/', () => {
+    it('PROMPT.md in centralized mode does not reference .slashbotid or .slashbot/', () => {
       ;(fs.existsSync as any).mockReturnValue(false)
       enableRalph('/project', defaultOpts, fakePaths)
       const calls = (fs.writeFileSync as any).mock.calls
       const promptCall = calls.find((c: any) => String(c[0]).endsWith('PROMPT.md'))
       const content = String(promptCall![1])
-      expect(content).toContain('.slashbotid')
+      expect(content).not.toContain('.slashbotid')
       expect(content).not.toContain('.slashbot/')
     })
 
