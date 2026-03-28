@@ -467,6 +467,7 @@ describe('RalphEnabler', () => {
       const content = String(promptCall![1])
       expect(content).not.toContain('.slashbotid')
       expect(content).not.toContain('.slashbot/')
+      expect(content).not.toContain('Protected files')
     })
 
     it('force overwrites config files in configDir', () => {

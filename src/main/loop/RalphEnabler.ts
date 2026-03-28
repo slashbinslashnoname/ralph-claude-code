@@ -129,10 +129,7 @@ bd create "title" -t task -p 2 -d "desc" # Create if you discover new work
 - Commit your work: \`git add -A && git commit -m "feat: description"\`
 - Close the bead via bd when done
 
-## Protected files (DO NOT modify or delete)
-${protectedFiles}
-
-## Status reporting
+${protectedFiles ? `## Protected files (DO NOT modify or delete)\n${protectedFiles}\n\n` : ''}## Status reporting
 End every response with:
 \`\`\`
 RALPH_STATUS: { "STATUS": "IN_PROGRESS", "EXIT_SIGNAL": false, "WORK_TYPE": "feature", "FILES_MODIFIED": 0, "ASKING_QUESTIONS": false, "QUESTION_COUNT": 0, "WORK_SUMMARY": "brief description" }
