@@ -14,7 +14,8 @@ import {
 
 const FAKE_HOME = '/fake/home'
 const PROJECT_PATH = '/my/project'
-const PROJECT_ID = crypto.createHash('sha256').update(PROJECT_PATH).digest('hex')
+const PROJECT_HASH8 = crypto.createHash('sha256').update(PROJECT_PATH).digest('hex').slice(0, 8)
+const PROJECT_ID = `project-${PROJECT_HASH8}`
 const STORE_DIR = path.join(FAKE_HOME, '.slashbot', 'projects', PROJECT_ID)
 
 describe('ProjectStore', () => {
@@ -34,10 +35,10 @@ describe('ProjectStore', () => {
   })
 
   describe('getProjectPaths', () => {
-    it('returns full SHA256 hex digest as id', () => {
+    it('returns human-readable id with basename and 8-char hash prefix', () => {
       const paths = getProjectPaths(PROJECT_PATH)
       expect(paths.id).toBe(PROJECT_ID)
-      expect(paths.id).toHaveLength(64)
+      expect(paths.id).toMatch(/^project-[0-9a-f]{8}$/)
     })
 
     it('computes storeDir under ~/.slashbot/projects/<id>', () => {
@@ -63,9 +64,9 @@ describe('ProjectStore', () => {
 
     it('resolves relative paths to absolute before hashing', () => {
       const absPath = path.resolve('relative/project')
-      const expected = crypto.createHash('sha256').update(absPath).digest('hex')
+      const expectedHash8 = crypto.createHash('sha256').update(absPath).digest('hex').slice(0, 8)
       const paths = getProjectPaths('relative/project')
-      expect(paths.id).toBe(expected)
+      expect(paths.id).toBe(`project-${expectedHash8}`)
     })
 
     it('different project paths produce different IDs', () => {
