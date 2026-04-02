@@ -34,6 +34,7 @@ describe('AgentCoordinator — heartbeat', () => {
       beadsCwd: projectDir,
       mail: path.join(storeDir, 'mail.jsonl'),
       agentMd: path.join(storeDir, 'config', 'AGENT.md'),
+      promptMd: path.join(storeDir, 'config', 'PROMPT.md'),
     }
   }
 

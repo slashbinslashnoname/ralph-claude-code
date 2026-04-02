@@ -144,6 +144,7 @@ function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
     beadsRoot: '/tmp/test-project/.beads',
     beadsCwd: '/tmp/test-project',
     agentMd: '/home/user/.slashbot/projects/test-id/config/AGENT.md',
+    promptMd: '/home/user/.slashbot/projects/test-id/config/PROMPT.md',
     ...overrides
   }
 }

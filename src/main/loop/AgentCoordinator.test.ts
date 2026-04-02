@@ -49,6 +49,7 @@ function makeTmpPaths(projectDir: string): ProjectPaths {
     beadsRoot: path.join(projectDir, '.beads'),
     beadsCwd: projectDir,
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
+    promptMd: path.join(storeDir, 'config', 'PROMPT.md'),
   }
 }
 

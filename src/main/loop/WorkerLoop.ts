@@ -700,6 +700,8 @@ export class WorkerLoop extends EventEmitter {
   private _buildExecutePrompt(bead: Bead): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
+    const promptMd = this.paths.promptMd
+    const promptContext = fs.existsSync(promptMd) ? fs.readFileSync(promptMd, 'utf8') : ''
 
     let currentBranch = ''
     try {
@@ -720,6 +722,7 @@ export class WorkerLoop extends EventEmitter {
       bead.deps.length > 0 ? `${bead.epicId ? '3' : '2'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
+      promptContext ? `\n---\n${promptContext}` : '',
       `\n---\n## Task`,
       `Implement this bead completely.`,
       `Write tests. Commit all changes when done with a descriptive commit message.`,
@@ -729,6 +732,9 @@ export class WorkerLoop extends EventEmitter {
   }
 
   private _buildReviewPrompt(bead: Bead): string {
+    const promptMd = this.paths.promptMd
+    const promptContext = fs.existsSync(promptMd) ? fs.readFileSync(promptMd, 'utf8') : ''
+
     return [
       `## Fresh-eyes Review: [${bead.id}] ${bead.title}`,
       `Agent ${this.agentId} has implemented this bead. Review the changes critically:`,
@@ -740,6 +746,7 @@ export class WorkerLoop extends EventEmitter {
       `\nIf you discover issues outside the scope of this bead, do NOT fix them — create a fix-later bead and link it (see bd CLI reference below).`,
       `Use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
       BD_SYSTEM_PROMPT,
+      promptContext ? `\n---\n${promptContext}` : '',
     ].filter(Boolean).join('\n')
   }
 

@@ -38,6 +38,8 @@ export interface ProjectPaths {
   beadsCwd: string
   /** ~/.slashbot/projects/<id>/config/AGENT.md */
   agentMd: string
+  /** ~/.slashbot/projects/<id>/config/PROMPT.md */
+  promptMd: string
 }
 
 function slashbotHome(): string {
@@ -71,6 +73,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     beadsRoot,
     beadsCwd: path.dirname(beadsRoot),
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
+    promptMd: path.join(storeDir, 'config', 'PROMPT.md'),
   }
 }
 

@@ -70,6 +70,7 @@ function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
     beadsRoot: '/project/.beads',
     beadsCwd: '/project',
     agentMd: '/store/config/AGENT.md',
+    promptMd: '/store/config/PROMPT.md',
     ...overrides
   }
 }

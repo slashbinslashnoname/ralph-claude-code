@@ -83,6 +83,7 @@ describe('Bead retry helpers', () => {
       beadsRoot: '/tmp/test-project/.beads',
       beadsCwd: '/tmp/test-project',
       agentMd: path.join(tmpDir, 'config', 'AGENT.md'),
+      promptMd: path.join(tmpDir, 'config', 'PROMPT.md'),
     }
     worker = new (WorkerLoop as any)(
       'agent-0', 0, '/tmp/test-project',
