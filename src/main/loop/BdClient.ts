@@ -421,6 +421,10 @@ export class BdClient {
     this.run(['label', 'remove', id, label, '--json'])
   }
 
+  async removeLabelAsync(id: string, label: string): Promise<void> {
+    await this.runAsync(['label', 'remove', id, label, '--json'])
+  }
+
   listLabels(): string[] {
     try {
       return this.runJson<string[]>(['label', 'list-all'])

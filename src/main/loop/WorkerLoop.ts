@@ -350,8 +350,16 @@ export class WorkerLoop extends EventEmitter {
           continue
         }
         // There's open/in-progress work but nothing claimable for us right now.
-        // Keep waiting — other agents will finish their beads and unblock ours.
+        // After 5 consecutive failures, try to auto-unblock the routing.
         this.emptyRetries++
+        if (this.emptyRetries >= 5 && this.emptyRetries % 5 === 0) {
+          this._log('WARN', `[${this.agentId}] Routing stuck for ${this.emptyRetries} attempts — attempting auto-unblock`)
+          const unblocked = await this.coordinator.tryUnblockRouting(this.agentId)
+          if (unblocked) {
+            this._log('INFO', `[${this.agentId}] Auto-unblock took corrective action — retrying immediately`)
+            continue
+          }
+        }
         const waitSec = Math.min(10 + this.emptyRetries * 5, 30) // 15s, 20s, 25s, 30s...
         this._log('INFO', `[${this.agentId}] No claimable beads (blocked by deps or claimed), waiting ${waitSec}s… (attempt ${this.emptyRetries})`)
         this._setPhase('waiting')

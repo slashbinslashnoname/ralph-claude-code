@@ -697,6 +697,150 @@ export class AgentCoordinator {
   }
 
   /**
+   * Diagnose and automatically unblock routing when all open beads are stuck.
+   * Called by WorkerLoop after repeated consecutive routing failures.
+   *
+   * Handles three deadlock scenarios:
+   * 1. Failed deps blocking: reopens failed deps for retry
+   * 2. Complex circular deps (A→B→C→A): detects full cycles and breaks them
+   * 3. Stale file locks from dead agents: clears orphaned locks
+   *
+   * Returns true if any corrective action was taken.
+   */
+  async tryUnblockRouting(agentId: string): Promise<boolean> {
+    let unblocked = false
+    try {
+      const [openBeads, closedBeads, allBeads] = await Promise.all([
+        this.bd.listByStatusAsync('open'),
+        this.bd.listByStatusAsync('closed'),
+        this.bd.listAllAsync(),
+      ])
+
+      if (openBeads.length === 0) return false
+
+      const doneIds = new Set(closedBeads.filter(b => b.status === 'done').map(b => b.id))
+      const failedIds = new Set(closedBeads.filter(b => b.status === 'failed').map(b => b.id))
+      const epicIds = new Set(allBeads.filter(b => b.type === 'epic').map(b => b.id))
+      const openChildCount = new Map<string, number>()
+      for (const b of allBeads) {
+        if (b.epicId && !doneIds.has(b.id) && !failedIds.has(b.id)) {
+          openChildCount.set(b.epicId, (openChildCount.get(b.epicId) ?? 0) + 1)
+        }
+      }
+
+      // ── 1. Reopen failed deps that block all remaining work ────────────
+      const failedBlockers = new Set<string>()
+      for (const bead of openBeads) {
+        if (bead.type === 'epic') continue
+        const realDeps = bead.deps.filter(d => d !== bead.epicId && !epicIds.has(d))
+        for (const d of realDeps) {
+          if (failedIds.has(d)) failedBlockers.add(d)
+        }
+      }
+      if (failedBlockers.size > 0) {
+        for (const failedId of failedBlockers) {
+          try {
+            await this.bd.reopenAsync(failedId, 'Auto-reopened — was blocking dependent beads')
+            this.postActivity({
+              agentId: 'system', type: 'info', beadId: failedId,
+              summary: `Auto-reopened failed bead [${failedId}] — was blocking dependents`
+            })
+            this._log('WARN', `[${agentId}] auto-unblock: reopened failed dep ${failedId}`)
+            unblocked = true
+          } catch { /* ignore — may already be open */ }
+        }
+      }
+
+      // ── 2. Detect complex circular deps (A→B→C→A) via DFS ─────────────
+      // Build adjacency from open beads' unresolved deps
+      const openIds = new Set(openBeads.filter(b => b.type !== 'epic').map(b => b.id))
+      const adjMap = new Map<string, string[]>()
+      for (const bead of openBeads) {
+        if (bead.type === 'epic') continue
+        const realDeps = bead.deps.filter(d => d !== bead.epicId && !epicIds.has(d))
+        const blockedDeps = realDeps.filter(d => !doneIds.has(d) && openIds.has(d))
+        if (blockedDeps.length > 0) adjMap.set(bead.id, blockedDeps)
+      }
+
+      // Find beads that are fully blocked (all deps unresolved AND all deps are also open+blocked)
+      const fullyBlocked = new Set<string>()
+      for (const bead of openBeads) {
+        if (bead.type === 'epic') continue
+        const realDeps = bead.deps.filter(d => d !== bead.epicId && !epicIds.has(d))
+        const blockedDeps = realDeps.filter(d => !doneIds.has(d))
+        const openChildren = openChildCount.get(bead.id) ?? 0
+        if (blockedDeps.length > 0 || openChildren > 0) fullyBlocked.add(bead.id)
+      }
+
+      // If ALL non-epic open beads are blocked, we have a global deadlock — find a cycle to break
+      const nonEpicOpen = openBeads.filter(b => b.type !== 'epic')
+      if (nonEpicOpen.length > 0 && fullyBlocked.size === nonEpicOpen.length && !unblocked) {
+        // DFS cycle detection
+        const visited = new Set<string>()
+        const inStack = new Set<string>()
+        let cycleNode: string | null = null
+
+        const dfs = (node: string): boolean => {
+          visited.add(node)
+          inStack.add(node)
+          for (const dep of (adjMap.get(node) ?? [])) {
+            if (inStack.has(dep)) { cycleNode = dep; return true }
+            if (!visited.has(dep) && dfs(dep)) return true
+          }
+          inStack.delete(node)
+          return false
+        }
+
+        for (const bead of nonEpicOpen) {
+          if (!visited.has(bead.id) && dfs(bead.id)) break
+        }
+
+        if (cycleNode) {
+          // Break the cycle by removing deps on the cycle node
+          const cycleBead = openBeads.find(b => b.id === cycleNode)
+          if (cycleBead) {
+            this._log('WARN', `[${agentId}] auto-unblock: complex cycle detected — breaking at bead ${cycleNode} "${cycleBead.title}"`)
+            this.postActivity({
+              agentId: 'system', type: 'info', beadId: cycleNode,
+              summary: `Auto-unblock: breaking dependency cycle at [${cycleNode}] "${cycleBead.title}" — deps will be ignored for this claim`
+            })
+            // Mark this bead as cycle-broken so claimBestBead can skip dep checks
+            try {
+              await this.bd.addLabelAsync(cycleNode, 'cycle_broken')
+            } catch { /* ignore */ }
+            unblocked = true
+          }
+        }
+      }
+
+      // ── 3. Clear stale file locks from dead/deregistered agents ────────
+      const liveAgentIds = new Set(this.getAgents().map(a => a.id))
+      const locks = this.readLocks()
+      let staleLockCount = 0
+      for (const lock of locks) {
+        if (!liveAgentIds.has(lock.agentId)) {
+          staleLockCount++
+        }
+      }
+      if (staleLockCount > 0) {
+        this._log('WARN', `[${agentId}] auto-unblock: clearing ${staleLockCount} stale file locks from dead agents`)
+        this.writeLocks(locks.filter(l => liveAgentIds.has(l.agentId)))
+        unblocked = true
+      }
+
+      if (unblocked) {
+        this._log('INFO', `[${agentId}] auto-unblock: corrective action taken — routing should resume`)
+      } else {
+        this._log('INFO', `[${agentId}] auto-unblock: no corrective action available — all beads genuinely blocked`)
+      }
+
+    } catch (err) {
+      this._log('ERROR', `[${agentId}] tryUnblockRouting failed: ${err instanceof Error ? err.message : err}`)
+    }
+    return unblocked
+  }
+
+  /**
    * Start a background sweep that periodically reopens beads stuck in_progress
    * past 2× claudeTimeoutMinutes when the owning agent has no live heartbeat.
    * Runs outside the claimSemaphore to avoid blocking claim operations.
@@ -926,15 +1070,21 @@ export class AgentCoordinator {
         // Failed deps are treated as unresolved — the dependent bead shouldn't proceed.
         // Exclude parent-child deps from blocking checks — parent-child is a containment
         // relationship, not a work dependency. bd sometimes includes it in the flat deps array.
+        // Exception: beads with 'cycle_broken' label bypass dep checks (set by tryUnblockRouting).
+        const isCycleBroken = bead.tags.includes('cycle_broken')
         const realDeps = bead.deps.filter(d => d !== bead.epicId && !epicIds.has(d))
         const blockedDeps = realDeps.filter(d => !doneIds.has(d))
         const failedDeps = realDeps.filter(d => failedIds.has(d))
         const openChildren = openChildCount.get(bead.id) ?? 0
-        if (failedDeps.length > 0) {
+        if (isCycleBroken) {
+          this._log('WARN', `[${agentId}] ${bead.id}: cycle_broken label — bypassing dep checks`)
+          // Remove the label so it's a one-shot override
+          this.bd.removeLabelAsync(bead.id, 'cycle_broken').catch(() => {})
+        } else if (failedDeps.length > 0) {
           this._log('INFO', `[${agentId}] skip ${bead.id}: ${failedDeps.length} failed deps [${failedDeps.join(',')}]`)
           continue
         }
-        if (blockedDeps.length > 0 || openChildren > 0) {
+        if (!isCycleBroken && (blockedDeps.length > 0 || openChildren > 0)) {
           // Detect circular deps: if ALL blocked deps also depend on this bead, it's a cycle — break it
           const isCircular = blockedDeps.length > 0 && openChildren === 0 && blockedDeps.every(depId => {
             const depBead = candidates.find(c => c.id === depId) ?? allBeads.find(b => b.id === depId)
