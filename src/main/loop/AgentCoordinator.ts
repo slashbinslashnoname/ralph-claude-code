@@ -405,7 +405,8 @@ export class AgentCoordinator {
 
       return { worktreePath, branch }
     } catch (err) {
-      // Fallback: return null to signal we should work in main dir
+      const msg = err instanceof Error ? err.message : String(err)
+      this._log('ERROR', `[${agentId}] Worktree creation failed for bead [${beadId}]: ${msg}`)
       return null
     }
   }

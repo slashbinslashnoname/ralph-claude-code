@@ -149,18 +149,6 @@ interface SlashbotAPI {
     onDownloaded: (cb: (info: UpdateInfo) => void) => () => void
     onError: (cb: (error: string) => void) => () => void
   }
-  cm: {
-    check: () => Promise<{ available: boolean }>
-    stats: () => Promise<unknown>
-    playbookList: () => Promise<unknown>
-    playbookGet: (id: string) => Promise<unknown>
-    playbookRemove: (id: string) => Promise<unknown>
-    top: (count?: number) => Promise<unknown>
-    stale: () => Promise<unknown>
-    traumaList: () => Promise<unknown>
-    context: (task: string) => Promise<unknown>
-    why: (id: string) => Promise<unknown>
-  }
   shell: { openExternal: (url: string) => Promise<void> }
   cleanup: (p?: string) => Promise<void>
 }

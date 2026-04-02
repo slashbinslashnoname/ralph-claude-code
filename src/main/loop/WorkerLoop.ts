@@ -14,73 +14,46 @@ import { ProjectPaths } from './ProjectStore'
 /** Beads CLI reference — appended to every prompt */
 const BD_SYSTEM_PROMPT = `
 ## Beads (\`bd\` CLI)
-- Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator manages bead lifecycle.
-- You CAN and SHOULD use \`bd\` read commands to gain context:
-  - \`bd show <id>\` — view bead details, description, dependencies
-  - \`bd list --json\` — see all open beads and their status
-  - \`bd ready --json\` — find unblocked beads ready for work
-  - \`bd comments <id>\` — read comments and discussion on a bead
-  - \`bd children <id>\` — list child beads of a parent
-  - \`bd search <query>\` — find related beads by text
-  - \`bd history <id>\` — view bead change history
-  - \`bd status\` — overview of the bead database
+
+### Lifecycle (orchestrator-managed — do NOT use these)
+- Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, or \`bd delete\`.
+- Do NOT use \`bd edit\` — it opens an interactive editor that agents cannot use.
+
+### Read commands (use these freely for context)
+- \`bd show <id>\` — view bead details, description, dependencies
+- \`bd list --json\` — see all open beads and their status
+- \`bd ready --json\` — find unblocked beads ready for work
+- \`bd comments <id>\` — read comments and discussion on a bead
+- \`bd children <id>\` — list child beads of a parent
+- \`bd search <query>\` — find related beads by text
+- \`bd history <id>\` — view bead change history
+- \`bd status\` — overview of the bead database
+
+### Update commands (use \`bd update\` with flags, never \`bd edit\`)
+- \`bd update <id> --title "new title"\`
+- \`bd update <id> --description "new description"\`
+- \`bd update <id> --design "design notes"\`
+- \`bd update <id> --notes "additional notes"\`
+- \`bd update <id> --acceptance "acceptance criteria"\`
+- For text with special characters (backticks, !, nested quotes), use stdin:
+  \`echo 'Description with \\\`backticks\\\` and "quotes"' | bd update <id> --description=-\`
+
+### Creating discovered work
+If you discover issues outside the scope of the current bead, create a new bead:
+\`\`\`bash
+bd create "Fix: <description>" -t task -p 2 -d "<details>" -l "fix-later" --json
+\`\`\`
+Then link it with a discovered-from dependency:
+\`\`\`bash
+bd dep add <new-bead-id> <current-bead-id>
+\`\`\`
+Always use \`--json\` flag for programmatic use so you can read the created bead's ID.
+
+### Important rules
+- Always use \`--json\` flag when you need to read output programmatically.
 - Focus on implementing the assigned bead.
 - Commit your changes with a descriptive message when done.
-- If you discover new issues, note them in your output — do not try to fix everything.
-`
-
-/** CASS Memory instructions — phase-aware cm CLI usage */
-const CM_SYSTEM_PROMPT = `
-## CASS Memory (\`cm\` CLI)
-CASS is a cross-agent procedural memory system. Rules learned by ALL agents (Claude, Cursor, Codex, Aider) across sessions and projects are available to you. Query context before starting work.
-
-If \`cm\` is not installed, skip all cm steps silently and proceed with the task.
-`
-
-/** Phase-specific cm instructions injected into each prompt */
-const CM_EXECUTE_INSTRUCTIONS = `
-### CASS Memory — Execute Phase
-
-**Before any code:** Query memory for this task
-\`\`\`bash
-cm context "<bead title and description>" --json
-\`\`\`
-Read the response carefully and apply what you learn:
-- \`relevantBullets\`: Follow high-confidence rules from past sessions across all agents (Claude, Cursor, Codex, Aider).
-- \`antiPatterns\`: Avoid these pitfalls explicitly — other agents hit them before.
-- \`historySnippets\`: Learn from past sessions that solved similar problems.
-- \`suggestedCassQueries\`: Run these for deeper investigation if needed.
-
-**What NOT to do with CASS:**
-- Do NOT run \`cm reflect\` — automation handles this
-- Do NOT run \`cm mark\` — use inline comments instead: \`// [cass: helpful b-xxx] reason\`
-- Do NOT run \`cm playbook add\` — the system learns from your sessions automatically
-- Do NOT run \`cm outcome\` — automation handles this
-- Do NOT worry about the learning pipeline — just query context before working
-`
-
-const CM_REVIEW_INSTRUCTIONS = `
-### CASS Memory — Review Phase
-
-**Before reviewing:** Query memory for review patterns
-\`\`\`bash
-cm context "code review: <bead title>" --json --limit 5 --no-history
-\`\`\`
-Apply what you learn — rules about testing patterns, code quality, and common mistakes in this area come from all agents (Claude, Cursor, Codex, Aider) across sessions.
-
-**What NOT to do with CASS:**
-- Do NOT run \`cm reflect\` — automation handles this
-- Do NOT run \`cm mark\` — use inline comments instead: \`// [cass: helpful b-xxx] reason\`
-- Do NOT run \`cm playbook add\` — the system learns from your sessions automatically
-- Do NOT run \`cm outcome\` — automation handles this
-- Do NOT worry about the learning pipeline — just query context before working
-
-### Out-of-scope issues
-If you discover issues outside the scope of the current bead during review, create a fix-later bead:
-\`\`\`bash
-bd create "Fix: <description of out-of-scope issue>" -t task -p 2 -l fix-later -d "<details>"
-\`\`\`
-Do NOT fix out-of-scope issues — only track them as new beads for future work.
+- Do NOT create markdown TODO lists — use \`bd\` for all task tracking.
 `
 
 /**
@@ -742,13 +715,10 @@ export class WorkerLoop extends EventEmitter {
       bead.description ? `\n### Description\n${bead.description}` : '',
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       `\n### Before starting`,
-      `1. Run \`cm context "${bead.title}" --json\` — read rules, anti-patterns, and history BEFORE writing code`,
-      `2. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
-      bead.epicId ? `3. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
-      bead.deps.length > 0 ? `${bead.epicId ? '4' : '3'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
+      `1. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
+      bead.epicId ? `2. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
+      bead.deps.length > 0 ? `${bead.epicId ? '3' : '2'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
       BD_SYSTEM_PROMPT,
-      CM_SYSTEM_PROMPT,
-      CM_EXECUTE_INSTRUCTIONS,
       agentContext ? `\n---\n${agentContext}` : '',
       `\n---\n## Task`,
       `Implement this bead completely.`,
@@ -767,12 +737,9 @@ export class WorkerLoop extends EventEmitter {
       `- Is the code idiomatic and consistent with the rest of the codebase?`,
       `\nIf issues are found, fix them now. If good, say so briefly.`,
       `Commit any fixes. Do NOT re-implement from scratch.`,
-      `\nIf you discover issues outside the scope of this bead (e.g. pre-existing bugs, unrelated test failures, tech debt), do NOT fix them here. Instead, create a new bead for each issue using \`bd create "title" -t task -p 2 -d "description" -l "fix-later" --json\` so it gets tracked and addressed separately.`,
-      `You can use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
-      `Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, or \`bd delete\` — the orchestrator handles bead lifecycle.`,
+      `\nIf you discover issues outside the scope of this bead, do NOT fix them — create a fix-later bead and link it (see bd CLI reference below).`,
+      `Use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
       BD_SYSTEM_PROMPT,
-      CM_SYSTEM_PROMPT,
-      CM_REVIEW_INSTRUCTIONS,
     ].filter(Boolean).join('\n')
   }
 

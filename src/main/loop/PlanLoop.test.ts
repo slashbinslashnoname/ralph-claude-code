@@ -231,7 +231,7 @@ describe('PlanLoop', () => {
       await runPromise
     })
 
-    it('encode prompt includes bd and cm CLI references', async () => {
+    it('encode prompt includes bd CLI references', async () => {
       const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const runPromise = loop.run('test')
       await runThroughApproval(loop)
@@ -239,21 +239,9 @@ describe('PlanLoop', () => {
       const prompt = encodeArgs[1]
       expect(prompt).toContain('bd create')
       expect(prompt).toContain('bd dep add')
-      expect(prompt).toContain('cm context')
       expect(prompt).toContain('fix-later')
       mockProcesses[1].simulateStdout('done')
       mockProcesses[1].simulateExit(0)
-      await runPromise
-    })
-
-    it('plan prompt includes cm CLI reference', async () => {
-      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
-      loop.on('error', () => {})
-      const runPromise = loop.run('test')
-      await new Promise(r => setTimeout(r, 0))
-      const planArgs = (cp.spawn as any).mock.calls[0][1] as string[]
-      expect(planArgs[1]).toContain('cm context')
-      mockProcesses[0].simulateExit(1)
       await runPromise
     })
 

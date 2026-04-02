@@ -314,31 +314,7 @@ Write ONE detailed, actionable development plan. Think about second-order effect
 5. **Risk areas** — things that could go wrong, mitigations
 
 Be specific. Reference actual file names from the codebase. No implementation code — architecture and decisions only.
-Output ONLY the plan as clean Markdown.
-
-## CASS Memory (\`cm\` CLI)
-CASS is a cross-agent procedural memory system. Rules learned by ALL agents (Claude, Cursor, Codex, Aider) across sessions and projects are available.
-
-If \`cm\` is not installed, skip all cm steps silently and proceed.
-
-### Before planning: Query memory
-\`\`\`bash
-cm context "<user request summary>" --json
-\`\`\`
-Read carefully and apply what you learn:
-- \`relevantBullets\`: Architecture rules and patterns from past sessions across all agents.
-- \`antiPatterns\`: Pitfalls to avoid in the plan — other agents hit them before.
-- \`historySnippets\`: Past sessions that solved similar problems — learn from them.
-- \`suggestedCassQueries\`: Run for deeper investigation on specific areas.
-
-When a rule influences your plan, cite it: "Following b-8f3a2c: always separate auth from business logic".
-
-### What NOT to do with CASS
-- Do NOT run \`cm reflect\` — automation handles this
-- Do NOT run \`cm mark\` — use inline comments instead: \`// [cass: helpful b-xxx] reason\`
-- Do NOT run \`cm playbook add\` — the system learns from your sessions automatically
-- Do NOT run \`cm outcome\` — automation handles this
-- Do NOT worry about the learning pipeline — just query context before working`
+Output ONLY the plan as clean Markdown.`
   }
 
   private _buildEncodePrompt(
@@ -349,7 +325,7 @@ When a rule influences your plan, cite it: "Following b-8f3a2c: always separate 
 
 ## bd CLI reference
 
-Create a bead:
+### Create a bead
 \`\`\`
 bd create "Short imperative title" -t <epic|task|subtask> -p <0-4> -d "Description of what needs to be done" --json
 \`\`\`
@@ -361,14 +337,30 @@ Options:
 - \`--parent\`: parent epic ID for tasks/subtasks
 - \`--json\`: **always use this flag** so you can read the created bead's ID from the output
 
-Add a dependency (B blocks A — A cannot start until B is done):
+### Update a bead (never use \`bd edit\` — it opens an interactive editor)
+\`\`\`
+bd update <id> --title "new title"
+bd update <id> --description "new description"
+bd update <id> --design "design notes"
+bd update <id> --notes "additional notes"
+bd update <id> --acceptance "acceptance criteria"
+\`\`\`
+For text with special characters (backticks, !, nested quotes), use stdin:
+\`\`\`
+echo 'Description with \\\`backticks\\\` and "quotes"' | bd update <id> --description=-
+echo 'Complex description' | bd create "Title" --description=-
+\`\`\`
+
+### Add a dependency (B blocks A — A cannot start until B is done)
 \`\`\`
 bd dep add <blocked-id> <blocker-id>
 \`\`\`
 
-List existing beads:
+### List / query
 \`\`\`
 bd list --json
+bd ready --json
+bd search <query>
 \`\`\`
 
 ## Workflow
@@ -384,21 +376,14 @@ ${userRequest}
 ${sectionMd}
 
 ## Rules
+- Always use \`--json\` flag when you need to read output programmatically.
 - Focus on the most important work in this section. Merge small, related items into single beads.
 - Create epics before their children so parent IDs are available.
 - Read the JSON output of each \`bd create --json\` to get the actual bead ID before using it in \`--parent\` or \`bd dep add\`.
 - If a \`bd\` command fails, log the error and continue with the next bead — do not stop.
 - If you encounter a test failure or issue outside the scope of the current plan, create a bead for it (type: task, label: "fix-later") so it gets tracked and addressed separately.
 - Do NOT output raw JSON yourself — use the \`bd\` CLI to create everything directly.
-
-## CASS Memory (\`cm\` CLI) — Cross-Agent Knowledge
-Before encoding, retrieve relevant context from CASS memory:
-\`\`\`
-cm context "<task description>" --json
-\`\`\`
-Returns: \`relevantBullets\` (rules with confidence), \`antiPatterns\` (pitfalls), \`historySnippets\` (past solutions).
-Use rules to inform bead structure, priorities, and dependencies.
-If \`cm\` is not installed, skip silently and proceed.`
+- Do NOT create markdown TODO lists — use \`bd\` for all task tracking.`
   }
 
   private _log(level: string, msg: string): void {

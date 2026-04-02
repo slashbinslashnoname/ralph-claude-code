@@ -35,7 +35,7 @@ describe('HealthCheck', () => {
     const result = runHealthCheck(tmpDir, 'node')
     expect(result.ok).toBe(true)
     expect(result.errors).toEqual([])
-    // warnings is always an array (may contain cm warnings depending on environment)
+    // warnings is always an array
     expect(Array.isArray(result.warnings)).toBe(true)
   })
 
@@ -88,52 +88,6 @@ describe('HealthCheck', () => {
   })
 })
 
-describe('HealthCheck — cm warnings', () => {
-  beforeEach(() => { tmpDir = '' })
-  afterEach(() => {
-    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
-    vi.restoreAllMocks()
-  })
-
-  function mockPassingChecks(): void {
-    // Mock bd and file checks so they pass, isolating cm behavior
-    vi.spyOn(BdClientModule.BdClient.prototype, 'check').mockReturnValue({ available: true })
-    vi.spyOn(FileGuardModule, 'validateIntegrity').mockReturnValue({ ok: true, missing: [] })
-  }
-
-  it('warnings array is present and does not affect ok status', () => {
-    tmpDir = makeProject()
-    mockPassingChecks()
-    const result = runHealthCheck(tmpDir, 'node')
-    expect(result.ok).toBe(true)
-    expect(Array.isArray(result.warnings)).toBe(true)
-  })
-
-  it('cm warning does not cause health check failure', () => {
-    tmpDir = makeProject()
-    mockPassingChecks()
-    const result = runHealthCheck(tmpDir, 'node')
-    expect(result.ok).toBe(true)
-    // If cm is not installed, there should be a cm warning
-    const cmWarning = result.warnings.find(w => w.check === 'cm')
-    if (cmWarning) {
-      expect(cmWarning.message).toContain('cm')
-      expect(cmWarning.remediation).toBeTruthy()
-    }
-  })
-
-  it('cm-playbook warning has correct structure when present', () => {
-    tmpDir = makeProject()
-    mockPassingChecks()
-    const result = runHealthCheck(tmpDir, 'node')
-    const playbookWarning = result.warnings.find(w => w.check === 'cm-playbook')
-    if (playbookWarning) {
-      expect(playbookWarning.message).toContain('playbook')
-      expect(playbookWarning.remediation).toContain('cm reflect')
-    }
-  })
-})
-
 describe('formatHealthErrors', () => {
   it('formats errors with remediation', () => {
     const output = formatHealthErrors([
@@ -154,13 +108,10 @@ describe('formatHealthErrors', () => {
 describe('formatHealthWarnings', () => {
   it('formats warnings with remediation', () => {
     const output = formatHealthWarnings([
-      { check: 'cm', message: '`cm` not found', remediation: 'Install cm' },
-      { check: 'cm-playbook', message: 'Playbook empty', remediation: 'Run cm reflect' },
+      { check: 'test', message: 'Test warning', remediation: 'Fix it' },
     ])
-    expect(output).toContain('[cm]')
-    expect(output).toContain('[cm-playbook]')
-    expect(output).toContain('→ Install cm')
-    expect(output).toContain('→ Run cm reflect')
+    expect(output).toContain('[test]')
+    expect(output).toContain('→ Fix it')
   })
 
   it('returns empty string for no warnings', () => {

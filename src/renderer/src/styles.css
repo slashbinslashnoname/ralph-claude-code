@@ -1552,25 +1552,6 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   border: 1px solid var(--bg-2); border-radius: 8px; padding: 12px;
 }
 
-/* ── Memory Page ──────────────────────────────────────────────────────────── */
-
-.memory-results { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
-
-.memory-section { display: flex; flex-direction: column; gap: 2px; }
-
-.memory-section-title {
-  font-size: 13px; font-weight: 600; color: var(--fg-1);
-  padding: 6px 0; border-bottom: 1px solid var(--bg-2); margin-bottom: 4px;
-}
-.memory-section-danger { color: var(--danger); }
-
-.memory-detail {
-  background: var(--bg-0); border: 1px solid var(--bg-2); border-radius: 8px;
-  padding: 12px; font-size: 12px; line-height: 1.5; overflow-x: auto;
-  color: var(--fg-1); white-space: pre-wrap; word-break: break-word;
-  max-height: calc(100vh - 300px); overflow-y: auto;
-}
-
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
