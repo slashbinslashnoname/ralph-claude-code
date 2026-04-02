@@ -161,9 +161,9 @@ const DEFAULT_ENABLE_OPTIONS: EnableOptions = {
 export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_ENABLE_OPTIONS, paths?: ProjectPaths): EnableResult {
   const status = checkEnabled(projectPath, paths)
   if (status.enabled && !opts.force) {
-    return { ok: true, alreadyEnabled: true, filesCreated: [], context: detectProjectContext(projectPath) }
+    return { ok: true, alreadyEnabled: true, filesCreated: [], context: detectProjectContext(projectPath, paths?.beadsRoot) }
   }
-  const ctx = detectProjectContext(projectPath)
+  const ctx = detectProjectContext(projectPath, paths?.beadsRoot)
   const created: string[] = []
   try {
     if (paths) {
@@ -195,10 +195,13 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
       write('.slashbot/AGENT.md', generateAgentMd(ctx))
     }
     // Auto-initialize beads if useBeads is set and .beads doesn't exist
-    if (opts.useBeads && !fs.existsSync(path.join(projectPath, '.beads'))) {
+    const beadsDir = paths ? paths.beadsRoot : path.join(projectPath, '.beads')
+    const beadsCwd = paths ? paths.storeDir : projectPath
+    if (opts.useBeads && !fs.existsSync(beadsDir)) {
       try {
+        if (paths) ensureStoreDirs(paths)
         cp.execFileSync('bd', ['init'], {
-          cwd: projectPath,
+          cwd: beadsCwd,
           env: buildEnv(),
           timeout: 15_000,
           stdio: ['ignore', 'pipe', 'pipe']

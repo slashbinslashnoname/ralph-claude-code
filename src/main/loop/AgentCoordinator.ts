@@ -72,7 +72,7 @@ export class AgentCoordinator {
     this.activityFile = paths.activity
     this.knowledgeFile = paths.knowledge
     fs.mkdirSync(paths.storeDir, { recursive: true })
-    this.bd = new BdClient(paths.projectRoot)
+    this.bd = new BdClient(paths.storeDir)
     this._loadActivityFromDisk()
     this._loadKnowledgeFromDisk()
   }
