@@ -112,8 +112,36 @@ function parseOutputSegments(raw: string): OutputSegment[] {
         continue
       }
 
-      // Unknown JSON — treat as text
-      textBuf.push(line)
+      // user messages contain tool_result content being sent back to Claude
+      if (obj.type === 'user') {
+        const content = obj.message?.content
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'tool_result') {
+              flushText()
+              const resultContent = typeof block.content === 'string'
+                ? block.content
+                : Array.isArray(block.content)
+                  ? block.content.map((c: { text?: string }) => c.text ?? '').join('\n')
+                  : JSON.stringify(block.content ?? '', null, 2)
+              if (resultContent.trim()) {
+                segments.push({ kind: 'tool_result', content: resultContent, is_error: block.is_error })
+              }
+            }
+          }
+        }
+        continue
+      }
+
+      // Skip known noise events silently (don't render as raw text)
+      if (['message_start', 'message_delta', 'message_stop',
+           'content_block_start', 'content_block_delta', 'content_block_stop',
+           'ping', 'error'].includes(obj.type)) {
+        continue
+      }
+
+      // Unknown JSON — skip silently to avoid raw JSON noise
+      continue
     } catch {
       textBuf.push(line)
     }
