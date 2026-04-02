@@ -371,13 +371,26 @@ export class AgentCoordinator {
       fs.mkdirSync(path.dirname(worktreePath), { recursive: true })
       await this._runGit(['worktree', 'add', '-b', branch, worktreePath, currentBranch], { timeout: 15000 })
 
-      // Symlink .beads into worktree so bd CLI works there.
-      // If .beads is tracked by git, the worktree checkout creates a partial copy
-      // (config only, no dolt/ data). Replace it with a symlink to the real .beads.
-      // Do NOT use `git rm --cached` — that stages a deletion that gets committed
-      // and merged back, destroying .beads in the main branch.
+      // Make .beads accessible in worktree so bd CLI works there.
+      // If .beads is tracked by git, the checkout has config files but not the
+      // database. We need to replace it with a symlink to the real .beads, but
+      // git merge/stash chokes on "beyond a symbolic link" for tracked paths.
+      // Fix: mark tracked .beads files as assume-unchanged, then replace with symlink.
+      // This hides the change from git without staging a deletion (unlike git rm --cached).
       const beadsLink = path.join(worktreePath, '.beads')
       if (fs.existsSync(this.paths.beadsRoot)) {
+        // Mark all tracked .beads files as assume-unchanged so git ignores the symlink swap
+        try {
+          const trackedBeads = await this._runGit(
+            ['ls-files', '.beads'], { cwd: worktreePath, timeout: 3000 }
+          )
+          if (trackedBeads) {
+            for (const f of trackedBeads.split('\n').filter(Boolean)) {
+              try { await this._runGit(['update-index', '--assume-unchanged', f], { cwd: worktreePath, timeout: 3000 }) } catch { /* ignore */ }
+            }
+          }
+        } catch { /* no tracked .beads files */ }
+
         const stat = fs.lstatSync(beadsLink, { throwIfNoEntry: false })
         if (stat && !stat.isSymbolicLink()) {
           fs.rmSync(beadsLink, { recursive: true, force: true })
