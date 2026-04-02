@@ -13,7 +13,7 @@ import { ProjectPaths } from './ProjectStore'
 
 /** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
-## Important
+## Beads (\`bd\` CLI)
 - Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator manages bead lifecycle.
 - You CAN and SHOULD use \`bd\` read commands to gain context:
   - \`bd show <id>\` — view bead details, description, dependencies
@@ -28,18 +28,39 @@ const BD_SYSTEM_PROMPT = `
 - Commit your changes with a descriptive message when done.
 - If you discover new issues, note them in your output — do not try to fix everything.
 
-## CASS Memory (\`cm\` CLI)
-Before starting work, retrieve relevant knowledge from CASS memory:
+## CASS Memory (\`cm\` CLI) — Cross-Agent Knowledge
+CASS is a cross-agent memory system. Rules learned by other agents (Claude, Cursor, Codex, etc.) across sessions and projects are available to you. **Always query before non-trivial work.**
+
+### START: Retrieve context
 \`\`\`
-cm context "brief description of the task" --limit 30
+cm context "<your task description>" --json
 \`\`\`
-This returns relevant rules, anti-patterns, and historical context. Use it to inform your approach.
-When done, record the outcome:
+Returns structured JSON with:
+- \`relevantBullets\`: Rules that may help (with confidence scores and maturity)
+- \`antiPatterns\`: Pitfalls to avoid
+- \`historySnippets\`: Past sessions that solved similar problems
+- \`suggestedCassQueries\`: Searches for deeper investigation
+
+### WORK: Reference rules you follow
+When a rule guides your approach, mention its ID (e.g. "Following b-8f3a2c...").
+Leave inline feedback when rules help or hurt:
 \`\`\`
-cm outcome success --summary "what was done"
-cm outcome failure --summary "what went wrong"
+// [cass: helpful b-8f3a2c] - this rule saved me from a rabbit hole
+// [cass: harmful b-x7k9p1] - this advice was wrong for our use case
 \`\`\`
-If \`cm\` is not installed, skip these steps silently and proceed with the task.
+
+### END: Record outcome
+\`\`\`
+cm outcome success b-rule1,b-rule2 --summary "what was done"
+cm outcome failure b-rule1 --summary "what went wrong"
+\`\`\`
+
+### Useful flags
+- \`--json\` — machine-readable output (always use this)
+- \`--limit N\` — cap number of rules returned
+- \`--no-history\` — skip historical snippets for faster response
+
+If \`cm\` is not installed, skip all cm steps silently and proceed with the task.
 `
 
 /**

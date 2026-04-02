@@ -7,6 +7,14 @@ const sb = window.slashbot
 
 interface PendingPlan { planMd: string; request: string }
 
+interface PlanLogEntry {
+  file: string
+  agentId: string
+  phase: string
+  timestamp: string
+  size: number
+}
+
 interface Props {
   projectPath: string
   pendingPlan: PendingPlan | null
@@ -22,6 +30,10 @@ export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, age
   const [planRequest, setPlanRequest] = useState('')
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [editedPlan, setEditedPlan] = useState(pendingPlan?.planMd ?? '')
+  const [activeTab, setActiveTab] = useState<'current' | 'history'>('current')
+  const [historyLogs, setHistoryLogs] = useState<PlanLogEntry[]>([])
+  const [historyContent, setHistoryContent] = useState<string | null>(null)
+  const [historyFile, setHistoryFile] = useState<string | null>(null)
 
   useEffect(() => {
     if (pendingPlan) setEditedPlan(pendingPlan.planMd)
@@ -58,6 +70,17 @@ export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, age
       })
     }
   }, [projectPath])
+
+  // Load plan history logs
+  const loadHistory = useCallback(() => {
+    sb.swarm.agentLogs(projectPath).then(logs => {
+      const planLogs = logs.filter(l => l.file.startsWith('planner_'))
+      planLogs.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      setHistoryLogs(planLogs)
+    })
+  }, [projectPath])
+
+  useEffect(() => { loadHistory() }, [loadHistory])
 
   const injectPlan = useCallback(async () => {
     if (!planPrompt.trim()) return
@@ -136,6 +159,7 @@ export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, age
                 const modified = editedPlan !== pendingPlan.planMd ? editedPlan : undefined
                 await sb.swarm.planApprove(projectPath, modified)
                 setPendingPlan(null)
+                loadHistory()
               }}
             >
               Approve Plan
@@ -153,15 +177,72 @@ export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, age
         </div>
       )}
 
-      {/* Planner live output */}
-      {hasOutput && (
-        <div className="plan-output">
-          <h3 className="plan-output-title">Planner output</h3>
-          <div className="agent-output">
-            <AgentOutputRenderer output={agentOutputs['planner']} />
-          </div>
-        </div>
-      )}
+      {/* Tabs: Current / History */}
+      <div className="swarm-tabs">
+        <button className={`tab ${activeTab === 'current' ? 'active' : ''}`}
+          onClick={() => setActiveTab('current')}>
+          Live output
+        </button>
+        <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => { setActiveTab('history'); loadHistory() }}>
+          History ({historyLogs.length})
+        </button>
+      </div>
+
+      <div className="swarm-content">
+        {activeTab === 'current' && (
+          hasOutput ? (
+            <div className="plan-output">
+              <div className="agent-output agent-output-live">
+                <AgentOutputRenderer output={agentOutputs['planner']} />
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state-sm">
+              <p>No planner output yet. Inject a plan to get started.</p>
+            </div>
+          )
+        )}
+
+        {activeTab === 'history' && (
+          historyContent && historyFile ? (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <button className="btn btn-xs btn-ghost" onClick={() => { setHistoryContent(null); setHistoryFile(null) }}>
+                  {'\u2190'} Back
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--fg-2)' }}>{historyFile}</span>
+              </div>
+              <div className="agent-output agent-output-live">
+                <AgentOutputRenderer output={historyContent} />
+              </div>
+            </div>
+          ) : (
+            <div className="activity-list">
+              {historyLogs.length === 0 && (
+                <div className="empty-state-sm"><p>No plan history yet.</p></div>
+              )}
+              {historyLogs.map(log => {
+                const label = log.file.replace('planner_', '').replace(/\.log$/, '')
+                return (
+                  <div key={log.file} className="activity-item" style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      setHistoryFile(log.file)
+                      sb.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
+                    }}>
+                    <span className={`agent-dot ${log.phase === 'plan' ? 'thinking' : 'executing'}`} />
+                    <span className={`badge badge-${log.phase.includes('batch') || log.phase.includes('encode') ? 'success' : 'accent'}`}>
+                      {log.phase.includes('batch') || log.phase.includes('encode') ? 'encode' : 'plan'}
+                    </span>
+                    <span className="activity-summary">{label}</span>
+                    <span className="activity-files">{(log.size / 1024).toFixed(0)}KB</span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        )}
+      </div>
     </div>
   )
 }

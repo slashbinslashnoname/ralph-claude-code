@@ -294,12 +294,13 @@ Write ONE detailed, actionable development plan. Think about second-order effect
 Be specific. Reference actual file names from the codebase. No implementation code — architecture and decisions only.
 Output ONLY the plan as clean Markdown.
 
-## CASS Memory (\`cm\` CLI)
-Before planning, retrieve relevant knowledge from CASS memory:
+## CASS Memory (\`cm\` CLI) — Cross-Agent Knowledge
+CASS is a cross-agent memory system. Rules learned by other agents across sessions and projects are available to you. **Query before planning.**
 \`\`\`
-cm context "brief description of the task" --limit 30
+cm context "<task description>" --json
 \`\`\`
-This returns relevant rules, anti-patterns, and historical context. Use it to inform your plan.
+Returns: \`relevantBullets\` (rules with confidence), \`antiPatterns\` (pitfalls), \`historySnippets\` (past solutions), \`suggestedCassQueries\` (deeper searches).
+Use \`--limit N\` to cap results, \`--no-history\` for speed.
 If \`cm\` is not installed, skip silently and proceed.`
   }
 
@@ -364,12 +365,13 @@ Do NOT recreate beads that already exist — reference their ID in deps instead.
 - If you encounter a test failure or issue outside the scope of the current plan, create a bead for it (type: task, label: "fix-later") so it gets tracked and addressed separately.
 - Do NOT output raw JSON yourself — use the \`bd\` CLI to create everything directly.
 
-## CASS Memory (\`cm\` CLI)
-Before encoding, retrieve relevant knowledge from CASS memory:
+## CASS Memory (\`cm\` CLI) — Cross-Agent Knowledge
+Before encoding, retrieve relevant context from CASS memory:
 \`\`\`
-cm context "brief description of the task" --limit 30
+cm context "<task description>" --json
 \`\`\`
-This returns relevant rules, anti-patterns, and historical context. Use it to inform your encoding.
+Returns: \`relevantBullets\` (rules with confidence), \`antiPatterns\` (pitfalls), \`historySnippets\` (past solutions).
+Use rules to inform bead structure, priorities, and dependencies.
 If \`cm\` is not installed, skip silently and proceed.`
   }
 
