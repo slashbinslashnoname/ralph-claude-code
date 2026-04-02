@@ -11,7 +11,7 @@ import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 import { ProjectPaths } from './ProjectStore'
 
-/** System prompt for agent context */
+/** Beads CLI reference — appended to every prompt */
 const BD_SYSTEM_PROMPT = `
 ## Beads (\`bd\` CLI)
 - Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator manages bead lifecycle.
@@ -24,44 +24,80 @@ const BD_SYSTEM_PROMPT = `
   - \`bd search <query>\` — find related beads by text
   - \`bd history <id>\` — view bead change history
   - \`bd status\` — overview of the bead database
-- Use these to understand context, check what other agents are working on, and find related work.
 - Focus on implementing the assigned bead.
 - Commit your changes with a descriptive message when done.
 - If you discover new issues, note them in your output — do not try to fix everything.
+`
 
-## CASS Memory (\`cm\` CLI) — Cross-Agent Knowledge
-CASS is a cross-agent memory system. Rules learned by other agents (Claude, Cursor, Codex, etc.) across sessions and projects are available to you. **Always query before non-trivial work.**
-
-### START: Retrieve context
-\`\`\`
-cm context "<your task description>" --json
-\`\`\`
-Returns structured JSON with:
-- \`relevantBullets\`: Rules that may help (with confidence scores and maturity)
-- \`antiPatterns\`: Pitfalls to avoid
-- \`historySnippets\`: Past sessions that solved similar problems
-- \`suggestedCassQueries\`: Searches for deeper investigation
-
-### WORK: Reference rules you follow
-When a rule guides your approach, mention its ID (e.g. "Following b-8f3a2c...").
-Leave inline feedback when rules help or hurt:
-\`\`\`
-// [cass: helpful b-8f3a2c] - this rule saved me from a rabbit hole
-// [cass: harmful b-x7k9p1] - this advice was wrong for our use case
-\`\`\`
-
-### END: Record outcome
-\`\`\`
-cm outcome success b-rule1,b-rule2 --summary "what was done"
-cm outcome failure b-rule1 --summary "what went wrong"
-\`\`\`
-
-### Useful flags
-- \`--json\` — machine-readable output (always use this)
-- \`--limit N\` — cap number of rules returned
-- \`--no-history\` — skip historical snippets for faster response
+/** CASS Memory instructions — phase-aware cm CLI usage */
+const CM_SYSTEM_PROMPT = `
+## CASS Memory (\`cm\` CLI) — MANDATORY at every phase
+CASS is a cross-agent procedural memory system. Rules learned by ALL agents (Claude, Cursor, Codex, etc.) across sessions and projects are available to you. **You MUST use cm at every step.**
 
 If \`cm\` is not installed, skip all cm steps silently and proceed with the task.
+`
+
+/** Phase-specific cm instructions injected into each prompt */
+const CM_EXECUTE_INSTRUCTIONS = `
+### CASS Memory — Execute Phase (MANDATORY)
+
+**STEP 1 — Before any code:** Query memory for this task
+\`\`\`bash
+cm context "<bead title and description>" --json
+\`\`\`
+Read the response carefully:
+- \`relevantBullets\`: Follow high-confidence rules. Note their IDs.
+- \`antiPatterns\`: Avoid these pitfalls explicitly.
+- \`historySnippets\`: Learn from past sessions that solved similar problems.
+- \`suggestedCassQueries\`: Run these for deeper investigation if needed.
+
+**STEP 2 — During implementation:** Track which rules you follow
+When a rule guides your approach, leave inline feedback:
+\`\`\`
+// [cass: helpful b-8f3a2c] - this pattern worked perfectly here
+// [cass: harmful b-x7k9p1] - this advice was wrong for our use case
+\`\`\`
+Mark rules explicitly as you go:
+\`\`\`bash
+cm mark b-<id> --helpful --reason "guided correct approach"
+cm mark b-<id> --harmful --reason "caused_bug"
+\`\`\`
+
+**STEP 3 — After implementation, before finishing:** Record outcome
+\`\`\`bash
+# On success:
+cm outcome success b-rule1,b-rule2 --text "implemented <feature>, tests pass, clean merge"
+# On partial success:
+cm outcome mixed b-rule1,b-rule2 --text "feature works but had to work around <issue>"
+# On failure:
+cm outcome failure b-rule1 --errors 1 --text "approach from rule b-rule1 caused <problem>"
+\`\`\`
+`
+
+const CM_REVIEW_INSTRUCTIONS = `
+### CASS Memory — Review Phase (MANDATORY)
+
+**STEP 1 — Before reviewing:** Query memory for review patterns
+\`\`\`bash
+cm context "code review: <bead title>" --json --limit 5 --no-history
+\`\`\`
+Check for rules about: testing patterns, code quality, common mistakes in this area.
+
+**STEP 2 — During review:** Mark rules that helped or missed issues
+\`\`\`bash
+cm mark b-<id> --helpful --reason "caught a real issue during review"
+cm mark b-<id> --harmful --reason "rule suggested unnecessary changes"
+\`\`\`
+
+**STEP 3 — After review:** Record review outcome
+\`\`\`bash
+# Clean review, no issues:
+cm outcome success b-rule1,b-rule2 --text "review clean, code quality good"
+# Found and fixed issues:
+cm outcome mixed b-rule1 --text "found <N> issues, fixed them"
+# Serious problems found:
+cm outcome failure b-rule1 --errors <N> --text "review found critical issues: <description>"
+\`\`\`
 `
 
 /**
@@ -721,14 +757,18 @@ export class WorkerLoop extends EventEmitter {
       bead.description ? `\n### Description\n${bead.description}` : '',
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       `\n### Before starting`,
-      `1. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
-      bead.epicId ? `2. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
-      bead.deps.length > 0 ? `${bead.epicId ? '3' : '2'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
+      `1. Run \`cm context "${bead.title}" --json\` — read rules, anti-patterns, and history BEFORE writing code`,
+      `2. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
+      bead.epicId ? `3. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
+      bead.deps.length > 0 ? `${bead.epicId ? '4' : '3'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
       BD_SYSTEM_PROMPT,
+      CM_SYSTEM_PROMPT,
+      CM_EXECUTE_INSTRUCTIONS,
       agentContext ? `\n---\n${agentContext}` : '',
       `\n---\n## Task`,
       `Implement this bead completely.`,
       `Write tests. Commit all changes when done with a descriptive commit message.`,
+      `After committing, run \`cm outcome\` to record the result (see CASS instructions above).`,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
   }
@@ -746,6 +786,8 @@ export class WorkerLoop extends EventEmitter {
       `You can use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
       `Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, or \`bd delete\` — the orchestrator handles bead lifecycle.`,
       BD_SYSTEM_PROMPT,
+      CM_SYSTEM_PROMPT,
+      CM_REVIEW_INSTRUCTIONS,
     ].filter(Boolean).join('\n')
   }
 

@@ -309,14 +309,33 @@ Write ONE detailed, actionable development plan. Think about second-order effect
 Be specific. Reference actual file names from the codebase. No implementation code — architecture and decisions only.
 Output ONLY the plan as clean Markdown.
 
-## CASS Memory (\`cm\` CLI) — Cross-Agent Knowledge
-CASS is a cross-agent memory system. Rules learned by other agents across sessions and projects are available to you. **Query before planning.**
+## CASS Memory (\`cm\` CLI) — MANDATORY for Planning
+CASS is a cross-agent procedural memory system. Rules learned by ALL agents across sessions and projects are available. **You MUST query before planning.**
+
+If \`cm\` is not installed, skip all cm steps silently and proceed.
+
+### STEP 1 — Before planning: Query memory
+\`\`\`bash
+cm context "<user request summary>" --json
 \`\`\`
-cm context "<task description>" --json
+Read carefully:
+- \`relevantBullets\`: Architecture rules and patterns from past sessions (note IDs)
+- \`antiPatterns\`: Pitfalls to avoid in the plan
+- \`historySnippets\`: Past sessions that solved similar problems — learn from them
+- \`suggestedCassQueries\`: Run for deeper investigation on specific areas
+
+### STEP 2 — During planning: Reference rules
+When a rule influences your plan, cite it: "Following b-8f3a2c: always separate auth from business logic".
+Mark rules:
+\`\`\`bash
+cm mark b-<id> --helpful --reason "informed good architecture decision"
+cm mark b-<id> --harmful --reason "outdated advice for this stack"
 \`\`\`
-Returns: \`relevantBullets\` (rules with confidence), \`antiPatterns\` (pitfalls), \`historySnippets\` (past solutions), \`suggestedCassQueries\` (deeper searches).
-Use \`--limit N\` to cap results, \`--no-history\` for speed.
-If \`cm\` is not installed, skip silently and proceed.`
+
+### STEP 3 — After planning: Record outcome
+\`\`\`bash
+cm outcome success b-rule1,b-rule2 --text "plan created: <N> phases, <M> beads, key decisions: <summary>"
+\`\`\``
   }
 
   private _buildEncodePrompt(
