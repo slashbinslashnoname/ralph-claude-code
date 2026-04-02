@@ -77,7 +77,7 @@ function generateRalphrc(ctx: ProjectContext, opts: EnableOptions): string {
     `# Project: ${ctx.name} (${ctx.type})`, '',
     `MAX_CALLS_PER_HOUR=${opts.maxCallsPerHour}`,
     'CLAUDE_TIMEOUT_MINUTES=15', '',
-    'CLAUDE_OUTPUT_FORMAT=json',
+    'CLAUDE_OUTPUT_FORMAT=stream-json',
     'CLAUDE_CODE_CMD=claude', '',
     `CLAUDE_ALLOWED_TOOLS="${tools}"`, '',
     'SLEEP_DURATION=3', '',
