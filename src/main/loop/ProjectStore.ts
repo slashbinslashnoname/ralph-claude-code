@@ -63,7 +63,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     configDir: path.join(storeDir, 'config'),
     slashbotrc: path.join(storeDir, 'config', '.slashbotrc'),
     worktreesDir: path.join(absolute, '.worktrees'),
-    beadsRoot: path.join(absolute, '.beads'),
+    beadsRoot: path.join(storeDir, '.beads'),
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
   }
 }
@@ -179,6 +179,17 @@ export function migrateLegacyStorage(projectPath: string): { migrated: string[];
     } else {
       atomicCopyFile(src, dest)
       migrated.push(label)
+    }
+  }
+
+  // Migrate .beads directory from project root to centralized store
+  const srcBeads = path.join(projectPath, '.beads')
+  if (fs.existsSync(srcBeads) && fs.statSync(srcBeads).isDirectory()) {
+    if (fs.existsSync(paths.beadsRoot)) {
+      skipped.push('.beads/')
+    } else {
+      copyDirRecursive(srcBeads, paths.beadsRoot)
+      migrated.push('.beads/')
     }
   }
 

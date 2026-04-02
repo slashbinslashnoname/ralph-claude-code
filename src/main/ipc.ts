@@ -353,7 +353,8 @@ export function registerIpc(
 
   ipcMain.handle('config:read', (_e, projectPath: string) => {
     try {
-      const config = loadConfig(projectPath)
+      const paths = getProjectPaths(projectPath)
+      const config = loadConfig(projectPath, paths.slashbotrc)
       return { ok: true, config }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -362,7 +363,9 @@ export function registerIpc(
 
   ipcMain.handle('config:write', (_e, projectPath: string, partial: Partial<import('./types').RalphConfig>) => {
     try {
-      const current = loadConfig(projectPath)
+      const paths = getProjectPaths(projectPath)
+      ensureStoreDirs(paths)
+      const current = loadConfig(projectPath, paths.slashbotrc)
 
       // Merge only keys present in partial — never clobber telegram unless explicitly passed
       const merged = { ...current }
@@ -380,8 +383,7 @@ export function registerIpc(
         return { ok: false, error: warnings.join('; ') }
       }
 
-      const rcPath = path.join(projectPath, '.slashbotrc')
-      fs.writeFileSync(rcPath, serializeConfig(validated))
+      fs.writeFileSync(paths.slashbotrc, serializeConfig(validated))
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -392,8 +394,9 @@ export function registerIpc(
 
   ipcMain.handle('circuit:reset', (_e, projectPath: string, opts?: { agentId?: string }) => {
     try {
-      const storeDir = getProjectPaths(projectPath).storeDir
-      const config = loadConfig(projectPath)
+      const circuitPaths = getProjectPaths(projectPath)
+      const storeDir = circuitPaths.storeDir
+      const config = loadConfig(projectPath, circuitPaths.slashbotrc)
       if (opts?.agentId) {
         const circuit = new CircuitBreaker(storeDir, config, opts.agentId)
         circuit.reset()
@@ -430,7 +433,7 @@ export function registerIpc(
     const paths = getProjectPaths(projectPath)
     return {
       ...checkEnabled(projectPath, paths),
-      context: detectProjectContext(projectPath)
+      context: detectProjectContext(projectPath, paths.beadsRoot)
     }
   })
 
@@ -444,7 +447,8 @@ export function registerIpc(
   // ── Beads via bd CLI ───────────────────────────────────────────────────
 
   ipcMain.handle('beads:check', async (_e, projectPath: string) => {
-    const bd = new BdClient(projectPath)
+    const paths = getProjectPaths(projectPath)
+    const bd = new BdClient(paths.storeDir)
     return bd.checkAsync()
   })
 
@@ -462,8 +466,10 @@ export function registerIpc(
   ipcMain.handle('beads:init', async (_e, projectPath: string) => {
     try {
       const p = validateProjectPath(projectPath)
+      const paths = getProjectPaths(p)
+      ensureStoreDirs(paths)
       cp.execFileSync('bd', ['init'], {
-        cwd: p,
+        cwd: paths.storeDir,
         env: buildEnv(),
         timeout: 15_000,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -477,7 +483,7 @@ export function registerIpc(
   ipcMain.handle('beads:list', async (_e, projectPath: string, filter = 'open') => {
     try {
       const v = validateBeadsList(projectPath, filter)
-      const bd = new BdClient(v.projectPath)
+      const bd = new BdClient(getProjectPaths(v.projectPath).storeDir)
       const tasks = v.filter === 'all' ? await bd.listAllAsync() : await bd.listByStatusAsync(v.filter)
       return { ok: true, tasks }
     } catch (e) {
@@ -489,7 +495,7 @@ export function registerIpc(
     try {
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
-      const bd = new BdClient(p)
+      const bd = new BdClient(getProjectPaths(p).storeDir)
       const task = await bd.showAsync(beadId)
       return task ? { ok: true, task } : { ok: false, error: 'Not found' }
     } catch (e) {
@@ -502,7 +508,7 @@ export function registerIpc(
   }) => {
     try {
       const v = validateBeadsCreate(projectPath, opts)
-      const bd = new BdClient(v.projectPath)
+      const bd = new BdClient(getProjectPaths(v.projectPath).storeDir)
       const task = await bd.createAsync(v.opts as any)
       // Wire up dependencies after creation
       if (v.opts.deps?.length) {
@@ -526,7 +532,7 @@ export function registerIpc(
   }) => {
     try {
       const v = validateBeadsUpdate(projectPath, id, opts)
-      const bd = new BdClient(v.projectPath)
+      const bd = new BdClient(getProjectPaths(v.projectPath).storeDir)
       bd.update(v.id, {
         priority: v.opts.priority,
         claim: v.opts.claim,
@@ -545,7 +551,7 @@ export function registerIpc(
     try {
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
-      const bd = new BdClient(p)
+      const bd = new BdClient(getProjectPaths(p).storeDir)
       bd.close(beadId, reason)
       return { ok: true }
     } catch (e) {
@@ -557,7 +563,7 @@ export function registerIpc(
     try {
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
-      const bd = new BdClient(p)
+      const bd = new BdClient(getProjectPaths(p).storeDir)
       bd.reopen(beadId, reason)
       return { ok: true }
     } catch (e) {
@@ -581,7 +587,7 @@ export function registerIpc(
 
   ipcMain.handle('beads:ready', async (_e, projectPath: string) => {
     try {
-      const bd = new BdClient(projectPath)
+      const bd = new BdClient(getProjectPaths(projectPath).storeDir)
       return { ok: true, tasks: await bd.readyAsync() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
@@ -590,7 +596,7 @@ export function registerIpc(
 
   ipcMain.handle('beads:stats', async (_e, projectPath: string) => {
     try {
-      const bd = new BdClient(projectPath)
+      const bd = new BdClient(getProjectPaths(projectPath).storeDir)
       return { ok: true, stats: await bd.statsAsync() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -672,9 +678,10 @@ export function registerIpc(
 
       // Connect Telegram bridge BEFORE starting workers so it captures
       // the initial activity events (started, etc.)
+      const swarmPaths = getProjectPaths(v.projectPath)
       if (!telegramBots.has(v.projectPath)) {
         try {
-          const config = loadConfig(v.projectPath)
+          const config = loadConfig(v.projectPath, swarmPaths.slashbotrc)
           if (config.telegram?.enabled && config.telegram.botToken && config.telegram.chatId) {
             await connectTelegramForProject(
               v.projectPath,
@@ -689,7 +696,7 @@ export function registerIpc(
       } else if (!telegramBridges.has(v.projectPath)) {
         // Bot exists but no bridge yet — attach it to the new swarm
         const bot = telegramBots.get(v.projectPath)!
-        const config = loadConfig(v.projectPath)
+        const config = loadConfig(v.projectPath, swarmPaths.slashbotrc)
         const bridge = new TelegramBridge({
           orchestrator: swarm,
           bot,
@@ -944,7 +951,9 @@ export function registerIpc(
     enabled: boolean,
     notifyLevel: string
   ): void {
-    const rcPath = path.join(projectPath, '.slashbotrc')
+    const paths = getProjectPaths(projectPath)
+    ensureStoreDirs(paths)
+    const rcPath = paths.slashbotrc
     let content = ''
     try { content = fs.readFileSync(rcPath, 'utf8') } catch { /* file may not exist */ }
 

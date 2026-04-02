@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process'
 import * as fs from 'fs'
 import { validateIntegrity } from './FileGuard'
 import { BdClient } from './BdClient'
+import { getProjectPaths } from './ProjectStore'
 
 export interface HealthCheckError {
   check: string
@@ -22,7 +23,7 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
   const errors: HealthCheckError[] = []
 
   // 1. Check `bd` CLI and .beads directory
-  const bd = new BdClient(projectPath)
+  const bd = new BdClient(getProjectPaths(projectPath).storeDir)
   const bdCheck = bd.check()
   if (!bdCheck.available) {
     const isMissingBinary = bdCheck.reason?.includes('not found')
