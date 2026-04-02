@@ -1,7 +1,7 @@
 {
   "name": "slashbot",
   "version": "1.0.0",
-  "description": "Slashbot — Agent Flywheel Orchestrator for autonomous AI development with beads",
+  "description": "Slashbot — Slashbot Swarm Orchestrator for autonomous AI development with beads",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

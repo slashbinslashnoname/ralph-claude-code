@@ -206,7 +206,7 @@ export default function App() {
           <div className="landing-logo">
             <SlashbotLogo size={64} className="logo-icon" />
             <h1>Slashbot</h1>
-            <p className="subtitle">Agent Flywheel Orchestrator</p>
+            <p className="subtitle">Slashbot Swarm Orchestrator</p>
           </div>
           <button className="btn btn-primary btn-lg" onClick={() => addProject()}>
             Open Project

@@ -82,7 +82,7 @@ describe('SwarmPage', () => {
 
   test('renders page header', () => {
     const html = renderToStaticMarkup(<SwarmPage {...defaultProps} />)
-    expect(html).toContain('Agent Flywheel')
+    expect(html).toContain('Slashbot Swarm')
   })
 
   test('renders start swarm button when not running', () => {

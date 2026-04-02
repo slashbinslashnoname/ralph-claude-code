@@ -311,7 +311,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   return (
     <div className="page swarm-page">
       <header className="page-header">
-        <h2>Agent Flywheel</h2>
+        <h2>Slashbot Swarm</h2>
         <div className="header-actions">
           <BuildMonitorIndicator status={buildMonitor} onToggle={toggleBuildMonitor} />
           <div className="worker-controls">
