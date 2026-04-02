@@ -9,17 +9,31 @@ import { DEFAULT_CONFIG, validateConfig, parseRcFile } from './RcParser'
 import { ProjectPaths } from './ProjectStore'
 
 
-// Minimal mock coordinator with bd state tracking
+// Minimal mock coordinator with bd label-based retry tracking
 function makeMockCoordinator() {
-  const stateStore = new Map<string, string>()
+  const beadTags = new Map<string, string[]>()
+  const runCalls: string[][] = []
   return {
     bd: {
-      getState(id: string, dimension: string): string {
-        return stateStore.get(`${id}:${dimension}`) ?? ''
+      show(id: string) {
+        return { id, tags: beadTags.get(id) ?? [] }
       },
-      setState(id: string, dimension: string, value: string): void {
-        stateStore.set(`${id}:${dimension}`, value)
-      }
+      run(args: string[]) {
+        runCalls.push(args)
+        // Simulate label add/remove
+        if (args[0] === 'label' && args[1] === 'add') {
+          const id = args[2], label = args[3]
+          const tags = beadTags.get(id) ?? []
+          tags.push(label)
+          beadTags.set(id, tags)
+        }
+        if (args[0] === 'label' && args[1] === 'remove') {
+          const id = args[2], label = args[3]
+          const tags = beadTags.get(id) ?? []
+          beadTags.set(id, tags.filter(t => t !== label))
+        }
+        return ''
+      },
     },
     registerAgent: vi.fn(),
     updateAgent: vi.fn(),
@@ -37,7 +51,8 @@ function makeMockCoordinator() {
     completeBead: vi.fn(),
     heartbeat: vi.fn(),
     clearHeartbeat: vi.fn(),
-    _stateStore: stateStore
+    _beadTags: beadTags,
+    _runCalls: runCalls,
   }
 }
 
@@ -82,31 +97,32 @@ describe('Bead retry helpers', () => {
   })
 
   describe('_getBeadAttempt', () => {
-    it('returns 0 for a new bead with no state', () => {
+    it('returns 0 for a new bead with no label', () => {
       expect(worker._getBeadAttempt('sb-new')).toBe(0)
     })
 
-    it('returns the stored attempt count', () => {
-      coordinator._stateStore.set('sb-abc:retry_attempt', '2')
+    it('reads retry count from label', () => {
+      coordinator._beadTags.set('sb-abc', ['retry_attempt:2'])
       expect(worker._getBeadAttempt('sb-abc')).toBe(2)
     })
 
-    it('returns 0 for non-numeric state', () => {
-      coordinator._stateStore.set('sb-bad:retry_attempt', 'garbage')
+    it('returns 0 when show returns null', () => {
+      coordinator.bd.show = () => null
       expect(worker._getBeadAttempt('sb-bad')).toBe(0)
     })
   })
 
   describe('_incrementBeadAttempt', () => {
-    it('increments from 0 to 1', () => {
+    it('increments from 0 to 1 via label add', () => {
       worker._incrementBeadAttempt('sb-first')
-      expect(coordinator._stateStore.get('sb-first:retry_attempt')).toBe('1')
+      expect(coordinator._beadTags.get('sb-first')).toContain('retry_attempt:1')
     })
 
-    it('increments from 1 to 2', () => {
-      coordinator._stateStore.set('sb-inc:retry_attempt', '1')
+    it('swaps label from 1 to 2', () => {
+      coordinator._beadTags.set('sb-inc', ['retry_attempt:1'])
       worker._incrementBeadAttempt('sb-inc')
-      expect(coordinator._stateStore.get('sb-inc:retry_attempt')).toBe('2')
+      expect(coordinator._beadTags.get('sb-inc')).not.toContain('retry_attempt:1')
+      expect(coordinator._beadTags.get('sb-inc')).toContain('retry_attempt:2')
     })
   })
 

@@ -790,17 +790,30 @@ export class WorkerLoop extends EventEmitter {
     this.emit('log', level, msg)
   }
 
-  /** Get the current retry attempt count for a bead (0 = first attempt). */
+  /** Get the current retry attempt count for a bead (0 = first attempt).
+   *  Reads from bd labels (retry_attempt:N) instead of set-state to avoid
+   *  creating event beads that overwrite the bead title/description. */
   _getBeadAttempt(beadId: string): number {
-    const raw = this.coordinator.bd.getState(beadId, 'retry_attempt')
-    const n = parseInt(raw, 10)
-    return isNaN(n) ? 0 : n
+    try {
+      const bead = this.coordinator.bd.show(beadId)
+      if (!bead) return 0
+      const tag = bead.tags.find(t => t.startsWith('retry_attempt:'))
+      if (!tag) return 0
+      const n = parseInt(tag.split(':')[1], 10)
+      return isNaN(n) ? 0 : n
+    } catch { return 0 }
   }
 
-  /** Increment the retry attempt counter for a bead. */
+  /** Increment the retry attempt counter for a bead.
+   *  Uses bd label add/remove instead of set-state to avoid creating event beads. */
   _incrementBeadAttempt(beadId: string): void {
     const current = this._getBeadAttempt(beadId)
-    this.coordinator.bd.setState(beadId, 'retry_attempt', String(current + 1), 'Retry after failure')
+    // Remove old label if present
+    if (current > 0) {
+      try { this.coordinator.bd.run(['label', 'remove', beadId, `retry_attempt:${current}`]) } catch { /* ignore */ }
+    }
+    // Add new label
+    try { this.coordinator.bd.run(['label', 'add', beadId, `retry_attempt:${current + 1}`]) } catch { /* ignore */ }
   }
 
   /** Exponential backoff: 3s * 2^attempt, capped at 60s. */

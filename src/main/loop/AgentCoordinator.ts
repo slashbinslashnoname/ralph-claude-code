@@ -852,14 +852,14 @@ export class AgentCoordinator {
         }
       }
 
-      // Read retry attempts to deprioritize beads that keep failing
+      // Read retry attempts from labels to deprioritize beads that keep failing
       const retryCount = new Map<string, number>()
       for (const c of candidates) {
-        try {
-          const raw = await this.bd.getStateAsync(c.id, 'retry_attempt')
-          const n = parseInt(raw, 10)
+        const tag = c.tags.find(t => t.startsWith('retry_attempt:'))
+        if (tag) {
+          const n = parseInt(tag.split(':')[1], 10)
           if (!isNaN(n) && n > 0) retryCount.set(c.id, n)
-        } catch { /* ignore — treat as 0 retries */ }
+        }
       }
 
       // ── Epic convergence: prefer beads in epics closest to completion ───

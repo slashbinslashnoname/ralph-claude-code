@@ -326,43 +326,46 @@ describe('WorkerLoop', () => {
   })
 
   describe('_getBeadAttempt', () => {
-    it('returns 0 when no state set', () => {
+    it('returns 0 when no retry label', () => {
       const coord = makeCoordinator()
-      coord.bd.getState.mockReturnValue('')
+      coord.bd.show.mockReturnValue({ id: 'sb-abc', tags: [] })
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       expect(worker._getBeadAttempt('sb-abc')).toBe(0)
     })
 
-    it('parses stored attempt number', () => {
+    it('parses retry_attempt label', () => {
       const coord = makeCoordinator()
-      coord.bd.getState.mockReturnValue('3')
+      coord.bd.show.mockReturnValue({ id: 'sb-abc', tags: ['retry_attempt:3'] })
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       expect(worker._getBeadAttempt('sb-abc')).toBe(3)
     })
 
-    it('returns 0 for NaN state', () => {
+    it('returns 0 when show fails', () => {
       const coord = makeCoordinator()
-      coord.bd.getState.mockReturnValue('not-a-number')
+      coord.bd.show.mockReturnValue(null)
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       expect(worker._getBeadAttempt('sb-abc')).toBe(0)
     })
   })
 
   describe('_incrementBeadAttempt', () => {
-    it('increments from 0 to 1', () => {
+    it('increments from 0 to 1 via label add', () => {
       const coord = makeCoordinator()
-      coord.bd.getState.mockReturnValue('')
+      coord.bd.show.mockReturnValue({ id: 'sb-abc', tags: [] })
+      coord.bd.run.mockReturnValue('')
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker._incrementBeadAttempt('sb-abc')
-      expect(coord.bd.setState).toHaveBeenCalledWith('sb-abc', 'retry_attempt', '1', 'Retry after failure')
+      expect(coord.bd.run).toHaveBeenCalledWith(['label', 'add', 'sb-abc', 'retry_attempt:1'])
     })
 
-    it('increments existing value', () => {
+    it('swaps label from 2 to 3', () => {
       const coord = makeCoordinator()
-      coord.bd.getState.mockReturnValue('2')
+      coord.bd.show.mockReturnValue({ id: 'sb-abc', tags: ['retry_attempt:2'] })
+      coord.bd.run.mockReturnValue('')
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), coord, makePaths())
       worker._incrementBeadAttempt('sb-abc')
-      expect(coord.bd.setState).toHaveBeenCalledWith('sb-abc', 'retry_attempt', '3', 'Retry after failure')
+      expect(coord.bd.run).toHaveBeenCalledWith(['label', 'remove', 'sb-abc', 'retry_attempt:2'])
+      expect(coord.bd.run).toHaveBeenCalledWith(['label', 'add', 'sb-abc', 'retry_attempt:3'])
     })
   })
 
