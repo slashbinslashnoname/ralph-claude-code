@@ -4,7 +4,7 @@ import * as os from 'os'
 import * as crypto from 'crypto'
 
 export interface ProjectPaths {
-  /** SHA256 hex digest of the absolute project path */
+  /** Human-readable project ID: <basename>-<8-char-sha256-prefix> */
   id: string
   /** Absolute path to the project root */
   projectRoot: string
@@ -44,7 +44,8 @@ function slashbotHome(): string {
 
 export function getProjectPaths(projectPath: string): ProjectPaths {
   const absolute = path.resolve(projectPath)
-  const id = crypto.createHash('sha256').update(absolute).digest('hex')
+  const hash8 = crypto.createHash('sha256').update(absolute).digest('hex').slice(0, 8)
+  const id = `${path.basename(absolute)}-${hash8}`
   const storeDir = path.join(slashbotHome(), id)
 
   return {
