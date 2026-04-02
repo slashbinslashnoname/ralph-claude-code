@@ -1552,6 +1552,45 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   border: 1px solid var(--bg-2); border-radius: 8px; padding: 12px;
 }
 
+/* ── Memory Page ──────────────────────────────────────────────────────────── */
+.memory-search { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.memory-search-bar { display: flex; gap: 8px; }
+.memory-search-bar .input { flex: 1; }
+.memory-mode-tabs { display: flex; gap: 4px; }
+.memory-mode-tabs .btn.active {
+  background: var(--accent-glow); color: var(--accent); border-bottom: 2px solid var(--accent);
+}
+.memory-results { display: flex; flex-direction: column; gap: 16px; }
+.memory-section h3 { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: 8px; }
+.memory-bullet-list { display: flex; flex-direction: column; gap: 8px; }
+.memory-bullet-card {
+  background: var(--bg-card); border: 1px solid var(--bg-3); border-radius: 8px;
+  padding: 12px; transition: border-color 0.15s;
+}
+.memory-bullet-card:hover { border-color: var(--accent); }
+.memory-bullet-warning { border-left: 3px solid var(--warning, #f59e0b); }
+.memory-bullet-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px;
+}
+.memory-bullet-id { color: var(--text-2); font-family: var(--font); }
+.memory-bullet-category {
+  background: var(--bg-3); padding: 2px 6px; border-radius: 4px; color: var(--text-1); font-size: 10px;
+}
+.memory-bullet-score { color: var(--accent); margin-left: auto; }
+.memory-bullet-content { color: var(--text-0); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+.memory-bullet-feedback { display: flex; gap: 8px; margin-top: 6px; font-size: 11px; }
+.feedback-helpful { color: var(--success, #22c55e); }
+.feedback-harmful { color: var(--error, #ef4444); }
+.memory-error {
+  background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+  border-radius: 8px; padding: 12px; color: var(--error, #ef4444); margin-bottom: 12px;
+}
+.memory-suggested-queries { display: flex; flex-wrap: wrap; gap: 6px; }
+.memory-suggested-query {
+  background: var(--bg-3); padding: 4px 8px; border-radius: 4px;
+  font-size: 11px; color: var(--text-1);
+}
+
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
