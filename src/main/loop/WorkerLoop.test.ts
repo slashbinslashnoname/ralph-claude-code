@@ -1098,6 +1098,51 @@ describe('WorkerLoop', () => {
       expect(executePrompt).not.toContain('Team coordination')
       expect(executePrompt).not.toContain('MCP tools')
     })
+
+    it('_buildExecutePrompt includes PROMPT.md content when file exists', () => {
+      const paths = makePaths()
+      vi.mocked(fs.existsSync).mockImplementation((p: any) => p === paths.promptMd || p === paths.agentMd)
+      vi.mocked(fs.readFileSync).mockImplementation((p: any) => {
+        if (p === paths.promptMd) return '## sm (slashmem)\nUse `sm` CLI for persistent memory.'
+        if (p === paths.agentMd) return '# Agent instructions'
+        return ''
+      })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), paths)
+      const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+      expect(prompt).toContain('sm (slashmem)')
+      expect(prompt).toContain('Use `sm` CLI for persistent memory.')
+    })
+
+    it('_buildReviewPrompt includes PROMPT.md content when file exists', () => {
+      const paths = makePaths()
+      vi.mocked(fs.existsSync).mockImplementation((p: any) => p === paths.promptMd)
+      vi.mocked(fs.readFileSync).mockImplementation((p: any) => {
+        if (p === paths.promptMd) return '## sm (slashmem)\nUse `sm` CLI for persistent memory.'
+        return ''
+      })
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), paths)
+      const prompt = (worker as any)._buildReviewPrompt(makeBead())
+      expect(prompt).toContain('sm (slashmem)')
+      expect(prompt).toContain('Use `sm` CLI for persistent memory.')
+    })
+
+    it('_buildExecutePrompt works without PROMPT.md', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false)
+      vi.mocked(fs.readFileSync).mockReturnValue('')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+      const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+      expect(prompt).toContain('sb-abc')
+      expect(prompt).not.toContain('sm (slashmem)')
+    })
+
+    it('_buildReviewPrompt works without PROMPT.md', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false)
+      vi.mocked(fs.readFileSync).mockReturnValue('')
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+      const prompt = (worker as any)._buildReviewPrompt(makeBead())
+      expect(prompt).toContain('Fresh-eyes Review')
+      expect(prompt).not.toContain('sm (slashmem)')
+    })
   })
 
   describe('_splitBead', () => {
