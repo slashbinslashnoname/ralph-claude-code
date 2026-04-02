@@ -857,15 +857,9 @@ export class AgentCoordinator {
         }
       }
 
-      // Beads in_progress can satisfy deps (speculative parallel execution).
-      // Also treat parent beads as "in progress" if any of their children are being worked on.
+      // Track in_progress beads — used for logging, NOT for unblocking deps.
+      // Only done deps unblock dependents. Agents wait for deps to finish.
       const inProgressIds = new Set(allBeads.filter(b => b.status === 'claimed').map(b => b.id))
-      for (const b of allBeads) {
-        if (b.status === 'claimed' && b.epicId) {
-          // If a child is in_progress, its parent is effectively in_progress too
-          inProgressIds.add(b.epicId)
-        }
-      }
 
       // Build set of epic IDs — used to exclude parent-child deps from blocking checks
       const epicIds = new Set(allBeads.filter(b => b.type === 'epic').map(b => b.id))
@@ -875,12 +869,12 @@ export class AgentCoordinator {
         const retriesA = retryCount.get(a.id) ?? 0
         const retriesB = retryCount.get(b.id) ?? 0
         if (retriesA !== retriesB) return retriesA - retriesB
-        // Count only truly blocked deps (not started yet) — in_progress deps are OK (speculative parallel)
+        // Count blocked deps — only done deps unblock. Agents wait for in_progress deps to finish.
         // Failed deps count as blocked. Exclude epic parent deps (containment, not work deps).
         const depsA = a.deps.filter(d => d !== a.epicId && !epicIds.has(d))
         const depsB = b.deps.filter(d => d !== b.epicId && !epicIds.has(d))
-        const blockedA = depsA.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
-        const blockedB = depsB.filter(d => !doneIds.has(d) && !inProgressIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
+        const blockedA = depsA.filter(d => !doneIds.has(d)).length + (openChildCount.get(a.id) ?? 0)
+        const blockedB = depsB.filter(d => !doneIds.has(d)).length + (openChildCount.get(b.id) ?? 0)
         if (blockedA !== blockedB) return blockedA - blockedB
         const priDiff = (a.priority ?? 2) - (b.priority ?? 2)
         if (priDiff !== 0) return priDiff
@@ -927,13 +921,13 @@ export class AgentCoordinator {
           continue
         }
 
-        // Skip beads whose dependencies are not yet started.
-        // Allow deps that are in_progress (speculative: they'll likely finish before this bead does).
+        // Skip beads whose dependencies are not yet done.
+        // Only done deps unblock — agents wait for in_progress deps to finish.
         // Failed deps are treated as unresolved — the dependent bead shouldn't proceed.
         // Exclude parent-child deps from blocking checks — parent-child is a containment
         // relationship, not a work dependency. bd sometimes includes it in the flat deps array.
         const realDeps = bead.deps.filter(d => d !== bead.epicId && !epicIds.has(d))
-        const blockedDeps = realDeps.filter(d => !doneIds.has(d) && !inProgressIds.has(d))
+        const blockedDeps = realDeps.filter(d => !doneIds.has(d))
         const failedDeps = realDeps.filter(d => failedIds.has(d))
         const openChildren = openChildCount.get(bead.id) ?? 0
         if (failedDeps.length > 0) {
@@ -950,7 +944,9 @@ export class AgentCoordinator {
             this._log('WARN', `[${agentId}] ${bead.id}: circular dependency detected with [${blockedDeps.join(',')}] — breaking cycle`)
             // Fall through and allow claiming this bead to break the deadlock
           } else {
-            this._log('INFO', `[${agentId}] skip ${bead.id}: ${blockedDeps.length} blocked deps [${blockedDeps.join(',')}] (not done/in_progress), ${openChildren} open children`)
+            const waitingOn = blockedDeps.filter(d => inProgressIds.has(d))
+            const notStarted = blockedDeps.filter(d => !inProgressIds.has(d))
+            this._log('INFO', `[${agentId}] skip ${bead.id}: ${blockedDeps.length} blocked deps — waiting on in_progress: [${waitingOn.join(',')}], not started: [${notStarted.join(',')}], ${openChildren} open children`)
             continue
           }
         }
