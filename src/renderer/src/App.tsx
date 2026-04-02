@@ -8,19 +8,17 @@ import SwarmPage from './pages/SwarmPage'
 import LogViewer from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
 import SetupWizard from './pages/SetupWizard'
-import ThreadsPage from './pages/ThreadsPage'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
 
 const sb = window.slashbot
 
-type Page = 'dashboard' | 'beads' | 'swarm' | 'threads' | 'logs' | 'config' | 'setup'
+type Page = 'dashboard' | 'beads' | 'swarm' | 'logs' | 'config' | 'setup'
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u25C9' },
   { id: 'beads', label: 'Beads', icon: '\u29BE' },
   { id: 'swarm', label: 'Swarm', icon: '\u2B21' },
-  { id: 'threads', label: 'Threads', icon: '\u2709' },
   { id: 'logs', label: 'Logs', icon: '\u2630' },
   { id: 'config', label: 'Config', icon: '\u2699' },
 ]
@@ -297,9 +295,6 @@ export default function App() {
               activity={swarmActivity}
               setActivity={setSwarmActivity}
             />
-          )}
-          {current.page === 'threads' && current.isEnabled && (
-            <ThreadsPage projectPath={current.path} activity={swarmActivity} />
           )}
           {current.page === 'logs' && current.isEnabled && <LogViewer projectPath={current.path} />}
           {current.page === 'config' && current.isEnabled && <ConfigEditor projectPath={current.path} />}
