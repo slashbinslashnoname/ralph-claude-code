@@ -160,13 +160,26 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
   ctx.flags.mergeFailed = false
   ctx.flags.filesChanged = []
 
-  ctx.coordinator.updateAgent(ctx.agentId, {
-    phase: 'idle',
-    currentBeadId: null,
-    currentBeadTitle: null,
-    worktreeBranch: null,
-    thinkingSummary: null
-  })
+  // Re-register with slot-based idle ID (deregister bead-based ID if any)
+  const idleId = `worker-${ctx.agentIndex}`
+  if (ctx.agentId !== idleId) {
+    ctx.coordinator.deregisterAgent(ctx.agentId)
+    ctx.agentId = idleId
+    ctx.coordinator.registerAgent({
+      id: idleId, index: ctx.agentIndex, phase: 'idle',
+      currentBeadId: null, currentBeadTitle: null, loopCount: ctx.flags.loopCount,
+      lastActivity: new Date().toISOString(),
+      worktreeBranch: null, thinkingSummary: null
+    })
+  } else {
+    ctx.coordinator.updateAgent(ctx.agentId, {
+      phase: 'idle',
+      currentBeadId: null,
+      currentBeadTitle: null,
+      worktreeBranch: null,
+      thinkingSummary: null
+    })
+  }
 
   if (ctx.flags.stopped || ctx.flags.gracefulStopping) return 'stopping'
 
@@ -233,13 +246,20 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   ctx.flags.emptyRetries = 0
   ctx.currentBead = bead
 
+  // Re-register with bead-based agentId: worker-{beadId}
+  const prevAgentId = ctx.agentId
+  const beadAgentId = `worker-${bead.id}`
+  ctx.coordinator.deregisterAgent(prevAgentId)
+  ctx.agentId = beadAgentId
+  ctx.coordinator.registerAgent({
+    id: beadAgentId, index: ctx.agentIndex, phase: 'claiming',
+    currentBeadId: bead.id, currentBeadTitle: bead.title, loopCount: ctx.flags.loopCount,
+    lastActivity: new Date().toISOString(),
+    worktreeBranch: null, thinkingSummary: null
+  })
+
   setPhase(ctx, 'claiming', bead.id, bead.title)
   log(ctx, 'INFO', `[${ctx.agentId}] Claimed: [${bead.id}] ${bead.title}`)
-  ctx.coordinator.updateAgent(ctx.agentId, {
-    currentBeadId: bead.id,
-    currentBeadTitle: bead.title,
-    loopCount: ctx.flags.loopCount
-  })
 
   // Create worktree for isolated work
   const wt = await ctx.coordinator.createWorktree(ctx.agentId, bead.id)

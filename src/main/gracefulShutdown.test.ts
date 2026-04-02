@@ -69,10 +69,10 @@ describe('Graceful shutdown integration', () => {
   it('shutdown cleans up fake workers and emits event', async () => {
     const orch = new SwarmOrchestrator(tmpPaths)
     // Inject fake worker entries
-    ;(orch as any).workers.set('agent-0', { stop: () => {} })
-    ;(orch as any).workers.set('agent-1', { stop: () => {} })
-    ;(orch as any).workerLoopPromises.set('agent-0', Promise.resolve())
-    ;(orch as any).workerLoopPromises.set('agent-1', Promise.resolve())
+    ;(orch as any).workers.set('slot-0', { stop: () => {} })
+    ;(orch as any).workers.set('slot-1', { stop: () => {} })
+    ;(orch as any).workerLoopPromises.set('slot-0', Promise.resolve())
+    ;(orch as any).workerLoopPromises.set('slot-1', Promise.resolve())
 
     let emitted = false
     orch.on('shutdown-complete', () => { emitted = true })
@@ -86,8 +86,8 @@ describe('Graceful shutdown integration', () => {
 
   it('shutdown with timeout forces completion on hanging workers', async () => {
     const orch = new SwarmOrchestrator(tmpPaths)
-    ;(orch as any).workers.set('agent-0', { stop: () => {} })
-    ;(orch as any).workerLoopPromises.set('agent-0', new Promise<void>(() => {})) // never resolves
+    ;(orch as any).workers.set('slot-0', { stop: () => {} })
+    ;(orch as any).workerLoopPromises.set('slot-0', new Promise<void>(() => {})) // never resolves
 
     const start = Date.now()
     await orch.shutdown(300)
@@ -100,8 +100,8 @@ describe('Graceful shutdown integration', () => {
 
   it('double-quit is safe (re-entrant shutdown)', async () => {
     const orch = new SwarmOrchestrator(tmpPaths)
-    ;(orch as any).workers.set('agent-0', { stop: () => {} })
-    ;(orch as any).workerLoopPromises.set('agent-0', new Promise<void>(() => {}))
+    ;(orch as any).workers.set('slot-0', { stop: () => {} })
+    ;(orch as any).workerLoopPromises.set('slot-0', new Promise<void>(() => {}))
 
     // Start shutdown, then call again while first is in progress
     const p1 = orch.shutdown(200)

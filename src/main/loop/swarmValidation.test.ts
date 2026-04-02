@@ -99,11 +99,12 @@ describe('validatePlanRequest', () => {
 // ── validateAgentId ──────────────────────────────────────────────────────────
 
 describe('validateAgentId', () => {
-  it('accepts valid agent IDs', () => {
-    expect(validateAgentId('agent-0')).toBe('agent-0')
-    expect(validateAgentId('agent-1')).toBe('agent-1')
-    expect(validateAgentId('agent-12')).toBe('agent-12')
-    expect(validateAgentId('agent-100')).toBe('agent-100')
+  it('accepts valid worker IDs with bead identifiers', () => {
+    expect(validateAgentId('worker-0')).toBe('worker-0')
+    expect(validateAgentId('worker-1')).toBe('worker-1')
+    expect(validateAgentId('worker-ralph-claude-code-fhv')).toBe('worker-ralph-claude-code-fhv')
+    expect(validateAgentId('worker-abc-123')).toBe('worker-abc-123')
+    expect(validateAgentId('worker-a')).toBe('worker-a')
   })
 
   it('rejects empty string', () => {
@@ -116,26 +117,21 @@ describe('validateAgentId', () => {
     expect(() => validateAgentId(undefined)).toThrow(/non-empty string/)
   })
 
-  it('rejects IDs not matching agent-N pattern', () => {
-    expect(() => validateAgentId('worker-0')).toThrow(/agent-N/)
-    expect(() => validateAgentId('agent-')).toThrow(/agent-N/)
-    expect(() => validateAgentId('agent-abc')).toThrow(/agent-N/)
-    expect(() => validateAgentId('0')).toThrow(/agent-N/)
+  it('rejects IDs not matching worker-{id} pattern', () => {
+    expect(() => validateAgentId('worker-0')).toThrow(/worker-/)
+    expect(() => validateAgentId('worker-')).toThrow(/worker-/)
+    expect(() => validateAgentId('0')).toThrow(/worker-/)
   })
 
   it('rejects path traversal attempts', () => {
-    expect(() => validateAgentId('../etc/passwd')).toThrow(/agent-N/)
-    expect(() => validateAgentId('agent-0/../../etc')).toThrow(/agent-N/)
+    expect(() => validateAgentId('../etc/passwd')).toThrow(/worker-/)
+    expect(() => validateAgentId('worker-0/../../etc')).toThrow(/worker-/)
   })
 
   it('rejects shell injection attempts', () => {
-    expect(() => validateAgentId('agent-0;rm -rf /')).toThrow(/agent-N/)
-    expect(() => validateAgentId('agent-0$(cmd)')).toThrow(/agent-N/)
-    expect(() => validateAgentId('agent-0`cmd`')).toThrow(/agent-N/)
-  })
-
-  it('rejects IDs with too many digits', () => {
-    expect(() => validateAgentId('agent-1234')).toThrow(/agent-N/)
+    expect(() => validateAgentId('worker-0;rm -rf /')).toThrow(/worker-/)
+    expect(() => validateAgentId('worker-0$(cmd)')).toThrow(/worker-/)
+    expect(() => validateAgentId('worker-0`cmd`')).toThrow(/worker-/)
   })
 })
 
@@ -171,14 +167,14 @@ describe('validateActivityLimit', () => {
 describe('validateLogFilename', () => {
   it('accepts valid log filenames', () => {
     expect(
-      validateLogFilename('agent-0_think_2024-01-15-10-30-00.log')
-    ).toBe('agent-0_think_2024-01-15-10-30-00.log')
+      validateLogFilename('worker-0_think_2024-01-15-10-30-00.log')
+    ).toBe('worker-0_think_2024-01-15-10-30-00.log')
     expect(
-      validateLogFilename('agent-1_execute_2024-01-15-10-30-00.log')
-    ).toBe('agent-1_execute_2024-01-15-10-30-00.log')
+      validateLogFilename('worker-ralph-code-fhv_execute_2024-01-15-10-30-00.log')
+    ).toBe('worker-ralph-code-fhv_execute_2024-01-15-10-30-00.log')
     expect(
-      validateLogFilename('agent-2_review_2024-01-15-10-30-00.log')
-    ).toBe('agent-2_review_2024-01-15-10-30-00.log')
+      validateLogFilename('worker-abc-123_review_2024-01-15-10-30-00.log')
+    ).toBe('worker-abc-123_review_2024-01-15-10-30-00.log')
   })
 
   it('rejects empty string', () => {
@@ -188,13 +184,13 @@ describe('validateLogFilename', () => {
   it('rejects path traversal', () => {
     expect(() => validateLogFilename('../secrets.log')).toThrow(/path separators/)
     expect(() => validateLogFilename('..\\secrets.log')).toThrow(/path separators/)
-    expect(() => validateLogFilename('subdir/agent-0_think_ts.log')).toThrow(/path separators/)
+    expect(() => validateLogFilename('subdir/worker-0_think_ts.log')).toThrow(/path separators/)
   })
 
   it('rejects non-matching filenames', () => {
-    expect(() => validateLogFilename('random.txt')).toThrow(/agent log format/)
-    expect(() => validateLogFilename('agent-0.log')).toThrow(/agent log format/)
-    expect(() => validateLogFilename('agent-0_invalid_ts.log')).toThrow(/agent log format/)
+    expect(() => validateLogFilename('random.txt')).toThrow(/worker log format/)
+    expect(() => validateLogFilename('worker-0.log')).toThrow(/worker log format/)
+    expect(() => validateLogFilename('worker-0_invalid_ts.log')).toThrow(/worker log format/)
   })
 })
 
@@ -298,19 +294,19 @@ describe('validateSwarmActivity', () => {
 
 describe('validateSwarmAgentOutput', () => {
   it('validates projectPath and agentId', () => {
-    const result = validateSwarmAgentOutput('/path', 'agent-0')
-    expect(result).toEqual({ projectPath: '/path', agentId: 'agent-0' })
+    const result = validateSwarmAgentOutput('/path', 'worker-0')
+    expect(result).toEqual({ projectPath: '/path', agentId: 'worker-0' })
   })
 
   it('rejects path traversal in agentId', () => {
-    expect(() => validateSwarmAgentOutput('/path', '../etc')).toThrow(/agent-N/)
+    expect(() => validateSwarmAgentOutput('/path', '../etc')).toThrow(/worker-/)
   })
 })
 
 describe('validateSwarmAgentLogContent', () => {
   it('validates projectPath and filename', () => {
-    const result = validateSwarmAgentLogContent('/path', 'agent-0_think_2024-01-01.log')
-    expect(result).toEqual({ projectPath: '/path', filename: 'agent-0_think_2024-01-01.log' })
+    const result = validateSwarmAgentLogContent('/path', 'worker-0_think_2024-01-01.log')
+    expect(result).toEqual({ projectPath: '/path', filename: 'worker-0_think_2024-01-01.log' })
   })
 
   it('rejects path traversal in filename', () => {
@@ -392,20 +388,20 @@ describe('validateSwarmAgentLogs', () => {
 
 describe('validateSwarmPauseResume', () => {
   it('validates projectPath and agentId', () => {
-    const result = validateSwarmPauseResume('/path', 'agent-0')
-    expect(result).toEqual({ projectPath: '/path', agentId: 'agent-0' })
+    const result = validateSwarmPauseResume('/path', 'worker-0')
+    expect(result).toEqual({ projectPath: '/path', agentId: 'worker-0' })
   })
 
   it('rejects invalid projectPath', () => {
-    expect(() => validateSwarmPauseResume('', 'agent-0')).toThrow(/projectPath/)
+    expect(() => validateSwarmPauseResume('', 'worker-0')).toThrow(/projectPath/)
   })
 
   it('rejects invalid agentId', () => {
-    expect(() => validateSwarmPauseResume('/path', 'bad-id')).toThrow(/agent-N/)
+    expect(() => validateSwarmPauseResume('/path', 'bad-id')).toThrow(/worker-/)
   })
 
   it('rejects path traversal in agentId', () => {
-    expect(() => validateSwarmPauseResume('/path', '../etc')).toThrow(/agent-N/)
+    expect(() => validateSwarmPauseResume('/path', '../etc')).toThrow(/worker-/)
   })
 })
 
@@ -528,27 +524,27 @@ describe('validateSwarmActivityForBead', () => {
 
 describe('validateSwarmActivityForAgent', () => {
   it('validates projectPath, agentId, and limit', () => {
-    const result = validateSwarmActivityForAgent('/path', 'agent-0', 100)
-    expect(result).toEqual({ projectPath: '/path', agentId: 'agent-0', limit: 100 })
+    const result = validateSwarmActivityForAgent('/path', 'worker-0', 100)
+    expect(result).toEqual({ projectPath: '/path', agentId: 'worker-0', limit: 100 })
   })
 
   it('uses default limit when undefined', () => {
-    const result = validateSwarmActivityForAgent('/path', 'agent-0', undefined)
+    const result = validateSwarmActivityForAgent('/path', 'worker-0', undefined)
     expect(result.limit).toBe(50)
   })
 
   it('rejects invalid projectPath', () => {
-    expect(() => validateSwarmActivityForAgent('', 'agent-0', 50)).toThrow(/projectPath/)
+    expect(() => validateSwarmActivityForAgent('', 'worker-0', 50)).toThrow(/projectPath/)
   })
 
   it('rejects invalid agentId', () => {
-    expect(() => validateSwarmActivityForAgent('/path', 'bad-id', 50)).toThrow(/agent-N/)
+    expect(() => validateSwarmActivityForAgent('/path', 'bad-id', 50)).toThrow(/worker-/)
     expect(() => validateSwarmActivityForAgent('/path', '', 50)).toThrow(/non-empty/)
   })
 
   it('rejects invalid limit', () => {
-    expect(() => validateSwarmActivityForAgent('/path', 'agent-0', 0)).toThrow(/between 1 and 1000/)
-    expect(() => validateSwarmActivityForAgent('/path', 'agent-0', 1001)).toThrow(/between 1 and 1000/)
+    expect(() => validateSwarmActivityForAgent('/path', 'worker-0', 0)).toThrow(/between 1 and 1000/)
+    expect(() => validateSwarmActivityForAgent('/path', 'worker-0', 1001)).toThrow(/between 1 and 1000/)
   })
 })
 

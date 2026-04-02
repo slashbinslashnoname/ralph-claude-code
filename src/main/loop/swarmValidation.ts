@@ -36,8 +36,10 @@ export function validatePlanRequest(request: unknown): string {
 }
 
 // ── Agent ID validation ──────────────────────────────────────────────────────
-// Agent IDs follow the pattern agent-N (e.g., agent-0, agent-1, agent-12)
-const AGENT_ID_RE = /^agent-\d{1,3}$/
+// Agent IDs follow the pattern worker-{beadId} (e.g., worker-ralph-claude-code-fhv)
+// or worker-N for idle workers (e.g., worker-0, worker-1).
+// Bead IDs are lowercase alphanumeric with hyphens, 1–61 characters.
+const AGENT_ID_RE = /^worker-[a-zA-Z0-9]([a-zA-Z0-9-]{0,59}[a-zA-Z0-9])?$/
 
 export function validateAgentId(agentId: unknown): string {
   if (typeof agentId !== 'string' || agentId.length === 0) {
@@ -45,7 +47,7 @@ export function validateAgentId(agentId: unknown): string {
   }
   if (!AGENT_ID_RE.test(agentId)) {
     throw new Error(
-      'agentId must match pattern "agent-N" (e.g., agent-0, agent-1)'
+      'agentId must match pattern "worker-{id}" (e.g., worker-0, worker-ralph-claude-code-fhv)'
     )
   }
   return agentId
@@ -67,8 +69,8 @@ export function validateActivityLimit(limit: unknown): number {
 }
 
 // ── Log filename validation ──────────────────────────────────────────────────
-// Log filenames match: agent-N_phase_timestamp.log
-const LOG_FILENAME_RE = /^agent-\d{1,3}_(think|execute|review)_[\w-]+\.log$/
+// Log filenames match: worker-{id}_{phase}_{timestamp}.log
+const LOG_FILENAME_RE = /^worker-[a-zA-Z0-9][a-zA-Z0-9-]{0,59}[a-zA-Z0-9]?_(think|execute|review)_[\w-]+\.log$/
 
 export function validateLogFilename(filename: unknown): string {
   if (typeof filename !== 'string' || filename.length === 0) {
@@ -78,7 +80,7 @@ export function validateLogFilename(filename: unknown): string {
     throw new Error('filename must not contain path separators or traversal sequences')
   }
   if (!LOG_FILENAME_RE.test(filename)) {
-    throw new Error('filename must match agent log format (e.g., agent-0_think_2024-01-01.log)')
+    throw new Error('filename must match worker log format (e.g., worker-ralph-code-fhv_think_2024-01-01.log)')
   }
   return filename
 }

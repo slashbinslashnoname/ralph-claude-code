@@ -37,7 +37,7 @@ describe('Dashboard type contracts', () => {
 
   it('AgentInfo replaces agents: any[]', () => {
     const agent: AgentInfo = {
-      id: 'agent-0',
+      id: 'worker-0',
       index: 0,
       phase: 'executing',
       currentBeadId: 'sb-1',

@@ -10,7 +10,7 @@ describe('SwarmPage type contracts', () => {
     // Verify ActivityEvent has the expected structure
     const event: ActivityEvent = {
       ts: '2026-03-21T10:00:00Z',
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'completed',
       beadId: 'sb-1',
       summary: 'Done',
@@ -41,7 +41,7 @@ describe('SwarmPage type contracts', () => {
 
   it('AgentInfo replaces agents: any[]', () => {
     const agent: AgentInfo = {
-      id: 'agent-0',
+      id: 'worker-0',
       index: 0,
       phase: 'executing',
       currentBeadId: 'sb-1',
@@ -59,7 +59,7 @@ describe('SwarmPage type contracts', () => {
 
   it('AgentInfo with all-null nullable fields', () => {
     const agent: AgentInfo = {
-      id: 'agent-1',
+      id: 'worker-1',
       index: 1,
       phase: 'idle',
       currentBeadId: null,

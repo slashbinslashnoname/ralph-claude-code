@@ -155,7 +155,7 @@ function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
 
 function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
   return {
-    agentId: 'agent-0',
+    agentId: 'worker-0',
     agentIndex: 0,
     paths: makePaths(),
     config: makeConfig(),
@@ -189,8 +189,8 @@ describe('WorkerStateMachine', () => {
     it('creates a context with default values', () => {
       const caps = makeCapabilities()
       const coord = makeCoordinator()
-      const ctx = createWorkerContext('agent-0', 0, makePaths(), makeConfig(), coord, caps)
-      expect(ctx.agentId).toBe('agent-0')
+      const ctx = createWorkerContext('worker-0', 0, makePaths(), makeConfig(), coord, caps)
+      expect(ctx.agentId).toBe('worker-0')
       expect(ctx.currentBead).toBeNull()
       expect(ctx.flags.stopped).toBe(false)
       expect(ctx.flags.loopCount).toBe(0)
@@ -216,9 +216,24 @@ describe('WorkerStateMachine', () => {
       expect(ctx.thinkingOutput).toBe('')
       expect(ctx.flags.executeFailed).toBe(false)
       expect(ctx.flags.filesChanged).toEqual([])
-      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
+      // When agentId already matches slot ID, uses updateAgent path
+      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('worker-0', expect.objectContaining({
         phase: 'idle', currentBeadId: null
       }))
+    })
+
+    it('re-registers with slot-based ID when agentId was bead-based', async () => {
+      const ctx = makeCtx({
+        agentId: 'worker-sb-1',
+        currentBead: makeBead(),
+      })
+
+      const next = await idle(ctx)
+
+      expect(next).toBe('routing')
+      expect(ctx.agentId).toBe('worker-0')
+      expect(ctx.coordinator.deregisterAgent).toHaveBeenCalledWith('worker-sb-1')
+      expect(ctx.coordinator.registerAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'worker-0' }))
     })
 
     it('transitions to stopping when stopped', async () => {
@@ -239,15 +254,18 @@ describe('WorkerStateMachine', () => {
       const bead = makeBead()
       const coordinator = makeCoordinator()
       coordinator.claimBestBead.mockResolvedValue(bead)
-      coordinator.createWorktree.mockReturnValue({ worktreePath: '/tmp/wt', branch: 'agent/agent-0/sb-1' })
+      coordinator.createWorktree.mockReturnValue({ worktreePath: '/tmp/wt', branch: 'worker-sb-1' })
       const ctx = makeCtx({ coordinator })
 
       const next = await routing(ctx)
 
       expect(next).toBe('thinking')
       expect(ctx.currentBead).toBe(bead)
+      expect(ctx.agentId).toBe('worker-sb-1')
       expect(ctx.worktreePath).toBe('/tmp/wt')
-      expect(ctx.worktreeBranch).toBe('agent/agent-0/sb-1')
+      expect(ctx.worktreeBranch).toBe('worker-sb-1')
+      expect(coordinator.deregisterAgent).toHaveBeenCalledWith('worker-0')
+      expect(coordinator.registerAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'worker-sb-1' }))
     })
 
     it('retries routing when no bead available but open work exists', async () => {
@@ -343,7 +361,7 @@ describe('WorkerStateMachine', () => {
       await thinking(ctx)
 
       expect(ctx.currentBead).toBe(child)
-      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
+      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('worker-0', expect.objectContaining({
         currentBeadId: 'sb-2', currentBeadTitle: 'Child bead'
       }))
     })
@@ -487,9 +505,9 @@ describe('WorkerStateMachine', () => {
       expect(next).toBe('closing')
       expect(ctx.flags.mergeFailed).toBe(false)
       expect(ctx.flags.filesChanged).toEqual(['a.ts'])
-      expect(ctx.capabilities.commitWorktreeChanges).toHaveBeenCalledWith('/tmp/wt', 'agent-0', {})
+      expect(ctx.capabilities.commitWorktreeChanges).toHaveBeenCalledWith('/tmp/wt', 'worker-0', {})
       expect(coordinator.mergeWorktree).toHaveBeenCalledWith(
-        'agent-0', 'sb-1', 'agent/agent-0/sb-1', '/tmp/wt',
+        'worker-0', 'sb-1', 'agent/agent-0/sb-1', '/tmp/wt',
         expect.objectContaining({ claudeCmd: 'claude' })
       )
     })
@@ -553,7 +571,7 @@ describe('WorkerStateMachine', () => {
       const next = await closing(ctx)
 
       expect(next).toBe('cleanup')
-      expect(coordinator.completeBead).toHaveBeenCalledWith('agent-0', 'sb-1', ['a.ts'], false)
+      expect(coordinator.completeBead).toHaveBeenCalledWith('worker-0', 'sb-1', ['a.ts'], false)
     })
 
     it('retries on mergeFailed with attempt < maxRetries', async () => {
@@ -570,7 +588,7 @@ describe('WorkerStateMachine', () => {
 
       expect(next).toBe('cleanup')
       expect(caps.incrementBeadAttempt).toHaveBeenCalledWith('sb-1')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
       expect(coordinator.postActivity).toHaveBeenCalledWith(expect.objectContaining({
         type: 'failed', summary: expect.stringContaining('Merge failed')
       }))
@@ -590,7 +608,7 @@ describe('WorkerStateMachine', () => {
       const next = await closing(ctx)
 
       expect(next).toBe('cleanup')
-      expect(coordinator.failBead).toHaveBeenCalledWith('agent-0', 'sb-1', expect.stringContaining('merge_failed'))
+      expect(coordinator.failBead).toHaveBeenCalledWith('worker-0', 'sb-1', expect.stringContaining('merge_failed'))
     })
 
     it('retries on executeFailed with attempt < maxRetries', async () => {
@@ -608,7 +626,7 @@ describe('WorkerStateMachine', () => {
 
       expect(next).toBe('cleanup')
       expect(caps.incrementBeadAttempt).toHaveBeenCalledWith('sb-1')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
     })
 
     it('permanently fails on executeFailed with exhausted retries', async () => {
@@ -625,7 +643,7 @@ describe('WorkerStateMachine', () => {
       const next = await closing(ctx)
 
       expect(next).toBe('cleanup')
-      expect(coordinator.failBead).toHaveBeenCalledWith('agent-0', 'sb-1', expect.stringContaining('execute_failed'))
+      expect(coordinator.failBead).toHaveBeenCalledWith('worker-0', 'sb-1', expect.stringContaining('execute_failed'))
     })
 
     it('waits for quota reset on apiLimited', async () => {
@@ -641,7 +659,7 @@ describe('WorkerStateMachine', () => {
       const next = await closing(ctx)
 
       expect(next).toBe('cleanup')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
       expect(caps.waitForQuotaReset).toHaveBeenCalled()
     })
 
@@ -656,7 +674,7 @@ describe('WorkerStateMachine', () => {
       const next = await closing(ctx)
 
       expect(next).toBe('stopping')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
     })
   })
 
@@ -821,7 +839,7 @@ describe('WorkerStateMachine', () => {
       // Stopped → closing reopens bead and goes to stopping
       const afterClosing = await closing(ctx)
       expect(afterClosing).toBe('stopping')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
     })
 
     it('thinking goes to merging on apiLimited, then closing waits for quota and returns cleanup', async () => {
@@ -846,7 +864,7 @@ describe('WorkerStateMachine', () => {
       // apiLimited → reopen and wait for quota
       const afterClosing = await closing(ctx)
       expect(afterClosing).toBe('cleanup')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
       expect(caps.waitForQuotaReset).toHaveBeenCalled()
     })
   })
@@ -870,7 +888,7 @@ describe('WorkerStateMachine', () => {
 
       const afterClosing = await closing(ctx)
       expect(afterClosing).toBe('cleanup')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
+      expect(coordinator.reopenBead).toHaveBeenCalledWith('worker-0', 'sb-1')
       expect(caps.incrementBeadAttempt).toHaveBeenCalledWith('sb-1')
 
       const afterCleanup = await cleanup(ctx)
@@ -906,7 +924,7 @@ describe('WorkerStateMachine', () => {
     it('idle emits no phase event but updates coordinator', async () => {
       const ctx = makeCtx()
       await idle(ctx)
-      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({ phase: 'idle' }))
+      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('worker-0', expect.objectContaining({ phase: 'idle' }))
     })
 
     it('routing emits phase and heartbeat events', async () => {
@@ -997,7 +1015,7 @@ describe('WorkerStateMachine', () => {
       await closing(ctx)
 
       // mergeFailed branch runs, not executeFailed
-      expect(coordinator.failBead).toHaveBeenCalledWith('agent-0', 'sb-1', expect.stringContaining('merge_failed'))
+      expect(coordinator.failBead).toHaveBeenCalledWith('worker-0', 'sb-1', expect.stringContaining('merge_failed'))
     })
 
     it('executeFailed takes priority over apiLimited', async () => {
@@ -1013,7 +1031,7 @@ describe('WorkerStateMachine', () => {
 
       await closing(ctx)
 
-      expect(coordinator.failBead).toHaveBeenCalledWith('agent-0', 'sb-1', expect.stringContaining('execute_failed'))
+      expect(coordinator.failBead).toHaveBeenCalledWith('worker-0', 'sb-1', expect.stringContaining('execute_failed'))
     })
 
     it('apiLimited takes priority over stopped', async () => {

@@ -34,11 +34,11 @@ describe('BeadsPage type contracts', () => {
       files: ['src/app.ts'],
       priority: 1,
       tags: [],
-      claimedBy: 'agent-0',
+      claimedBy: 'worker-0',
       claimedAt: '2026-03-21T10:00:00Z',
       epicId: 'sb-0',
     }
-    expect(bead.claimedBy).toBe('agent-0')
+    expect(bead.claimedBy).toBe('worker-0')
     expect(bead.epicId).toBe('sb-0')
     expect(bead.completedAt).toBeUndefined()
   })
