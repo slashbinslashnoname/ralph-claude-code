@@ -2,6 +2,14 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## Prerequisites
+
+| Tool | Required | Purpose |
+|------|----------|---------|
+| `bd` | Yes | Issue tracking (beads-rust) |
+| `claude` | Yes | Claude Code CLI for agent execution |
+| `sm` | No (recommended) | Persistent agent memory via slashmem. Without it, agents cannot store or recall cross-session context. Install: `cargo install slashmem` |
+
 ## Quick Reference
 
 ```bash
