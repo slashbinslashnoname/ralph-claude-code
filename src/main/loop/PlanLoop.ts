@@ -308,18 +308,6 @@ If \`cm\` is not installed, skip silently and proceed.`
     sectionMd: string,
     userRequest: string,
   ): string {
-    // Fetch existing open beads so Claude can reference them
-    let existingBeads = ''
-    try {
-      const open = this.coordinator.bd.listAll()
-        .filter(b => b.status === 'ready' || b.status === 'claimed' || b.status === 'pending')
-      if (open.length > 0) {
-        existingBeads = open.map(b =>
-          `- [${b.id}] P${b.priority} ${b.type} ${b.status} "${b.title}"${b.deps.length > 0 ? ` deps:[${b.deps.join(',')}]` : ''}`
-        ).join('\n')
-      }
-    } catch { /* ignore */ }
-
     return `You are a task encoder. Convert the plan section below into beads by running \`bd\` CLI commands directly.
 
 ## bd CLI reference
@@ -341,22 +329,23 @@ Add a dependency (B blocks A — A cannot start until B is done):
 bd dep add <blocked-id> <blocker-id>
 \`\`\`
 
+List existing beads:
+\`\`\`
+bd list --json
+\`\`\`
+
 ## Workflow
-1. Create epics first — read their IDs from the \`--json\` output
-2. Create tasks/subtasks with \`--parent <epic-id>\`
-3. Wire dependencies with \`bd dep add\`
+1. Run \`bd list --json\` first to see existing beads — do NOT recreate beads that already exist
+2. Create epics first — read their IDs from the \`--json\` output
+3. Create tasks/subtasks with \`--parent <epic-id>\`
+4. Wire dependencies with \`bd dep add\` — reference existing bead IDs where appropriate
 
 ## Original request
 ${userRequest}
 
 ## Plan section to encode
 ${sectionMd}
-${existingBeads ? `
-## Existing open beads (already in the system)
-${existingBeads}
 
-Do NOT recreate beads that already exist — reference their ID in deps instead.
-` : ''}
 ## Rules
 - Focus on the most important work in this section. Merge small, related items into single beads.
 - Create epics before their children so parent IDs are available.

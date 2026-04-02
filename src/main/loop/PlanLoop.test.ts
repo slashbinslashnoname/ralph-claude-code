@@ -188,9 +188,8 @@ describe('PlanLoop', () => {
       let callCount = 0
       coord.bd.listAll.mockImplementation(() => {
         callCount++
-        if (callCount <= 1) return []
-        if (callCount === 2) return []
-        return [{ id: '1' }, { id: '2' }, { id: '3' }]
+        if (callCount === 1) return [] // before count
+        return [{ id: '1' }, { id: '2' }, { id: '3' }] // after count
       })
       const loop = new PlanLoop(makePaths(), makeConfig(), coord)
       let doneCount: number | undefined
@@ -245,17 +244,12 @@ describe('PlanLoop', () => {
       await runPromise
     })
 
-    it('encode prompt includes existing open beads', async () => {
-      const coord = makeCoordinator()
-      coord.bd.listAll.mockReturnValue([
-        { id: 'existing-1', priority: 1, type: 'task', status: 'ready', title: 'Existing task', deps: [] }
-      ])
-      const loop = new PlanLoop(makePaths(), makeConfig(), coord)
+    it('encode prompt tells Claude to check existing beads via bd list', async () => {
+      const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const runPromise = loop.run('test')
       await runThroughApproval(loop)
       const encodeArgs = (cp.spawn as any).mock.calls[1][1] as string[]
-      expect(encodeArgs[1]).toContain('existing-1')
-      expect(encodeArgs[1]).toContain('Existing task')
+      expect(encodeArgs[1]).toContain('bd list --json')
       mockProcesses[1].simulateStdout('done')
       mockProcesses[1].simulateExit(0)
       await runPromise

@@ -17,7 +17,8 @@ const BD_SYSTEM_PROMPT = `
 - Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator manages bead lifecycle.
 - You CAN and SHOULD use \`bd\` read commands to gain context:
   - \`bd show <id>\` — view bead details, description, dependencies
-  - \`bd list\` — see all open beads and their status
+  - \`bd list --json\` — see all open beads and their status
+  - \`bd ready --json\` — find unblocked beads ready for work
   - \`bd comments <id>\` — read comments and discussion on a bead
   - \`bd children <id>\` — list child beads of a parent
   - \`bd search <query>\` — find related beads by text
@@ -702,64 +703,9 @@ export class WorkerLoop extends EventEmitter {
     return raw
   }
 
-  /** Build context about the parent epic and dependency beads */
-  private _buildParentContext(bead: Bead): string {
-    const sections: string[] = []
-
-    // Parent epic context
-    if (bead.epicId) {
-      try {
-        const parent = this.coordinator.bd.show(bead.epicId)
-        if (parent) {
-          sections.push(`## Parent epic: [${parent.id}] ${parent.title}`)
-          if (parent.description) sections.push(parent.description)
-        }
-      } catch { /* bd.show failed — skip parent context */ }
-    }
-
-    // Dependency bead context
-    if (bead.deps.length > 0) {
-      const depLines: string[] = ['## Dependencies']
-      for (const depId of bead.deps) {
-        try {
-          const dep = this.coordinator.bd.show(depId)
-          if (dep) {
-            const statusIcon = dep.status === 'done' ? '(done)' : `(${dep.status})`
-            depLines.push(`- [${dep.id}] ${dep.title} ${statusIcon}`)
-          }
-        } catch { /* skip unresolvable dep */ }
-      }
-      if (depLines.length > 1) sections.push(depLines.join('\n'))
-    }
-
-    return sections.join('\n\n')
-  }
-
-  /** Build context from the shared knowledge log, filtering out self-entries for the current bead */
-  private _buildKnowledgeContext(currentBeadId?: string): string {
-    const allEntries = this.coordinator.readKnowledge(50)
-    // Filter out entries from this agent for the current bead (keep entries from other beads or other agents)
-    const filtered = allEntries.filter(
-      e => !(e.agentId === this.agentId && e.beadId === currentBeadId)
-    )
-    // Cap at 20 entries (most recent)
-    const entries = filtered.slice(-20)
-    if (entries.length === 0) return ''
-
-    const lines: string[] = ['## Collective Knowledge']
-    for (const entry of entries) {
-      const conf = entry.confidence === 'high' ? '' : ` [${entry.confidence}]`
-      lines.push(`- **${entry.category}**${conf}: ${entry.summary}`)
-    }
-    return lines.join('\n')
-  }
-
-  /** Build the execute prompt for a bead with CASS memory context */
   private _buildExecutePrompt(bead: Bead): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
-    const parentContext = this._buildParentContext(bead)
-    const knowledgeContext = this._buildKnowledgeContext(bead.id)
 
     let currentBranch = ''
     try {
@@ -774,8 +720,10 @@ export class WorkerLoop extends EventEmitter {
       `\nBranch: \`${currentBranch}\`. Base all work on files currently on disk. Do not use git history.`,
       bead.description ? `\n### Description\n${bead.description}` : '',
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
-      parentContext ? `\n${parentContext}` : '',
-      knowledgeContext ? `\n${knowledgeContext}` : '',
+      `\n### Before starting`,
+      `1. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
+      bead.epicId ? `2. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
+      bead.deps.length > 0 ? `${bead.epicId ? '3' : '2'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
       `\n---\n## Task`,
