@@ -137,6 +137,9 @@ contextBridge.exposeInMainWorld('slashbot', {
     stats: (projectPath: string) => ipcRenderer.invoke('memory:stats', projectPath),
     top: (projectPath: string, count?: number) =>
       ipcRenderer.invoke('memory:top', projectPath, count ?? 10),
+    smCheck: () => ipcRenderer.invoke('memory:sm-check'),
+    smContext: (projectPath: string, query: string) =>
+      ipcRenderer.invoke('memory:sm-context', projectPath, query),
   },
 
   // ── Config (structured settings) ────────────────────────────────────

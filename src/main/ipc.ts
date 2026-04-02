@@ -1046,6 +1046,33 @@ export function registerIpc(
     }
   })
 
+  // ── Slashmem (sm CLI) ────────────────────────────────────────────────
+
+  ipcMain.handle('memory:sm-check', async () => {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        cp.exec('which sm', { env: buildEnv(), timeout: 3000 }, (err) => err ? reject(err) : resolve())
+      })
+      return { installed: true }
+    } catch {
+      return { installed: false }
+    }
+  })
+
+  ipcMain.handle('memory:sm-context', async (_e, projectPath: string, query: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync(`sm context ${JSON.stringify(query)} --json`, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 30_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // ── Telegram ─────────────────────────────────────────────────────────
 
   function persistTelegramToRc(

@@ -250,6 +250,24 @@ export interface MemorySimilarResult {
 }
 
 // ---------------------------------------------------------------------------
+// Slashmem (sm CLI) types
+// ---------------------------------------------------------------------------
+
+export interface SmRule {
+  id: string
+  text: string
+  category?: string
+  confidence?: number
+}
+
+export interface SmContextResult {
+  relevant_rules: SmRule[]
+  anti_patterns: SmRule[]
+  history_snippets: SmRule[]
+  rule_ids: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Config types (structured .slashbotrc)
 // ---------------------------------------------------------------------------
 

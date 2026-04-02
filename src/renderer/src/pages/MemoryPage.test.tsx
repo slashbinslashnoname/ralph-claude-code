@@ -41,6 +41,22 @@ const mocks = vi.hoisted(() => {
   })
   const mockStats = vi.fn().mockResolvedValue({ ok: true, data: {} })
   const mockTop = vi.fn().mockResolvedValue({ ok: true, data: {} })
+  const mockSmCheck = vi.fn().mockResolvedValue({ installed: true })
+  const mockSmContext = vi.fn().mockResolvedValue({
+    ok: true,
+    data: {
+      relevant_rules: [
+        { id: 'r1', text: 'Always run tests before committing', category: 'workflow', confidence: 0.9 },
+      ],
+      anti_patterns: [
+        { id: 'a1', text: 'Do not commit directly to main', category: 'git', confidence: 0.85 },
+      ],
+      history_snippets: [
+        { id: 'h1', text: 'Fixed flaky test by adding retry logic' },
+      ],
+      rule_ids: ['r1', 'a1'],
+    },
+  })
 
   if (typeof (globalThis as any).window === 'undefined') {
     ;(globalThis as any).window = {}
@@ -53,10 +69,12 @@ const mocks = vi.hoisted(() => {
       similar: mockSimilar,
       stats: mockStats,
       top: mockTop,
+      smCheck: mockSmCheck,
+      smContext: mockSmContext,
     },
   }
 
-  return { mockCheck, mockContext, mockSimilar, mockStats, mockTop }
+  return { mockCheck, mockContext, mockSimilar, mockStats, mockTop, mockSmCheck, mockSmContext }
 })
 
 import MemoryPage from './MemoryPage'
@@ -64,6 +82,7 @@ import MemoryPage from './MemoryPage'
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.mockCheck.mockResolvedValue({ installed: true })
+  mocks.mockSmCheck.mockResolvedValue({ installed: true })
 })
 
 describe('MemoryPage', () => {
@@ -98,16 +117,41 @@ describe('MemoryPage — interactive', () => {
     expect(container.innerHTML).toContain('>Search</button>')
     expect(container.innerHTML).toContain('>Context</button>')
     expect(container.innerHTML).toContain('>Similar</button>')
+    expect(container.innerHTML).toContain('>Slashmem</button>')
   })
 
-  test('shows not-installed state when cm CLI is missing', async () => {
+  test('shows not-installed state when neither CLI is available', async () => {
     mocks.mockCheck.mockResolvedValue({ installed: false })
+    mocks.mockSmCheck.mockResolvedValue({ installed: false })
     await act(async () => {
       root.render(<MemoryPage projectPath="/test" />)
     })
     await act(async () => {})
-    expect(container.innerHTML).toContain('not installed')
-    expect(container.innerHTML).toContain('cass-memory')
+    expect(container.innerHTML).toContain('No memory CLI is installed')
+  })
+
+  test('shows only Slashmem tab when cm is not installed but sm is', async () => {
+    mocks.mockCheck.mockResolvedValue({ installed: false })
+    mocks.mockSmCheck.mockResolvedValue({ installed: true })
+    await act(async () => {
+      root.render(<MemoryPage projectPath="/test" />)
+    })
+    await act(async () => {})
+    expect(container.innerHTML).not.toContain('>Context</button>')
+    expect(container.innerHTML).not.toContain('>Similar</button>')
+    expect(container.innerHTML).toContain('>Slashmem</button>')
+  })
+
+  test('shows only cm tabs when sm is not installed', async () => {
+    mocks.mockCheck.mockResolvedValue({ installed: true })
+    mocks.mockSmCheck.mockResolvedValue({ installed: false })
+    await act(async () => {
+      root.render(<MemoryPage projectPath="/test" />)
+    })
+    await act(async () => {})
+    expect(container.innerHTML).toContain('>Context</button>')
+    expect(container.innerHTML).toContain('>Similar</button>')
+    expect(container.innerHTML).not.toContain('>Slashmem</button>')
   })
 
   test('context search displays relevant bullets and anti-patterns', async () => {
@@ -172,6 +216,73 @@ describe('MemoryPage — interactive', () => {
     expect(container.innerHTML).toContain('Use semantic versioning')
   })
 
+  test('slashmem search displays rules, anti-patterns, and snippets', async () => {
+    await act(async () => {
+      root.render(<MemoryPage projectPath="/test" />)
+    })
+    await act(async () => {})
+
+    // Switch to Slashmem mode
+    const smBtn = Array.from(container.querySelectorAll('.memory-mode-tabs button'))
+      .find(b => b.textContent === 'Slashmem') as HTMLButtonElement
+    await act(async () => {
+      smBtn.click()
+    })
+
+    // Type query
+    const input = container.querySelector('input') as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(input, 'testing workflow')
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Click search
+    const searchBtn = container.querySelector('.btn-primary') as HTMLButtonElement
+    await act(async () => {
+      searchBtn.click()
+    })
+    await act(async () => {})
+
+    expect(mocks.mockSmContext).toHaveBeenCalledWith('/test', 'testing workflow')
+    expect(container.innerHTML).toContain('Relevant Rules (1)')
+    expect(container.innerHTML).toContain('Always run tests before committing')
+    expect(container.innerHTML).toContain('Anti-Patterns (1)')
+    expect(container.innerHTML).toContain('Do not commit directly to main')
+    expect(container.innerHTML).toContain('History Snippets (1)')
+    expect(container.innerHTML).toContain('Fixed flaky test by adding retry logic')
+  })
+
+  test('shows error when slashmem search fails', async () => {
+    mocks.mockSmContext.mockResolvedValue({ ok: false, error: 'sm crashed' })
+    await act(async () => {
+      root.render(<MemoryPage projectPath="/test" />)
+    })
+    await act(async () => {})
+
+    // Switch to Slashmem mode
+    const smBtn = Array.from(container.querySelectorAll('.memory-mode-tabs button'))
+      .find(b => b.textContent === 'Slashmem') as HTMLButtonElement
+    await act(async () => {
+      smBtn.click()
+    })
+
+    const input = container.querySelector('input') as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(input, 'fail query')
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const searchBtn = container.querySelector('.btn-primary') as HTMLButtonElement
+    await act(async () => {
+      searchBtn.click()
+    })
+    await act(async () => {})
+
+    expect(container.innerHTML).toContain('sm crashed')
+    expect(container.querySelector('.memory-error')).not.toBeNull()
+  })
+
   test('shows error when context search fails', async () => {
     mocks.mockContext.mockResolvedValue({ ok: false, error: 'cm crashed' })
     await act(async () => {
@@ -215,6 +326,42 @@ describe('MemoryPage — interactive', () => {
       root.render(<MemoryPage projectPath="/test" />)
     })
     await act(async () => {})
+
+    const input = container.querySelector('input') as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(input, 'nothing')
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const searchBtn = container.querySelector('.btn-primary') as HTMLButtonElement
+    await act(async () => {
+      searchBtn.click()
+    })
+    await act(async () => {})
+
+    expect(container.innerHTML).toContain('No results found')
+  })
+
+  test('shows empty state when slashmem returns no results', async () => {
+    mocks.mockSmContext.mockResolvedValue({
+      ok: true,
+      data: {
+        relevant_rules: [],
+        anti_patterns: [],
+        history_snippets: [],
+        rule_ids: [],
+      },
+    })
+    await act(async () => {
+      root.render(<MemoryPage projectPath="/test" />)
+    })
+    await act(async () => {})
+
+    const smBtn = Array.from(container.querySelectorAll('.memory-mode-tabs button'))
+      .find(b => b.textContent === 'Slashmem') as HTMLButtonElement
+    await act(async () => {
+      smBtn.click()
+    })
 
     const input = container.querySelector('input') as HTMLInputElement
     const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
@@ -345,5 +492,16 @@ describe('memory namespace (preload bridge)', () => {
   test('memory.top sends project path and count', async () => {
     await window.slashbot.memory.top('/my/project', 5)
     expect(mocks.mockTop).toHaveBeenCalledWith('/my/project', 5)
+  })
+
+  test('memory.smCheck returns installed status', async () => {
+    const result = await window.slashbot.memory.smCheck()
+    expect(result).toEqual({ installed: true })
+    expect(mocks.mockSmCheck).toHaveBeenCalledTimes(1)
+  })
+
+  test('memory.smContext sends project path and query', async () => {
+    await window.slashbot.memory.smContext('/my/project', 'workflow rules')
+    expect(mocks.mockSmContext).toHaveBeenCalledWith('/my/project', 'workflow rules')
   })
 })
