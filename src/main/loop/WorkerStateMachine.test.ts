@@ -7,7 +7,6 @@ import {
   WorkerCapabilities,
   idle,
   routing,
-  thinking,
   executing,
   reviewing,
   merging,
@@ -83,13 +82,9 @@ function makeFlags(overrides: Partial<WorkerFlags> = {}): WorkerFlags {
 function makeCapabilities(overrides: Partial<WorkerCapabilities> = {}): WorkerCapabilities {
   return {
     runClaude: vi.fn().mockResolvedValue('output'),
-    buildThinkingPrompt: vi.fn().mockReturnValue('think prompt'),
     buildExecutePrompt: vi.fn().mockReturnValue('exec prompt'),
     buildReviewPrompt: vi.fn().mockReturnValue('review prompt'),
-    extractThinkingSummary: vi.fn().mockReturnValue('summary'),
-    extractKnowledge: vi.fn(),
-    parseSplitDecision: vi.fn().mockReturnValue(null),
-    splitBead: vi.fn().mockResolvedValue(null),
+    getCassContext: vi.fn().mockResolvedValue(''),
     detectApiLimit: vi.fn().mockReturnValue(false),
     stripAnsi: vi.fn().mockImplementation((s: string) => s),
     extractText: vi.fn().mockImplementation((s: string) => s),
@@ -163,7 +158,6 @@ function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
     currentBead: null,
     worktreePath: null,
     worktreeBranch: null,
-    thinkingOutput: '',
     executeOutput: '',
     flags: makeFlags(),
     capabilities: makeCapabilities(),
@@ -176,8 +170,8 @@ function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
 
 describe('WorkerStateMachine', () => {
   describe('STATE_TABLE', () => {
-    it('contains all 9 state functions', () => {
-      const expected: StateId[] = ['idle', 'routing', 'thinking', 'executing', 'reviewing', 'merging', 'closing', 'cleanup', 'stopping']
+    it('contains all 8 state functions', () => {
+      const expected: StateId[] = ['idle', 'routing', 'executing', 'reviewing', 'merging', 'closing', 'cleanup', 'stopping']
       expect(Object.keys(STATE_TABLE).sort()).toEqual(expected.sort())
       for (const key of expected) {
         expect(typeof STATE_TABLE[key]).toBe('function')
@@ -203,7 +197,6 @@ describe('WorkerStateMachine', () => {
         currentBead: makeBead(),
         worktreePath: '/tmp/wt',
         worktreeBranch: 'agent/test',
-        thinkingOutput: 'some output',
         flags: makeFlags({ executeFailed: true, filesChanged: ['x.ts'] })
       })
 
@@ -213,7 +206,6 @@ describe('WorkerStateMachine', () => {
       expect(ctx.currentBead).toBeNull()
       expect(ctx.worktreePath).toBeNull()
       expect(ctx.worktreeBranch).toBeNull()
-      expect(ctx.thinkingOutput).toBe('')
       expect(ctx.flags.executeFailed).toBe(false)
       expect(ctx.flags.filesChanged).toEqual([])
       expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
@@ -235,7 +227,7 @@ describe('WorkerStateMachine', () => {
   })
 
   describe('routing', () => {
-    it('transitions to thinking when a bead is claimed', async () => {
+    it('transitions to executing when a bead is claimed', async () => {
       const bead = makeBead()
       const coordinator = makeCoordinator()
       coordinator.claimBestBead.mockResolvedValue(bead)
@@ -244,7 +236,7 @@ describe('WorkerStateMachine', () => {
 
       const next = await routing(ctx)
 
-      expect(next).toBe('thinking')
+      expect(next).toBe('executing')
       expect(ctx.currentBead).toBe(bead)
       expect(ctx.worktreePath).toBe('/tmp/wt')
       expect(ctx.worktreeBranch).toBe('agent/agent-0/sb-1')
@@ -288,97 +280,9 @@ describe('WorkerStateMachine', () => {
 
       const next = await routing(ctx)
 
-      expect(next).toBe('thinking')
+      expect(next).toBe('executing')
       expect(ctx.worktreePath).toBeNull()
       expect(ctx.worktreeBranch).toBeNull()
-    })
-  })
-
-  describe('thinking', () => {
-    it('runs thinking and transitions to executing', async () => {
-      const bead = makeBead()
-      const ctx = makeCtx({ currentBead: bead })
-
-      const next = await thinking(ctx)
-
-      expect(next).toBe('executing')
-      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('think prompt', 'think', ctx.paths.projectRoot, 'sonnet')
-      expect(ctx.thinkingOutput).toBe('output')
-      expect(ctx.coordinator.postActivity).toHaveBeenCalledWith(expect.objectContaining({ type: 'thinking' }))
-    })
-
-    it('transitions to merging on API limit during thinking', async () => {
-      const caps = makeCapabilities({
-        detectApiLimit: vi.fn().mockReturnValue(true)
-      })
-      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
-
-      const next = await thinking(ctx)
-
-      expect(next).toBe('merging')
-      expect(ctx.flags.apiLimited).toBe(true)
-    })
-
-    it('continues to executing even if thinking fails', async () => {
-      const caps = makeCapabilities({
-        runClaude: vi.fn().mockRejectedValue(new Error('think failed'))
-      })
-      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
-
-      const next = await thinking(ctx)
-
-      expect(next).toBe('executing')
-    })
-
-    it('handles split decision — swaps to first child', async () => {
-      const child = makeBead({ id: 'sb-2', title: 'Child bead' })
-      const caps = makeCapabilities({
-        parseSplitDecision: vi.fn().mockReturnValue({
-          beadId: 'sb-1', reason: 'too large', children: [{ title: 'c1' }, { title: 'c2' }]
-        }),
-        splitBead: vi.fn().mockResolvedValue(child)
-      })
-      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
-
-      await thinking(ctx)
-
-      expect(ctx.currentBead).toBe(child)
-      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith('agent-0', expect.objectContaining({
-        currentBeadId: 'sb-2', currentBeadTitle: 'Child bead'
-      }))
-    })
-
-    it('keeps original bead when split decision is detected but splitBead returns null', async () => {
-      const original = makeBead()
-      const caps = makeCapabilities({
-        parseSplitDecision: vi.fn().mockReturnValue({
-          beadId: 'sb-1', reason: 'too large', children: [{ title: 'c1' }]
-        }),
-        splitBead: vi.fn().mockResolvedValue(null)
-      })
-      const ctx = makeCtx({ currentBead: original, capabilities: caps })
-
-      await thinking(ctx)
-
-      expect(ctx.currentBead).toBe(original)
-    })
-
-    it('transitions to merging when stopped', async () => {
-      const ctx = makeCtx({
-        currentBead: makeBead(),
-        flags: makeFlags({ stopped: true })
-      })
-
-      expect(await thinking(ctx)).toBe('merging')
-    })
-
-    it('transitions to merging when paused then stopped', async () => {
-      const caps = makeCapabilities({
-        waitIfPaused: vi.fn().mockResolvedValue(true)
-      })
-      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
-
-      expect(await thinking(ctx)).toBe('merging')
     })
   })
 
@@ -675,7 +579,7 @@ describe('WorkerStateMachine', () => {
   })
 
   describe('runStateMachine', () => {
-    it('runs through a complete bead lifecycle: idle → routing → thinking → executing → reviewing → merging → closing → cleanup → idle → routing (stop)', async () => {
+    it('runs through a complete bead lifecycle: idle → routing → executing → reviewing → merging → closing → cleanup → idle → routing (stop)', async () => {
       const bead = makeBead()
       const coordinator = makeCoordinator()
 
@@ -711,12 +615,9 @@ describe('WorkerStateMachine', () => {
 
   describe('state transition correctness', () => {
     it('merging is always reached before closing', async () => {
-      // Verify that all paths from thinking/executing/reviewing go through merging
-      // Test: executing fails → merging → closing
+      // Verify that executing fails → merging → closing
       const caps = makeCapabilities({
-        runClaude: vi.fn()
-          .mockResolvedValueOnce('think output') // thinking
-          .mockRejectedValueOnce(new Error('fail')) // executing
+        runClaude: vi.fn().mockRejectedValueOnce(new Error('fail'))
       })
       const coordinator = makeCoordinator()
       const ctx = makeCtx({
@@ -727,8 +628,6 @@ describe('WorkerStateMachine', () => {
         coordinator
       })
 
-      // Run thinking → executing → merging → closing sequence
-      await thinking(ctx)
       const afterExec = await executing(ctx)
       expect(afterExec).toBe('merging')
       expect(ctx.flags.executeFailed).toBe(true)
@@ -799,55 +698,6 @@ describe('WorkerStateMachine', () => {
 
       const afterIdle = await idle(ctx)
       expect(afterIdle).toBe('stopping')
-    })
-  })
-
-  describe('thinking → merging (stopped / apiLimited) → closing → cleanup → idle', () => {
-    it('thinking goes to merging when stopped, then flows through closing/cleanup back to idle', async () => {
-      const coordinator = makeCoordinator()
-      const ctx = makeCtx({
-        currentBead: makeBead(),
-        flags: makeFlags({ stopped: true }),
-        coordinator
-      })
-
-      const afterThinking = await thinking(ctx)
-      expect(afterThinking).toBe('merging')
-
-      // No worktree → merging skips to closing
-      const afterMerging = await merging(ctx)
-      expect(afterMerging).toBe('closing')
-
-      // Stopped → closing reopens bead and goes to stopping
-      const afterClosing = await closing(ctx)
-      expect(afterClosing).toBe('stopping')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
-    })
-
-    it('thinking goes to merging on apiLimited, then closing waits for quota and returns cleanup', async () => {
-      const coordinator = makeCoordinator()
-      const caps = makeCapabilities({
-        detectApiLimit: vi.fn().mockReturnValue(true)
-      })
-      const ctx = makeCtx({
-        currentBead: makeBead(),
-        coordinator,
-        capabilities: caps
-      })
-
-      const afterThinking = await thinking(ctx)
-      expect(afterThinking).toBe('merging')
-      expect(ctx.flags.apiLimited).toBe(true)
-
-      // No worktree → skip merge
-      const afterMerging = await merging(ctx)
-      expect(afterMerging).toBe('closing')
-
-      // apiLimited → reopen and wait for quota
-      const afterClosing = await closing(ctx)
-      expect(afterClosing).toBe('cleanup')
-      expect(coordinator.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-1')
-      expect(caps.waitForQuotaReset).toHaveBeenCalled()
     })
   })
 
@@ -965,20 +815,6 @@ describe('WorkerStateMachine', () => {
       await merging(ctx)
 
       expect(outputs.some(o => o.includes('Merge FAILED'))).toBe(true)
-    })
-  })
-
-  describe('thinking extractKnowledge error handling', () => {
-    it('continues even when extractKnowledge throws', async () => {
-      const caps = makeCapabilities({
-        extractKnowledge: vi.fn().mockImplementation(() => { throw new Error('knowledge fail') })
-      })
-      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
-
-      const next = await thinking(ctx)
-
-      expect(next).toBe('executing')
-      expect(ctx.thinkingOutput).toBe('output')
     })
   })
 
@@ -1130,20 +966,19 @@ describe('WorkerStateMachine', () => {
           capabilities: caps,
           circuitBreaker: cb,
           executeOutput: '{"retry_after":30}',
-          thinkingOutput: 'thinking output without retry info',
           flags: makeFlags({ apiLimited: true })
         })
 
         await closing(ctx)
 
-        // extractRetryAfter should be called with executeOutput (not thinkingOutput)
+        // extractRetryAfter should be called with executeOutput
         expect(caps.extractRetryAfter).toHaveBeenCalledWith('{"retry_after":30}')
         expect(cb.recordRateLimit).toHaveBeenCalledWith(30000)
         expect(cb.save).toHaveBeenCalled()
         expect(caps.waitForQuotaReset).toHaveBeenCalledWith(cb)
       })
 
-      it('falls back to thinkingOutput when executeOutput is empty on apiLimited', async () => {
+      it('uses empty string when executeOutput is empty on apiLimited', async () => {
         const cb = makeMockCB()
         const caps = makeCapabilities()
         ;(caps.extractRetryAfter as any).mockReturnValue(undefined)
@@ -1154,13 +989,12 @@ describe('WorkerStateMachine', () => {
           capabilities: caps,
           circuitBreaker: cb,
           executeOutput: '',
-          thinkingOutput: 'thinking output with retry info',
           flags: makeFlags({ apiLimited: true })
         })
 
         await closing(ctx)
 
-        expect(caps.extractRetryAfter).toHaveBeenCalledWith('thinking output with retry info')
+        expect(caps.extractRetryAfter).toHaveBeenCalledWith('')
         expect(cb.recordRateLimit).toHaveBeenCalledWith(undefined)
       })
 

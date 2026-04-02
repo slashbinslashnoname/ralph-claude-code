@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as cp from 'child_process'
-import { RalphConfig, Bead, SplitDecision } from '../types'
+import { RalphConfig, Bead } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { analyze, detectApiLimit, extractResultFromJsonStream } from './ResponseAnalyzer'
 import { CircuitBreaker } from './CircuitBreaker'
@@ -10,6 +10,7 @@ import { classifyError } from './ErrorClassifier'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 import { ProjectPaths } from './ProjectStore'
+import { CassClient } from './CassClient'
 
 /** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
@@ -65,6 +66,8 @@ export class WorkerLoop extends EventEmitter {
   private _stateMachineCtx: WorkerContext | null = null
   /** Current bead ID being worked on. */
   private _currentBeadId: string | null = null
+  /** CASS memory client for cm CLI context retrieval. */
+  private cass = new CassClient()
 
   constructor(
     private agentId: string,
@@ -92,7 +95,7 @@ export class WorkerLoop extends EventEmitter {
       id: this.agentId, index: this.agentIndex, phase: 'idle',
       currentBeadId: null, currentBeadTitle: null, loopCount: 0,
       lastActivity: new Date().toISOString(),
-      worktreeBranch: null, thinkingSummary: null
+      worktreeBranch: null
     })
     this.coordinator.postActivity({ agentId: this.agentId, type: 'started', summary: `Worker ${this.agentId} online` })
     if (process.env.SLASHBOT_STATE_MACHINE === '1') {
@@ -166,13 +169,9 @@ export class WorkerLoop extends EventEmitter {
   private _buildCapabilities(): WorkerCapabilities {
     return {
       runClaude: (prompt, label, cwd, model) => this._runClaude(prompt, label, cwd, model),
-      buildThinkingPrompt: (bead) => this._buildThinkingPrompt(bead),
-      buildExecutePrompt: (bead, thinkingOutput) => this._buildExecutePrompt(bead, thinkingOutput),
+      buildExecutePrompt: (bead, cassContext) => this._buildExecutePrompt(bead, cassContext),
       buildReviewPrompt: (bead) => this._buildReviewPrompt(bead),
-      extractThinkingSummary: (raw) => this._extractThinkingSummary(raw),
-      extractKnowledge: (raw, beadId) => this._extractKnowledge(raw, beadId),
-      parseSplitDecision: (thinkingOutput, bead) => this._parseSplitDecision(thinkingOutput, bead),
-      splitBead: (bead, decision) => this._splitBead(bead, decision),
+      getCassContext: (task) => this._getCassContext(task),
       detectApiLimit: (output) => detectApiLimit(output),
       stripAnsi: (s) => stripAnsi(s),
       extractText: (raw) => this._extractText(raw),
@@ -361,54 +360,16 @@ export class WorkerLoop extends EventEmitter {
       let executeOutput = ''
 
       try {
-        // ── Phase 1: Think — analyze before acting ──────────────────
-        this._setPhase('thinking', bead.id, bead.title)
-        this._log('INFO', `[${this.agentId}] Thinking: analyzing bead before implementing…`)
-        let thinkingOutput = ''
-        try {
-          thinkingOutput = await this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir, this.config.claudeModelThink)
-          const thinkingText = this._extractText(thinkingOutput)
-          const strippedThinking = stripAnsi(thinkingText)
-          const summary = this._extractThinkingSummary(strippedThinking)
-          this.coordinator.updateAgent(this.agentId, { thinkingSummary: summary })
-          // Extract and share knowledge discoveries
-          try { this._extractKnowledge(strippedThinking, bead.id) } catch { /* best-effort */ }
-          this.coordinator.postActivity({
-            agentId: this.agentId, type: 'thinking', beadId: bead.id,
-            beadTitle: bead.title, summary
-          })
-          this._log('INFO', `[${this.agentId}] Thinking complete: ${summary.slice(0, 120)}`)
-          if (detectApiLimit(stripAnsi(thinkingOutput))) {
-            this._log('WARN', `[${this.agentId}] API limit detected during thinking`)
-            apiLimited = true
-            // Fall through to finally → merge, then Phase 5 handles rate limit
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          this._log('WARN', `[${this.agentId}] Thinking phase failed (continuing): ${msg}`)
-        }
-
-        // ── Auto-split check: split large beads before executing ──────
-        if (thinkingOutput && !apiLimited && !this.stopped) {
-          const splitDecision = this._parseSplitDecision(stripAnsi(this._extractText(thinkingOutput)), bead)
-          if (splitDecision) {
-            this._log('INFO', `[${this.agentId}] Split decision detected for [${bead.id}] — creating ${splitDecision.children.length} children`)
-            const firstChild = await this._splitBead(bead, splitDecision)
-            if (firstChild) {
-              this._log('INFO', `[${this.agentId}] Split complete — swapping to first child [${firstChild.id}] ${firstChild.title}`)
-              bead = firstChild
-              this.coordinator.updateAgent(this.agentId, { currentBeadId: bead.id, currentBeadTitle: bead.title })
-            }
-          }
-        }
-
-        // Skip remaining phases if stopped, paused, or rate-limited
-        if (this.stopped || apiLimited) {
+        // Skip execute if stopped or paused
+        if (this.stopped) {
           // Fall through to finally → merge, then Phase 5 handles it
         } else if (await this._waitIfPaused()) {
           // Paused and then stopped — fall through
         } else {
-        // ── Phase 2: Execute — implement the bead ───────────────────
+        // ── Fetch CASS context from cm CLI ──────────────────────────
+        const cassContext = await this._getCassContext(`${bead.title}\n${bead.description ?? ''}`)
+
+        // ── Phase 1: Execute — implement the bead ───────────────────
         this._setPhase('executing', bead.id, bead.title)
         this._log('INFO', `[${this.agentId}] Executing bead…`)
         this.coordinator.postActivity({
@@ -417,7 +378,7 @@ export class WorkerLoop extends EventEmitter {
         })
         executeOutput = ''
         try {
-          executeOutput = await this._runClaude(this._buildExecutePrompt(bead, thinkingOutput), 'execute', workDir, this.config.claudeModelExecute)
+          executeOutput = await this._runClaude(this._buildExecutePrompt(bead, cassContext), 'execute', workDir, this.config.claudeModelExecute)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('ERROR', `[${this.agentId}] Execute failed: ${msg}`)
@@ -435,7 +396,7 @@ export class WorkerLoop extends EventEmitter {
           } else {
             // Pause gate: wait between executing and reviewing
             if (!(await this._waitIfPaused())) {
-              // ── Phase 3: Review — fresh-eyes pass ───────────────────────
+              // ── Phase 2: Review — fresh-eyes pass ───────────────────────
               this._setPhase('reviewing', bead.id, bead.title)
               this._log('INFO', `[${this.agentId}] Review: fresh-eyes pass…`)
               try {
@@ -446,7 +407,7 @@ export class WorkerLoop extends EventEmitter {
             }
           }
         }
-        } // close else block from Phase 1 guard
+        } // close else block from stopped/paused guard
       } finally {
         this._currentBeadId = null
         // ── Phase 4: Merge worktree back (skip if stopped — no partial work) ──
@@ -526,14 +487,14 @@ export class WorkerLoop extends EventEmitter {
             beadTitle: bead.title,
             summary: `Merge failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying after backoff`
           })
-          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
           await this._sleep(backoffMs)
           continue
         }
 
         this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] merge permanently failed after ${maxRetries + 1} attempts`)
         await this.coordinator.failBead(this.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
-        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
         await this._sleep(3000)
         continue
       }
@@ -552,7 +513,7 @@ export class WorkerLoop extends EventEmitter {
             beadTitle: bead.title,
             summary: `Attempt ${attempt + 1}/${maxRetries + 1} failed — retrying after backoff`
           })
-          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
           await this._sleep(backoffMs)
           continue
         }
@@ -560,7 +521,7 @@ export class WorkerLoop extends EventEmitter {
         // Max retries exhausted — permanent failure
         this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] permanently failed after ${maxRetries + 1} attempts`)
         await this.coordinator.failBead(this.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
-        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
         await this._sleep(3000)
         continue
       }
@@ -580,7 +541,7 @@ export class WorkerLoop extends EventEmitter {
         await this._waitForQuotaReset(cb)
         // Now reopen so it goes back to the pool for a fresh attempt
         await this.coordinator.reopenBead(this.agentId, bead.id)
-        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
         continue
       }
       if (this.stopped) {
@@ -611,7 +572,7 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('closing', bead.id, bead.title)
       await this.coordinator.completeBead(this.agentId, bead.id, filesChanged, this.config.autoPush)
       this._log('SUCCESS', `[${this.agentId}] ✓ Closed bead [${bead.id}]`)
-      this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, thinkingSummary: null })
+      this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
       await this._sleep(1500)
     }
     this._exit('stopped')
@@ -742,117 +703,10 @@ export class WorkerLoop extends EventEmitter {
     return lines.join('\n')
   }
 
-  /** Phase 1: Think deeply before acting. Analyze the bead, understand context, plan approach. */
-  private _buildThinkingPrompt(bead: Bead): string {
+  /** Build the execute prompt for a bead with CASS memory context */
+  private _buildExecutePrompt(bead: Bead, cassContext: string): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
-    const parentContext = this._buildParentContext(bead)
-    const knowledgeContext = this._buildKnowledgeContext(bead.id)
-
-    let currentBranch = ''
-    try {
-      currentBranch = cp.execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: this.projectPath, timeout: 3000
-      }).toString().trim()
-    } catch { /* ignore */ }
-
-    return `ULTRATHINK
-
-You are ${this.agentId}, a senior software engineer. Before writing ANY code, you must analyze this task deeply.
-
-## Working branch: \`${currentBranch}\`
-Base all work on files currently on disk. Do not use git history.
-
-## Your bead assignment
-- **ID**: ${bead.id}
-- **Title**: ${bead.title}
-- **Type**: ${bead.type} | **Priority**: ${bead.priority}/4
-${bead.description ? `- **Description**: ${bead.description}` : ''}
-${bead.files.length > 0 ? `- **Files**: ${bead.files.join(', ')}` : ''}
-
-${parentContext ? `${parentContext}\n` : ''}## Gather context
-Use \`bd\` to understand the bigger picture before coding:
-- \`bd show ${bead.id}\` — full details of your assigned bead
-- \`bd list\` — see all open beads and what other agents are working on
-- \`bd children ${bead.epicId || bead.id}\` — see sibling tasks in the same epic
-- \`bd comments ${bead.id}\` — read any discussion or notes on this bead
-- \`bd search <keyword>\` — find related beads for context
-Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\`.
-
-## Mandatory analysis (do this FIRST)
-1. **Read the relevant code** — understand the existing architecture, patterns, naming conventions
-2. **Identify dependencies** — what other files/modules will be affected?
-3. **Spot risks** — what could go wrong? Race conditions? Breaking changes? Edge cases?
-4. **Plan your approach** — what's the minimal, correct change? What order should you make changes?
-
-${agentContext ? `## Project context\n${agentContext}\n` : ''}
-${knowledgeContext ? `${knowledgeContext}\n` : ''}
-## Output format
-Write a structured analysis:
-
-### Understanding
-What does this bead require? What's the current state of the code?
-
-### Approach
-Step-by-step plan (be specific about files and functions).
-
-### Risks
-What could go wrong and how will you mitigate it?
-
-### Test strategy
-How will you verify correctness?
-
-### Discoveries
-Share any non-obvious findings that would help other agents working on related beads.
-Format each discovery as a bullet with category, confidence, and summary:
-- **category** (confidence): summary text
-
-Valid categories: pattern, gotcha, dependency, convention, environment, risk
-Valid confidence levels: high, medium, low
-
-If you have no discoveries, write "None."
-
-### Split Analysis
-Evaluate whether this bead is too large or covers multiple concerns that should be separate tasks.
-Output a JSON block (fenced with \`\`\`json) with this schema:
-\`\`\`json
-{
-  "shouldSplit": false,
-  "reason": "single-concern change touching one module",
-  "children": []
-}
-\`\`\`
-If \`shouldSplit\` is true, populate \`children\` with proposed sub-beads:
-\`\`\`json
-{
-  "shouldSplit": true,
-  "reason": "bead spans UI, API, and DB layers with independent concerns",
-  "children": [
-    {
-      "title": "Child bead title",
-      "description": "What this child accomplishes",
-      "files": ["src/relevant-file.ts"],
-      "dependsOn": []
-    },
-    {
-      "title": "Second child",
-      "description": "Depends on the first child",
-      "files": ["src/other.ts"],
-      "dependsOn": ["Child bead title"]
-    }
-  ]
-}
-\`\`\`
-Each child must have: \`title\`, \`description\`, \`files\` (scope), and \`dependsOn\` (titles of sibling children it requires).
-
-DO NOT write any implementation code. Analysis only.`
-  }
-
-  /** Phase 2: Execute with the thinking context */
-  private _buildExecutePrompt(bead: Bead, thinkingContext: string): string {
-    const agentMd = this.paths.agentMd
-    const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
-    const thinkingSummary = thinkingContext ? this._extractThinkingSummary(stripAnsi(this._extractText(thinkingContext))) : ''
     const parentContext = this._buildParentContext(bead)
     const knowledgeContext = this._buildKnowledgeContext(bead.id)
 
@@ -871,11 +725,11 @@ DO NOT write any implementation code. Analysis only.`
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       parentContext ? `\n${parentContext}` : '',
       knowledgeContext ? `\n${knowledgeContext}` : '',
-      thinkingSummary ? `\n### Your prior analysis\n${thinkingSummary}` : '',
+      cassContext ? `\n${cassContext}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
       `\n---\n## Task`,
-      `Implement this bead completely, following your analysis above.`,
+      `Implement this bead completely.`,
       `Write tests. Commit all changes when done with a descriptive commit message.`,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
@@ -895,81 +749,13 @@ DO NOT write any implementation code. Analysis only.`
     ].join('\n')
   }
 
-  /** Extract a concise summary from the thinking output */
-  private _extractThinkingSummary(raw: string): string {
-    // Try to find structured sections
-    const lines = raw.split('\n')
-    const summary: string[] = []
-
-    let inSection = false
-    let inFence = false
-    for (const line of lines) {
-      if (/^###?\s+(Understanding|Approach|Risks|Test|Discoveries|Split Analysis)/i.test(line)) {
-        inSection = true
-        summary.push(line)
-        continue
-      }
-      if (inSection) {
-        if (/^```/.test(line.trim())) {
-          inFence = !inFence
-          summary.push(line)
-          continue
-        }
-        if (inFence) {
-          summary.push(line)
-          continue
-        }
-        // Include all lines (including empty ones) until we hit a non-matching
-        // heading or a separator like ---
-        if (/^#{1,3}\s/.test(line) || /^---\s*$/.test(line.trim())) {
-          inSection = false
-        } else {
-          summary.push(line)
-        }
-      }
-    }
-
-    // Trim trailing empty lines from summary
-    while (summary.length > 0 && !summary[summary.length - 1].trim()) summary.pop()
-
-    if (summary.length > 0) return summary.join('\n').slice(0, 2000)
-
-    // Fallback: take the last meaningful chunk
-    const trimmed = raw.trim()
-    return trimmed.slice(Math.max(0, trimmed.length - 2000))
-  }
-
-  /** Extract knowledge discoveries from thinking output and post them to the coordinator */
-  _extractKnowledge(raw: string, beadId: string): void {
-    const headingIdx = raw.indexOf('### Discoveries')
-    if (headingIdx === -1) return
-
-    const afterHeading = raw.slice(headingIdx + '### Discoveries'.length)
-    // Stop at the next heading (### or ##)
-    const nextHeading = afterHeading.search(/\n#{2,3}\s/)
-    const section = nextHeading !== -1 ? afterHeading.slice(0, nextHeading) : afterHeading
-
-    // Check for "None." — no discoveries
-    if (/^\s*None\.?\s*$/m.test(section.trim())) return
-
-    const validCategories = new Set(['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk'])
-    const validConfidences = new Set(['high', 'medium', 'low'])
-
-    // Parse bullets: - **category** (confidence): summary
-    const bulletRegex = /^-\s+\*\*(\w+)\*\*\s+\((\w+)\):\s*(.+)/gm
-    let match: RegExpExecArray | null
-    while ((match = bulletRegex.exec(section)) !== null) {
-      const [, category, confidence, summary] = match
-      if (!validCategories.has(category) || !validConfidences.has(confidence)) continue
-      if (!summary.trim()) continue
-      this.coordinator.postKnowledge({
-        agentId: this.agentId,
-        beadId,
-        category: category as any,
-        summary: summary.trim(),
-        detail: '',
-        confidence: confidence as any
-      })
+  /** Fetch formatted CASS memory context for a task description. Gracefully returns empty string if cm CLI unavailable. */
+  private async _getCassContext(task: string): Promise<string> {
+    try {
+      const ctx = await this.cass.context(task)
+      return this.cass.formatForPrompt(ctx)
+    } catch {
+      return ''
     }
   }
 
@@ -1051,146 +837,6 @@ DO NOT write any implementation code. Analysis only.`
         }
       }, 250)
     })
-  }
-
-  /** Parse a split decision from thinking output. Returns null on any failure (fail-safe: don't split). */
-  _parseSplitDecision(thinkingOutput: string, bead: Bead): SplitDecision | null {
-    try {
-      // Guard: skip beads already tagged 'auto-split' to prevent recursive re-splitting
-      if (bead.tags.includes('auto-split')) return null
-
-      // Find the '### Split Analysis' heading
-      const headingIdx = thinkingOutput.indexOf('### Split Analysis')
-      if (headingIdx === -1) return null
-
-      const afterHeading = thinkingOutput.slice(headingIdx)
-
-      // Extract first JSON block: fenced ```json...``` or raw {...}
-      let jsonStr: string | null = null
-      const fencedMatch = afterHeading.match(/```(?:json)?\s*\n?([\s\S]*?)```/)
-      if (fencedMatch) {
-        jsonStr = fencedMatch[1].trim()
-      } else {
-        // Find first '{' and match braces to extract the JSON object
-        const braceStart = afterHeading.indexOf('{')
-        if (braceStart !== -1) {
-          let depth = 0
-          for (let i = braceStart; i < afterHeading.length; i++) {
-            if (afterHeading[i] === '{') depth++
-            else if (afterHeading[i] === '}') depth--
-            if (depth === 0) {
-              jsonStr = afterHeading.slice(braceStart, i + 1)
-              break
-            }
-          }
-        }
-      }
-
-      if (!jsonStr) return null
-
-      const parsed = JSON.parse(jsonStr)
-
-      // Validate shouldSplit
-      if (parsed.shouldSplit !== true) return null
-
-      // Validate children
-      if (!Array.isArray(parsed.children) || parsed.children.length < 2) return null
-      for (const child of parsed.children) {
-        if (!child.title || typeof child.title !== 'string') return null
-        if (!child.description || typeof child.description !== 'string') return null
-      }
-
-      // Validate concerns meet threshold
-      if (!Array.isArray(parsed.concerns) || parsed.concerns.length < this.config.autoSplitThreshold) return null
-
-      return {
-        beadId: bead.id,
-        reason: typeof parsed.reason === 'string' ? parsed.reason : 'Split recommended by analysis',
-        children: parsed.children.map((c: any) => ({
-          title: c.title,
-          description: c.description,
-          files: Array.isArray(c.files) ? c.files : [],
-          deps: Array.isArray(c.deps) ? c.deps : []
-        }))
-      }
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Split a bead into children based on the split decision.
-   * Creates child beads, wires inter-child deps, labels everything,
-   * closes the original as a container, claims the first child, and returns it.
-   * Returns null if any child creation fails (abort entire split).
-   */
-  async _splitBead(bead: Bead, decision: SplitDecision): Promise<Bead | null> {
-    const bd = this.coordinator.bd
-
-    // Hold the claim semaphore for the entire split to prevent other workers
-    // from seeing newly-created children as open and claiming them before we do.
-    await this.coordinator.acquireClaimLock(30_000)
-    try {
-
-    // Phase 1: Create all children — abort entirely if any fails
-    const createdChildren: Bead[] = []
-    try {
-      for (const child of decision.children) {
-        const created = await bd.createAsync({
-          title: child.title,
-          description: child.description,
-          parentId: bead.id,
-          labels: ['auto-split'],
-          priority: bead.priority
-        })
-        createdChildren.push(created)
-      }
-    } catch {
-      // Abort: a child creation failed — don't label or close anything
-      return null
-    }
-
-    // Phase 2: Wire inter-child dependencies
-    // Build a title→id map for resolving dep references by title
-    const titleToId = new Map<string, string>()
-    for (let i = 0; i < decision.children.length; i++) {
-      titleToId.set(decision.children[i].title, createdChildren[i].id)
-    }
-
-    for (let i = 0; i < decision.children.length; i++) {
-      const childSpec = decision.children[i]
-      for (const depTitle of childSpec.deps) {
-        const depId = titleToId.get(depTitle)
-        if (depId) {
-          bd.addDep(createdChildren[i].id, depId)
-        }
-      }
-    }
-
-    // Phase 3: Claim first child BEFORE closing parent — prevents other workers
-    // from seeing the child as open and grabbing it.
-    const firstChild = createdChildren[0]
-    bd.assignTo(firstChild.id, this.agentId)
-
-    // Phase 4: Label original bead as split parent and close it
-    bd.addLabel(bead.id, 'auto-split-parent')
-    bd.close(bead.id, `Split into ${createdChildren.length} children`)
-
-    // Phase 5: Post activity event
-    this.coordinator.postActivity({
-      agentId: this.agentId,
-      type: 'split',
-      beadId: bead.id,
-      beadTitle: bead.title,
-      summary: `Split into ${createdChildren.length} children: ${createdChildren.map(c => c.id).join(', ')}`
-    })
-
-    const refreshed = bd.show(firstChild.id)
-    return refreshed ?? null
-
-    } finally {
-      this.coordinator.releaseClaimLock()
-    }
   }
 
   private _sleep(ms: number): Promise<void> {

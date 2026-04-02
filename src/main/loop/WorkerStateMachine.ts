@@ -19,7 +19,6 @@ import { ProjectPaths } from './ProjectStore'
 export type StateId =
   | 'idle'
   | 'routing'
-  | 'thinking'
   | 'executing'
   | 'reviewing'
   | 'merging'
@@ -46,8 +45,6 @@ export interface WorkerContext {
   worktreePath: string | null
   /** Branch name for the worktree */
   worktreeBranch: string | null
-  /** Raw output from the thinking phase */
-  thinkingOutput: string
   /** Raw output from the execute phase */
   executeOutput: string
   /** Flags set during execution */
@@ -81,20 +78,12 @@ export interface WorkerFlags {
 export interface WorkerCapabilities {
   /** Run a Claude CLI subprocess. Returns raw output. */
   runClaude: (prompt: string, label: string, cwd: string, model?: string) => Promise<string>
-  /** Build the thinking prompt for a bead */
-  buildThinkingPrompt: (bead: Bead) => string
-  /** Build the execute prompt for a bead with thinking context */
-  buildExecutePrompt: (bead: Bead, thinkingOutput: string) => string
+  /** Build the execute prompt for a bead with CASS context */
+  buildExecutePrompt: (bead: Bead, cassContext: string) => string
   /** Build the review prompt for a bead */
   buildReviewPrompt: (bead: Bead) => string
-  /** Extract a concise summary from thinking output */
-  extractThinkingSummary: (raw: string) => string
-  /** Extract and post knowledge discoveries from thinking output */
-  extractKnowledge: (raw: string, beadId: string) => void
-  /** Parse a split decision from thinking output */
-  parseSplitDecision: (thinkingOutput: string, bead: Bead) => import('../types').SplitDecision | null
-  /** Split a bead into children and return the first child */
-  splitBead: (bead: Bead, decision: import('../types').SplitDecision) => Promise<Bead | null>
+  /** Fetch formatted CASS memory context for a task description */
+  getCassContext: (task: string) => Promise<string>
   /** Detect API rate limiting in output */
   detectApiLimit: (output: string) => boolean
   /** Strip ANSI codes from output */
@@ -153,7 +142,6 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
   ctx.currentBead = null
   ctx.worktreePath = null
   ctx.worktreeBranch = null
-  ctx.thinkingOutput = ''
   ctx.executeOutput = ''
   ctx.flags.executeFailed = false
   ctx.flags.apiLimited = false
@@ -164,8 +152,7 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
     phase: 'idle',
     currentBeadId: null,
     currentBeadTitle: null,
-    worktreeBranch: null,
-    thinkingSummary: null
+    worktreeBranch: null
   })
 
   if (ctx.flags.stopped || ctx.flags.gracefulStopping) return 'stopping'
@@ -254,68 +241,6 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
     ctx.capabilities.emitter.emit('output', `\n── Working in main directory (no worktree) ──\n\n`)
   }
 
-  return 'thinking'
-}
-
-/**
- * thinking — Analyze the bead deeply before implementing.
- */
-export async function thinking(ctx: WorkerContext): Promise<StateId> {
-  const bead = ctx.currentBead!
-  const workDir = ctx.worktreePath ?? ctx.paths.projectRoot
-
-  setPhase(ctx, 'thinking', bead.id, bead.title)
-  log(ctx, 'INFO', `[${ctx.agentId}] Thinking: analyzing bead before implementing…`)
-
-  try {
-    const raw = await ctx.capabilities.runClaude(
-      ctx.capabilities.buildThinkingPrompt(bead), 'think', workDir, ctx.config.claudeModelThink
-    )
-    ctx.thinkingOutput = raw
-    const thinkingText = ctx.capabilities.extractText(raw)
-    const stripped = ctx.capabilities.stripAnsi(thinkingText)
-    const summary = ctx.capabilities.extractThinkingSummary(stripped)
-    ctx.coordinator.updateAgent(ctx.agentId, { thinkingSummary: summary })
-
-    // Extract and share knowledge discoveries
-    try { ctx.capabilities.extractKnowledge(stripped, bead.id) } catch { /* best-effort */ }
-
-    ctx.coordinator.postActivity({
-      agentId: ctx.agentId, type: 'thinking', beadId: bead.id,
-      beadTitle: bead.title, summary
-    })
-    log(ctx, 'INFO', `[${ctx.agentId}] Thinking complete: ${summary.slice(0, 120)}`)
-
-    // detectApiLimit needs raw output (checks JSON lines for rate limit patterns)
-    if (ctx.capabilities.detectApiLimit(ctx.capabilities.stripAnsi(raw))) {
-      log(ctx, 'WARN', `[${ctx.agentId}] API limit detected during thinking`)
-      ctx.flags.apiLimited = true
-      return 'merging'
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    log(ctx, 'WARN', `[${ctx.agentId}] Thinking phase failed (continuing): ${msg}`)
-  }
-
-  // Auto-split check
-  if (ctx.thinkingOutput && !ctx.flags.apiLimited && !ctx.flags.stopped) {
-    const splitDecision = ctx.capabilities.parseSplitDecision(
-      ctx.capabilities.stripAnsi(ctx.capabilities.extractText(ctx.thinkingOutput)), bead
-    )
-    if (splitDecision) {
-      log(ctx, 'INFO', `[${ctx.agentId}] Split decision detected for [${bead.id}] — creating ${splitDecision.children.length} children`)
-      const firstChild = await ctx.capabilities.splitBead(bead, splitDecision)
-      if (firstChild) {
-        log(ctx, 'INFO', `[${ctx.agentId}] Split complete — swapping to first child [${firstChild.id}] ${firstChild.title}`)
-        ctx.currentBead = firstChild
-        ctx.coordinator.updateAgent(ctx.agentId, { currentBeadId: firstChild.id, currentBeadTitle: firstChild.title })
-      }
-    }
-  }
-
-  if (ctx.flags.stopped) return 'merging'
-  if (await ctx.capabilities.waitIfPaused()) return 'merging'
-
   return 'executing'
 }
 
@@ -333,10 +258,15 @@ export async function executing(ctx: WorkerContext): Promise<StateId> {
     beadTitle: bead.title, summary: 'Implementing…'
   })
 
+  // Fetch CASS memory context for the execute prompt
+  const cassContext = await ctx.capabilities.getCassContext(
+    `${bead.title}\n${bead.description ?? ''}`
+  )
+
   let executeOutput = ''
   try {
     executeOutput = await ctx.capabilities.runClaude(
-      ctx.capabilities.buildExecutePrompt(bead, ctx.thinkingOutput),
+      ctx.capabilities.buildExecutePrompt(bead, cassContext),
       'execute', workDir, ctx.config.claudeModelExecute
     )
     ctx.executeOutput = executeOutput
@@ -515,9 +445,7 @@ export async function closing(ctx: WorkerContext): Promise<StateId> {
   // ── API rate limited → record rate limit on CB, reopen and wait ──
   if (ctx.flags.apiLimited) {
     if (cb) {
-      // Use execute output preferentially (rate limit most often appears there);
-      // fall back to thinking output if execute phase never ran.
-      const rateLimitSource = ctx.executeOutput || ctx.thinkingOutput
+      const rateLimitSource = ctx.executeOutput
       const retryMs = ctx.capabilities.extractRetryAfter(rateLimitSource)
       cb.recordRateLimit(retryMs)
       cb.save()
@@ -574,7 +502,6 @@ export async function stopping(ctx: WorkerContext): Promise<StateId> {
 export const STATE_TABLE: Record<StateId, StateFn> = {
   idle,
   routing,
-  thinking,
   executing,
   reviewing,
   merging,
@@ -620,7 +547,6 @@ export function createWorkerContext(
     currentBead: null,
     worktreePath: null,
     worktreeBranch: null,
-    thinkingOutput: '',
     executeOutput: '',
     flags: {
       executeFailed: false,
