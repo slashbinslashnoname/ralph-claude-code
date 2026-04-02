@@ -182,7 +182,8 @@ vi.mock('./loop/swarmValidation', () => ({
 
 function computeStoreDir(projectPath: string): string {
   const absolute = path.resolve(projectPath)
-  const id = crypto.createHash('sha256').update(absolute).digest('hex')
+  const hash8 = crypto.createHash('sha256').update(absolute).digest('hex').slice(0, 8)
+  const id = `${path.basename(absolute)}-${hash8}`
   return path.join(os.homedir(), '.slashbot', 'projects', id)
 }
 
