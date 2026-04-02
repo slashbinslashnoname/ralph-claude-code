@@ -386,47 +386,54 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
         </div>
       )}
 
-      {/* Agent tabs — no card wrapper */}
-      <div className="swarm-tabs">
-        <button className={`tab ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => setActiveTab('overview')}>
-          Overview
-        </button>
-        <button className={`tab ${activeTab === 'activity' ? 'active' : ''}`}
-          onClick={() => setActiveTab('activity')}>
-          Activity ({mergedFeed.length})
-        </button>
-        <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveTab('history')
-            sb.swarm.agentLogs(projectPath).then(logs => {
-              const sessionStart = swarmStatus?.sessionStartedAt
-              if (sessionStart) {
-                const startTs = sessionStart.replace(/[:.]/g, '-').slice(0, 19)
-                setHistoryLogs(logs.filter(l => l.file >= `worker-0_a_${startTs}`))
-              } else {
-                setHistoryLogs(logs)
-              }
-            })
-          }}>
-          History
-        </button>
-        {agents.map(a => (
-          <button key={a.id} className={`tab ${activeTab === a.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(a.id)}>
-            <span className={`agent-dot ${a.phase}`} />
-            {a.id}
-            {a.currentBeadId && <span className="tab-bead">[{a.currentBeadId}]</span>}
+      {/* Agent tabs */}
+      <nav className="swarm-tabs">
+        <div className="swarm-tabs-nav">
+          <button className={`swarm-tab ${activeTab === 'overview' ? 'active' : ''}`}
+            onClick={() => setActiveTab('overview')}>
+            Overview
           </button>
-        ))}
-        {(isPlanning || agentOutputs['planner']) && (
-          <button className={`tab ${activeTab === 'planner' ? 'active' : ''}`}
-            onClick={() => setActiveTab('planner')}>
-            <span className={`agent-dot ${isPlanning ? 'executing' : 'idle'}`} />
-            planner
+          <button className={`swarm-tab ${activeTab === 'activity' ? 'active' : ''}`}
+            onClick={() => setActiveTab('activity')}>
+            Activity
+            {mergedFeed.length > 0 && <span className="swarm-tab-count">{mergedFeed.length}</span>}
           </button>
+          <button className={`swarm-tab ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveTab('history')
+              sb.swarm.agentLogs(projectPath).then(logs => {
+                const sessionStart = swarmStatus?.sessionStartedAt
+                if (sessionStart) {
+                  const startTs = sessionStart.replace(/[:.]/g, '-').slice(0, 19)
+                  setHistoryLogs(logs.filter(l => l.file >= `worker-0_a_${startTs}`))
+                } else {
+                  setHistoryLogs(logs)
+                }
+              })
+            }}>
+            History
+          </button>
+        </div>
+        {(agents.length > 0 || isPlanning || agentOutputs['planner']) && (
+          <div className="swarm-tabs-agents">
+            {agents.map(a => (
+              <button key={a.id} className={`swarm-tab swarm-tab-agent ${activeTab === a.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(a.id)}>
+                <span className={`agent-dot ${a.phase}`} />
+                <span className="swarm-tab-agent-name">{a.id}</span>
+                {a.currentBeadId && <span className="swarm-tab-bead">{a.currentBeadId}</span>}
+              </button>
+            ))}
+            {(isPlanning || agentOutputs['planner']) && (
+              <button className={`swarm-tab swarm-tab-agent ${activeTab === 'planner' ? 'active' : ''}`}
+                onClick={() => setActiveTab('planner')}>
+                <span className={`agent-dot ${isPlanning ? 'executing' : 'idle'}`} />
+                <span className="swarm-tab-agent-name">planner</span>
+              </button>
+            )}
+          </div>
         )}
-      </div>
+      </nav>
 
       <div className="swarm-content">
         {activeTab === 'overview' && (
@@ -436,45 +443,51 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                 <p>No agents running. Start the swarm to begin.</p>
               </div>
             ) : (
-              <div className="overview-grid">
+              <div className="overview-list">
                 {agents.map(a => (
-                  <div key={a.id} className={`agent-card agent-card-${phaseColor(a.phase)}`}
-                    style={{ cursor: 'pointer' }} onClick={() => setActiveTab(a.id)}>
-                    <div className="agent-header">
-                      <span className={`agent-dot ${a.phase}`} />
-                      <strong>{a.id}</strong>
-                      <span className={`badge badge-${phaseColor(a.phase)}`}>
-                        {a.phase}
-                      </span>
+                  <div key={a.id} className={`worker-panel worker-panel-${phaseColor(a.phase)}`}>
+                    <div className="worker-panel-header" onClick={() => setActiveTab(a.id)}>
+                      <div className="worker-panel-identity">
+                        <span className={`agent-dot agent-dot-lg ${a.phase}`} />
+                        <strong className="worker-panel-name">{a.id}</strong>
+                        <span className={`badge badge-${phaseColor(a.phase)}`}>
+                          {a.phase}
+                        </span>
+                      </div>
+                      <div className="worker-panel-meta">
+                        {a.currentBeadId && (
+                          <span className="worker-panel-bead">
+                            <span className="worker-panel-bead-id">{a.currentBeadId}</span>
+                            {a.currentBeadTitle && <span className="worker-panel-bead-title">{a.currentBeadTitle}</span>}
+                          </span>
+                        )}
+                        {a.worktreeBranch && (
+                          <span className="worker-panel-branch">{a.worktreeBranch}</span>
+                        )}
+                        <span className="worker-panel-loops">Loop #{a.loopCount}</span>
+                        {a.phase === 'paused' ? (
+                          <button className="btn btn-xs btn-accent" onClick={e => { e.stopPropagation(); resumeAgent(a.id) }}>
+                            Resume
+                          </button>
+                        ) : (
+                          <button className="btn btn-xs btn-outline" onClick={e => { e.stopPropagation(); pauseAgent(a.id) }}>
+                            Pause
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    {a.currentBeadId && (
-                      <p className="agent-bead">
-                        <span className="agent-bead-id">[{a.currentBeadId}]</span>
-                        {a.currentBeadTitle && <span> {a.currentBeadTitle}</span>}
-                      </p>
-                    )}
-                    {a.worktreeBranch && (
-                      <p className="agent-branch">Branch: {a.worktreeBranch}</p>
-                    )}
                     {a.thinkingSummary && a.phase === 'thinking' && (
                       <div className="agent-thinking">
                         <span className="thinking-label">Thinking:</span>
-                        <p>{a.thinkingSummary.slice(0, 200)}</p>
+                        <p>{a.thinkingSummary.slice(0, 300)}</p>
                       </div>
                     )}
-                    <div className="agent-card-footer">
-                      <span className="agent-loops">Loop #{a.loopCount}</span>
-                      {a.phase === 'paused' ? (
-                        <button className="btn btn-xs btn-accent" onClick={e => { e.stopPropagation(); resumeAgent(a.id) }}
-                          title="Resume this agent">
-                          Resume
-                        </button>
-                      ) : (
-                        <button className="btn btn-xs btn-outline" onClick={e => { e.stopPropagation(); pauseAgent(a.id) }}
-                          title="Pause after current phase">
-                          Pause
-                        </button>
-                      )}
+                    {/* Live output preview */}
+                    <div className="worker-panel-output" onClick={() => setActiveTab(a.id)}>
+                      {agentOutputs[a.id]
+                        ? <AgentOutputRenderer output={agentOutputs[a.id]} />
+                        : <span className="cr-waiting">Waiting for output\u2026</span>
+                      }
                     </div>
                   </div>
                 ))}
