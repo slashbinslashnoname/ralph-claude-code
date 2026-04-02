@@ -77,6 +77,21 @@ export class AgentCoordinator {
     this._loadKnowledgeFromDisk()
   }
 
+  /** Retry a bd async operation once after restarting dolt if the error looks like a server crash. */
+  private async _bdRetry<T>(op: () => Promise<T>, label: string): Promise<T> {
+    try {
+      return await op()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('circuit breaker') || msg.includes('EOF') || msg.includes('unreachable') || msg.includes('connection') || msg.includes('server')) {
+        this._log('WARN', `${label}: dolt server error, attempting restart…`)
+        try { await this.bd.runPublicAsync(['dolt', 'start']) } catch { /* ignore */ }
+        return await op()
+      }
+      throw err
+    }
+  }
+
   private _loadActivityFromDisk(): void {
     if (!fs.existsSync(this.activityFile)) return
     try {
@@ -776,33 +791,17 @@ export class AgentCoordinator {
       let closedBeads: Bead[]
       let allBeads: Bead[]
       try {
-        ;[candidates, closedBeads, allBeads] = await Promise.all([
-          this.bd.listByStatusAsync('open'),
-          this.bd.listByStatusAsync('closed'),
-          this.bd.listAllAsync(),
-        ])
+        ;[candidates, closedBeads, allBeads] = await this._bdRetry(
+          () => Promise.all([
+            this.bd.listByStatusAsync('open'),
+            this.bd.listByStatusAsync('closed'),
+            this.bd.listAllAsync(),
+          ]),
+          `[${agentId}] claimBestBead:list`
+        )
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        this._log('ERROR', `[${agentId}] claimBestBead: bd list failed: ${errMsg}`)
-
-        // Dolt server may have crashed — attempt one restart
-        if (errMsg.includes('circuit breaker') || errMsg.includes('EOF') || errMsg.includes('connection') || errMsg.includes('server')) {
-          this._log('INFO', `[${agentId}] Attempting dolt server restart…`)
-          try {
-            await this.bd.runPublicAsync(['dolt', 'start'])
-            this._log('INFO', `[${agentId}] Dolt server restarted — retrying bd list`)
-            ;[candidates, closedBeads, allBeads] = await Promise.all([
-              this.bd.listByStatusAsync('open'),
-              this.bd.listByStatusAsync('closed'),
-              this.bd.listAllAsync(),
-            ])
-          } catch (retryErr) {
-            this._log('ERROR', `[${agentId}] Dolt restart or retry failed: ${retryErr instanceof Error ? retryErr.message : retryErr}`)
-            return null
-          }
-        } else {
-          return null
-        }
+        this._log('ERROR', `[${agentId}] claimBestBead: bd list failed: ${err instanceof Error ? err.message : err}`)
+        return null
       }
 
       // If bd returned empty for all lists, it's likely a bd CLI failure, not "no beads"
@@ -1037,7 +1036,7 @@ export class AgentCoordinator {
     }
 
     try {
-      await this.bd.closeAsync(beadId, `Completed by ${agentId}`)
+      await this._bdRetry(() => this.bd.closeAsync(beadId, `Completed by ${agentId}`), `completeBead(${beadId})`)
     } catch (err) {
       // bd close can fail for epics with open children — don't crash the worker
       const msg = err instanceof Error ? err.message : String(err)
@@ -1071,7 +1070,7 @@ export class AgentCoordinator {
       const allDone = siblings.every(b => b.status === 'done')
       if (!allDone) return
 
-      await this.bd.closeAsync(epicId, `All children completed — auto-closed by ${agentId}`)
+      await this._bdRetry(() => this.bd.closeAsync(epicId, `All children completed — auto-closed by ${agentId}`), `autoCloseEpic(${epicId})`)
       this.postActivity({
         agentId,
         type: 'completed',
@@ -1282,8 +1281,8 @@ export class AgentCoordinator {
       }
     } catch { /* bead not found — proceed and let bd.close handle the error */ }
 
-    await this.bd.addLabelAsync(beadId, 'failed')
-    await this.bd.closeAsync(beadId, `Failed: ${reason}`)
+    await this._bdRetry(() => this.bd.addLabelAsync(beadId, 'failed'), `failBead:label(${beadId})`)
+    await this._bdRetry(() => this.bd.closeAsync(beadId, `Failed: ${reason}`), `failBead:close(${beadId})`)
     this.releaseFiles(agentId, beadId)
     this.postActivity({ agentId, type: 'failed', beadId, summary: reason })
   }
