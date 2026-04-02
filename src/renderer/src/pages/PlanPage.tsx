@@ -5,7 +5,7 @@ import type { PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
 
-interface PendingPlan { planMd: string; request: string }
+interface PendingPlan { planMd: string; request: string; projectPath?: string }
 
 interface PlanLogEntry {
   file: string

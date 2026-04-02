@@ -104,7 +104,7 @@ export default function App() {
   }, [loaded, tabs.map(t => t.path).join('\0')])
 
   // Plan approval state (persists across navigation)
-  const [pendingPlan, setPendingPlan] = useState<{ planMd: string; request: string } | null>(null)
+  const [pendingPlan, setPendingPlan] = useState<{ planMd: string; request: string; projectPath: string } | null>(null)
 
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
   const [agentOutputs, setAgentOutputs] = useState<Record<string, string>>(globalAgentOutputs)
@@ -140,11 +140,13 @@ export default function App() {
         outputDirty.current = true
         scheduleFlush()
       }),
-      sb.swarm.onPlanThinking((_p: string, planMd: string, request: string) => {
-        setPendingPlan({ planMd, request })
+      sb.swarm.onPlanThinking((p: string, planMd: string, request: string) => {
+        setPendingPlan({ planMd, request, projectPath: p })
       }),
-      sb.swarm.onPlanPhase((_p: string, phase: string) => {
-        if (phase === 'done' || phase === '') setPendingPlan(null)
+      sb.swarm.onPlanPhase((p: string, phase: string) => {
+        if (phase === 'done' || phase === '') {
+          setPendingPlan(prev => prev?.projectPath === p ? null : prev)
+        }
       }),
       sb.swarm.onActivity((_p: string, event: ActivityEvent) => {
         const key = `${event.ts}:${event.agentId}:${event.type}`
@@ -312,7 +314,7 @@ export default function App() {
           {current.page === 'plan' && current.isEnabled && (
             <PlanPage
               projectPath={current.path}
-              pendingPlan={pendingPlan}
+              pendingPlan={pendingPlan?.projectPath === current.path ? pendingPlan : null}
               setPendingPlan={setPendingPlan}
               agentOutputs={agentOutputs}
               setAgentOutputs={setAgentOutputs}
