@@ -234,6 +234,17 @@ describe('BD_SYSTEM_PROMPT in WorkerLoop prompts', () => {
     expect(prompt).not.toContain('## Memory — slashmem')
     expect(prompt).not.toContain('sm context')
   })
+
+  it('review prompt omits PROMPT.md content when file does not exist', () => {
+    ;(fs.existsSync as any).mockReturnValue(false)
+
+    const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+    const prompt = (worker as any)._buildReviewPrompt(makeBead())
+
+    expect(prompt).not.toContain('## Memory — slashmem')
+    expect(prompt).not.toContain('sm context')
+    expect(prompt).not.toContain('sm ingest')
+  })
 })
 
 describe('PlanLoop PROMPT.md injection', () => {
@@ -278,6 +289,48 @@ describe('PlanLoop PROMPT.md injection', () => {
 
     expect(prompt).toContain('Build a feature')
     expect(prompt).not.toContain('slashmem')
+  })
+
+  it('plan prompt snapshot includes sm section from PROMPT.md', async () => {
+    const { PlanLoop } = await import('./PlanLoop')
+
+    const smContent = [
+      '## Memory — slashmem',
+      '',
+      'You have access to `sm`, a local memory store.',
+      '',
+      '```bash',
+      'sm context "<brief description>"',
+      'sm ingest --task "<task-id>" --body "<what happened>"',
+      'sm rules add "<rule-id>" "<rule text>"',
+      'sm distill',
+      'sm status',
+      'sm projects',
+      '```',
+    ].join('\n')
+
+    ;(fs.existsSync as any).mockImplementation((p: string) =>
+      String(p).endsWith('PROMPT.md')
+    )
+    ;(fs.readFileSync as any).mockImplementation((p: string) => {
+      if (String(p).endsWith('PROMPT.md')) return smContent
+      return ''
+    })
+
+    const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
+    const prompt = (loop as any)._buildPlanPrompt('Implement feature X')
+
+    // Snapshot the sm-relevant portion of the plan prompt
+    expect(prompt).toContain('## Memory — slashmem')
+    expect(prompt).toContain('sm context')
+    expect(prompt).toContain('sm ingest')
+    expect(prompt).toContain('sm rules add')
+    expect(prompt).toContain('sm distill')
+    expect(prompt).toContain('sm status')
+    expect(prompt).toContain('sm projects')
+    // Verify sm content appears in the project brief section
+    expect(prompt).toContain('## Project brief')
+    expect(prompt).toMatchSnapshot()
   })
 
   it('encode prompt includes bd CLI reference but not memory instructions', async () => {
