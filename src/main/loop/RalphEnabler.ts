@@ -175,20 +175,11 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
       }
     }
 
-    // Symlink projectRoot/.beads → centralized beadsRoot so bd CLI works
-    // from the project root. Only needed when beads are stored centrally
-    // (in ~/.slashbot/), not when .beads already lives in the project root.
-    const projectBeads = path.join(projectPath, '.beads')
-    if (fs.existsSync(p.beadsRoot) && p.beadsRoot !== projectBeads) {
+    // Ensure .beads exists in the project root (run bd init if needed)
+    if (!fs.existsSync(p.beadsRoot)) {
       try {
-        const stat = fs.lstatSync(projectBeads)
-        if (!stat.isSymbolicLink()) {
-          // Real directory exists — don't overwrite
-        }
-      } catch {
-        // Doesn't exist — create symlink
-        try { fs.symlinkSync(p.beadsRoot, projectBeads, 'dir') } catch { /* ignore */ }
-      }
+        cp.execFileSync('bd', ['init'], { cwd: projectPath, timeout: 10000, stdio: 'ignore' })
+      } catch { /* ignore — bd init may fail if already initialized */ }
     }
 
     return { ok: true, alreadyEnabled: false, filesCreated: created, context: ctx }

@@ -341,6 +341,16 @@ export class AgentCoordinator {
     const worktreePath = path.join(this.paths.worktreesDir, `worker-${beadId}`)
 
     try {
+      // Ensure repo has at least one commit (worktrees require a valid HEAD)
+      try {
+        await this._runGit(['rev-parse', 'HEAD'], { timeout: 5000 })
+      } catch {
+        // Empty repo — create initial commit so worktrees can branch from it
+        this._log('INFO', `[${agentId}] Empty git repo — creating initial commit`)
+        await this._runGit(['add', '-A'], { timeout: 5000 })
+        await this._runGit(['commit', '--allow-empty', '-m', 'chore: initial commit'], { timeout: 5000 })
+      }
+
       // Get current branch
       const currentBranch = await this._runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })
 

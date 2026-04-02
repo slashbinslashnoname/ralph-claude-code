@@ -32,7 +32,7 @@ export interface ProjectPaths {
   slashbotrc: string
   /** <projectRoot>/.worktrees */
   worktreesDir: string
-  /** Path to .beads directory — prefers projectRoot/.beads if it exists, else storeDir/.beads */
+  /** Path to .beads directory — always projectRoot/.beads */
   beadsRoot: string
   /** Parent directory of beadsRoot — use as cwd for bd CLI */
   beadsCwd: string
@@ -50,11 +50,8 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
   const id = `${path.basename(absolute)}-${hash8}`
   const storeDir = path.join(slashbotHome(), id)
 
-  // Prefer projectRoot/.beads if it exists (where bd CLI creates it),
-  // fall back to storeDir/.beads for centralized storage.
-  const projectBeads = path.join(absolute, '.beads')
-  const storeBeads = path.join(storeDir, '.beads')
-  const beadsRoot = fs.existsSync(projectBeads) ? projectBeads : storeBeads
+  // Always use projectRoot/.beads — no centralized storage fallback.
+  const beadsRoot = path.join(absolute, '.beads')
 
   return {
     id,
