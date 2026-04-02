@@ -311,7 +311,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   return (
     <div className="page swarm-page">
       <header className="page-header">
-        <h2>Slashbot Swarm</h2>
+        <h2>Swarm</h2>
         <div className="header-actions">
           <BuildMonitorIndicator status={buildMonitor} onToggle={toggleBuildMonitor} />
           <div className="worker-controls">
@@ -386,202 +386,198 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
         </div>
       )}
 
-      {/* Agent work area */}
-      <div className="card card-loop2">
-        <div className="card-header-bar">
-          <h3>Agents</h3>
-        </div>
-        <div className="agent-tabs">
-          <button className={`tab ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}>
-            Overview
+      {/* Agent tabs — no card wrapper */}
+      <div className="swarm-tabs">
+        <button className={`tab ${activeTab === 'overview' ? 'active' : ''}`}
+          onClick={() => setActiveTab('overview')}>
+          Overview
+        </button>
+        <button className={`tab ${activeTab === 'activity' ? 'active' : ''}`}
+          onClick={() => setActiveTab('activity')}>
+          Activity ({mergedFeed.length})
+        </button>
+        <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('history')
+            sb.swarm.agentLogs(projectPath).then(logs => {
+              const sessionStart = swarmStatus?.sessionStartedAt
+              if (sessionStart) {
+                const startTs = sessionStart.replace(/[:.]/g, '-').slice(0, 19)
+                setHistoryLogs(logs.filter(l => l.file >= `worker-0_a_${startTs}`))
+              } else {
+                setHistoryLogs(logs)
+              }
+            })
+          }}>
+          History
+        </button>
+        {agents.map(a => (
+          <button key={a.id} className={`tab ${activeTab === a.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(a.id)}>
+            <span className={`agent-dot ${a.phase}`} />
+            {a.id}
+            {a.currentBeadId && <span className="tab-bead">[{a.currentBeadId}]</span>}
           </button>
-          <button className={`tab ${activeTab === 'activity' ? 'active' : ''}`}
-            onClick={() => setActiveTab('activity')}>
-            Activity ({mergedFeed.length})
+        ))}
+        {(isPlanning || agentOutputs['planner']) && (
+          <button className={`tab ${activeTab === 'planner' ? 'active' : ''}`}
+            onClick={() => setActiveTab('planner')}>
+            <span className={`agent-dot ${isPlanning ? 'executing' : 'idle'}`} />
+            planner
           </button>
-          <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab('history')
-              sb.swarm.agentLogs(projectPath).then(logs => {
-                // Filter to current session only
-                const sessionStart = swarmStatus?.sessionStartedAt
-                if (sessionStart) {
-                  const startTs = sessionStart.replace(/[:.]/g, '-').slice(0, 19)
-                  setHistoryLogs(logs.filter(l => l.file >= `worker-0_a_${startTs}`))
-                } else {
-                  setHistoryLogs(logs)
-                }
-              })
-            }}>
-            History
-          </button>
-          {agents.map(a => (
-            <button key={a.id} className={`tab ${activeTab === a.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(a.id)}>
-              <span className={`agent-dot ${a.phase}`} />
-              {a.id}
-              {a.currentBeadId && <span className="tab-bead">[{a.currentBeadId}]</span>}
-            </button>
-          ))}
-          {/* Planner output tab when planning */}
-          {(isPlanning || agentOutputs['planner']) && (
-            <button className={`tab ${activeTab === 'planner' ? 'active' : ''}`}
-              onClick={() => setActiveTab('planner')}>
-              <span className={`agent-dot ${isPlanning ? 'executing' : 'idle'}`} />
-              planner
-            </button>
-          )}
-        </div>
+        )}
+      </div>
 
-        <div className="tab-content">
-          {activeTab === 'overview' && (
-            <div className="overview-grid">
-              {agents.length === 0 && (
-                <div className="empty-state-sm">
-                  <p>No agents running. Start the swarm to begin.</p>
-                </div>
-              )}
-              {agents.map(a => (
-                <div key={a.id} className={`agent-card agent-card-${phaseColor(a.phase)}`}
-                  style={{ cursor: 'pointer' }} onClick={() => setActiveTab(a.id)}>
-                  <div className="agent-header">
-                    <span className={`agent-dot ${a.phase}`} />
-                    <strong>{a.id}</strong>
-                    <span className={`badge badge-${phaseColor(a.phase)}`}>
-                      {a.phase}
-                    </span>
-                  </div>
-                  {a.currentBeadId && (
-                    <p className="agent-bead">
-                      <span className="agent-bead-id">[{a.currentBeadId}]</span>
-                      {a.currentBeadTitle && <span> {a.currentBeadTitle}</span>}
-                    </p>
-                  )}
-                  {a.worktreeBranch && (
-                    <p className="agent-branch">Branch: {a.worktreeBranch}</p>
-                  )}
-                  {a.thinkingSummary && a.phase === 'thinking' && (
-                    <div className="agent-thinking">
-                      <span className="thinking-label">Thinking:</span>
-                      <p>{a.thinkingSummary.slice(0, 200)}</p>
-                    </div>
-                  )}
-                  <div className="agent-card-footer">
-                    <span className="agent-loops">Loop #{a.loopCount}</span>
-                    {a.phase === 'paused' ? (
-                      <button className="btn btn-xs btn-accent" onClick={e => { e.stopPropagation(); resumeAgent(a.id) }}
-                        title="Resume this agent">
-                        Resume
-                      </button>
-                    ) : (
-                      <button className="btn btn-xs btn-outline" onClick={e => { e.stopPropagation(); pauseAgent(a.id) }}
-                        title="Pause after current phase">
-                        Pause
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeTab === 'activity' && (
-            <div className="activity-list" ref={activityRef}>
-              {mergedFeed.map((item, i) => {
-                if (item.kind === 'knowledge') {
-                  const k = item.data as KnowledgeEntry
-                  return (
-                    <div key={`k-${k.ts}-${k.agentId}-${i}`} className="activity-item activity-knowledge">
-                      <span className="activity-icon" title="Knowledge">💡</span>
-                      <span className="activity-time">{new Date(k.ts).toLocaleTimeString()}</span>
-                      <span className="activity-agent">{k.agentId}</span>
-                      <span className={`badge badge-${knowledgeCategoryColor(k.category)}`}>
-                        {k.category}
+      <div className="swarm-content">
+        {activeTab === 'overview' && (
+          <>
+            {agents.length === 0 ? (
+              <div className="empty-state-sm">
+                <p>No agents running. Start the swarm to begin.</p>
+              </div>
+            ) : (
+              <div className="overview-grid">
+                {agents.map(a => (
+                  <div key={a.id} className={`agent-card agent-card-${phaseColor(a.phase)}`}
+                    style={{ cursor: 'pointer' }} onClick={() => setActiveTab(a.id)}>
+                    <div className="agent-header">
+                      <span className={`agent-dot ${a.phase}`} />
+                      <strong>{a.id}</strong>
+                      <span className={`badge badge-${phaseColor(a.phase)}`}>
+                        {a.phase}
                       </span>
-                      {k.beadId && <span className="activity-bead">{k.beadId}</span>}
-                      <span className="activity-summary">{k.summary}</span>
-                      {k.confidence !== 'high' && (
-                        <span className="activity-confidence">{k.confidence}</span>
+                    </div>
+                    {a.currentBeadId && (
+                      <p className="agent-bead">
+                        <span className="agent-bead-id">[{a.currentBeadId}]</span>
+                        {a.currentBeadTitle && <span> {a.currentBeadTitle}</span>}
+                      </p>
+                    )}
+                    {a.worktreeBranch && (
+                      <p className="agent-branch">Branch: {a.worktreeBranch}</p>
+                    )}
+                    {a.thinkingSummary && a.phase === 'thinking' && (
+                      <div className="agent-thinking">
+                        <span className="thinking-label">Thinking:</span>
+                        <p>{a.thinkingSummary.slice(0, 200)}</p>
+                      </div>
+                    )}
+                    <div className="agent-card-footer">
+                      <span className="agent-loops">Loop #{a.loopCount}</span>
+                      {a.phase === 'paused' ? (
+                        <button className="btn btn-xs btn-accent" onClick={e => { e.stopPropagation(); resumeAgent(a.id) }}
+                          title="Resume this agent">
+                          Resume
+                        </button>
+                      ) : (
+                        <button className="btn btn-xs btn-outline" onClick={e => { e.stopPropagation(); pauseAgent(a.id) }}
+                          title="Pause after current phase">
+                          Pause
+                        </button>
                       )}
                     </div>
-                  )
-                }
-                const e = item.data as ActivityEvent
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'activity' && (
+          <div className="activity-list" ref={activityRef}>
+            {mergedFeed.map((item, i) => {
+              if (item.kind === 'knowledge') {
+                const k = item.data as KnowledgeEntry
                 return (
-                  <div key={`a-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type}`}>
-                    <span className="activity-icon">{activityIcon(e.type)}</span>
-                    <span className="activity-time">{new Date(e.ts).toLocaleTimeString()}</span>
-                    <span className="activity-agent">{e.agentId}</span>
-                    <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
-                      {e.type}
+                  <div key={`k-${k.ts}-${k.agentId}-${i}`} className="activity-item activity-knowledge">
+                    <span className="activity-icon" title="Knowledge">{'\uD83D\uDCA1'}</span>
+                    <span className="activity-time">{new Date(k.ts).toLocaleTimeString()}</span>
+                    <span className="activity-agent">{k.agentId}</span>
+                    <span className={`badge badge-${knowledgeCategoryColor(k.category)}`}>
+                      {k.category}
                     </span>
-                    {e.beadId && <span className="activity-bead">{e.beadId}</span>}
-                    {e.summary && <span className="activity-summary">{e.summary}</span>}
-                    {e.filesChanged && e.filesChanged.length > 0 && (
-                      <span className="activity-files">{e.filesChanged.length} files</span>
+                    {k.beadId && <span className="activity-bead">{k.beadId}</span>}
+                    <span className="activity-summary">{k.summary}</span>
+                    {k.confidence !== 'high' && (
+                      <span className="activity-confidence">{k.confidence}</span>
                     )}
-                    {e.branch && <span className="activity-branch">{e.branch}</span>}
                   </div>
                 )
-              })}
-              {mergedFeed.length === 0 && (
-                <div className="empty-state-sm">
-                  <p>No activity yet. Start the swarm to see agent work here.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === 'history' && (
-            <div>
-              {historyContent && historyFile ? (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <button className="btn btn-xs btn-ghost" onClick={() => { setHistoryContent(null); setHistoryFile(null) }}>
-                      {'\u2190'} Back
-                    </button>
-                    <span style={{ fontSize: 12, color: 'var(--text-2)', fontFamily: 'var(--font)' }}>{historyFile}</span>
-                  </div>
-                  <div className="agent-output">
-                    <AgentOutputRenderer output={historyContent} />
-                  </div>
-                </div>
-              ) : (
-                <div className="activity-list">
-                  {historyLogs.length === 0 && (
-                    <div className="empty-state-sm"><p>No agent logs yet.</p></div>
-                  )}
-                  {historyLogs.map(log => (
-                    <div key={log.file} className="activity-item" style={{ cursor: 'pointer' }}
-                      onClick={() => {
-                        setHistoryFile(log.file)
-                        sb.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
-                      }}>
-                      <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
-                      <span className="activity-agent">{log.agentId}</span>
-                      <span className={`badge badge-${log.phase === 'execute' ? 'success' : log.phase === 'think' ? 'accent' : 'warning'}`}>
-                        {log.phase}
-                      </span>
-                      <span className="activity-summary">{log.timestamp}</span>
-                      <span className="activity-files">{(log.size / 1024).toFixed(0)}KB</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Per-agent live output */}
-          {(agents.some(a => a.id === activeTab) || activeTab === 'planner') && (
-            <div className="agent-output" ref={el => { outputRefs.current[activeTab] = el }}>
-              {agentOutputs[activeTab]
-                ? <AgentOutputRenderer output={agentOutputs[activeTab]} />
-                : <span className="cr-waiting">Loading output...</span>
               }
-            </div>
-          )}
-        </div>
+              const e = item.data as ActivityEvent
+              return (
+                <div key={`a-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type}`}>
+                  <span className="activity-icon">{activityIcon(e.type)}</span>
+                  <span className="activity-time">{new Date(e.ts).toLocaleTimeString()}</span>
+                  <span className="activity-agent">{e.agentId}</span>
+                  <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
+                    {e.type}
+                  </span>
+                  {e.beadId && <span className="activity-bead">{e.beadId}</span>}
+                  {e.summary && <span className="activity-summary">{e.summary}</span>}
+                  {e.filesChanged && e.filesChanged.length > 0 && (
+                    <span className="activity-files">{e.filesChanged.length} files</span>
+                  )}
+                  {e.branch && <span className="activity-branch">{e.branch}</span>}
+                </div>
+              )
+            })}
+            {mergedFeed.length === 0 && (
+              <div className="empty-state-sm">
+                <p>No activity yet. Start the swarm to see agent work here.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'history' && (
+          <div>
+            {historyContent && historyFile ? (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <button className="btn btn-xs btn-ghost" onClick={() => { setHistoryContent(null); setHistoryFile(null) }}>
+                    {'\u2190'} Back
+                  </button>
+                  <span style={{ fontSize: 12, color: 'var(--fg-2)' }}>{historyFile}</span>
+                </div>
+                <div className="agent-output">
+                  <AgentOutputRenderer output={historyContent} />
+                </div>
+              </div>
+            ) : (
+              <div className="activity-list">
+                {historyLogs.length === 0 && (
+                  <div className="empty-state-sm"><p>No agent logs yet.</p></div>
+                )}
+                {historyLogs.map(log => (
+                  <div key={log.file} className="activity-item" style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      setHistoryFile(log.file)
+                      sb.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
+                    }}>
+                    <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
+                    <span className="activity-agent">{log.agentId}</span>
+                    <span className={`badge badge-${log.phase === 'execute' ? 'success' : log.phase === 'think' ? 'accent' : 'warning'}`}>
+                      {log.phase}
+                    </span>
+                    <span className="activity-summary">{log.timestamp}</span>
+                    <span className="activity-files">{(log.size / 1024).toFixed(0)}KB</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Per-agent live output */}
+        {(agents.some(a => a.id === activeTab) || activeTab === 'planner') && (
+          <div className="agent-output agent-output-live" ref={el => { outputRefs.current[activeTab] = el }}>
+            {agentOutputs[activeTab]
+              ? <AgentOutputRenderer output={agentOutputs[activeTab]} />
+              : <span className="cr-waiting">Waiting for output...</span>
+            }
+          </div>
+        )}
       </div>
     </div>
   )

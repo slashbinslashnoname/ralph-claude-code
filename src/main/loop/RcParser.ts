@@ -12,7 +12,7 @@ export const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
 export const DEFAULT_CONFIG: RalphConfig = {
   maxCallsPerHour: 100,
   claudeTimeoutMinutes: 15,
-  claudeOutputFormat: 'json',
+  claudeOutputFormat: 'stream-json',
   claudeCodeCmd: 'claude',
   allowedTools: '*',
   sleepDuration: 3,
@@ -124,7 +124,7 @@ export interface ValidationResult {
   warnings: string[]
 }
 
-const VALID_OUTPUT_FORMATS = new Set(['json', 'text'])
+const VALID_OUTPUT_FORMATS = new Set(['json', 'text', 'stream-json'])
 
 interface NumericRule {
   min: number
@@ -161,7 +161,7 @@ export function validateConfig(parsed: Partial<RalphConfig>): ValidationResult {
     if (k === 'claudeOutputFormat') {
       if (!VALID_OUTPUT_FORMATS.has(value as string)) {
         warnings.push(
-          `Invalid claudeOutputFormat "${value}" — expected "json" or "text". Using default "${DEFAULT_CONFIG.claudeOutputFormat}".`
+          `Invalid claudeOutputFormat "${value}" — expected "json", "text", or "stream-json". Using default "${DEFAULT_CONFIG.claudeOutputFormat}".`
         )
         continue
       }

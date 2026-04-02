@@ -101,7 +101,12 @@ contextBridge.exposeInMainWorld('slashbot', {
     onGraph: (cb: (...a: unknown[]) => void) => listen('swarm:graph', cb),
     onAgents: (cb: (...a: unknown[]) => void) => listen('swarm:agents', cb),
     onActivity: (cb: (...a: unknown[]) => void) => listen('swarm:activity', cb),
+    planApprove: (projectPath: string, modifiedPlan?: string) =>
+      ipcRenderer.invoke('swarm:plan-approve', projectPath, modifiedPlan),
+    planReject: (projectPath: string) =>
+      ipcRenderer.invoke('swarm:plan-reject', projectPath),
     onPlanPhase: (cb: (...a: unknown[]) => void) => listen('swarm:planPhase', cb),
+    onPlanThinking: (cb: (...a: unknown[]) => void) => listen('swarm:planThinking', cb),
     onPlanQueue: (cb: (...a: unknown[]) => void) => listen('swarm:planQueue', cb),
     onStopped: (cb: (...a: unknown[]) => void) => listen('swarm:stopped', cb),
     buildMonitor: {

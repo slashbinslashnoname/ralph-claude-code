@@ -273,3 +273,27 @@ export function validateSwarmBuildMonitorStatus(projectPath: unknown): {
     projectPath: validateProjectPath(projectPath),
   }
 }
+
+// ── Composite: plan approve / reject ──────────────────────────────────────
+
+export function validateSwarmPlanApprove(projectPath: unknown, modifiedPlan: unknown): {
+  projectPath: string
+  modifiedPlan?: string
+} {
+  const result: { projectPath: string; modifiedPlan?: string } = {
+    projectPath: validateProjectPath(projectPath),
+  }
+  if (modifiedPlan !== undefined && modifiedPlan !== null) {
+    if (typeof modifiedPlan !== 'string') throw new Error('modifiedPlan must be a string')
+    result.modifiedPlan = modifiedPlan
+  }
+  return result
+}
+
+export function validateSwarmPlanReject(projectPath: unknown): {
+  projectPath: string
+} {
+  return {
+    projectPath: validateProjectPath(projectPath),
+  }
+}

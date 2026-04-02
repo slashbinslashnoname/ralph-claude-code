@@ -68,6 +68,18 @@ export class SwarmOrchestrator extends EventEmitter {
     return [...this.planQueue]
   }
 
+  approvePlan(modifiedPlan?: string): boolean {
+    if (!this.planner || !this.planner.pendingApproval) return false
+    this.planner.approvePlan(modifiedPlan)
+    return true
+  }
+
+  rejectPlan(): boolean {
+    if (!this.planner || !this.planner.pendingApproval) return false
+    this.planner.rejectPlan()
+    return true
+  }
+
   private async _drainQueue(): Promise<void> {
     if (this.planning || this.planQueue.length === 0) return
     const next = this.planQueue.shift()!
@@ -85,6 +97,9 @@ export class SwarmOrchestrator extends EventEmitter {
       this.emit('output', 'planner', chunk)
     })
     this.planner.on('phase', (phase: string) => this.emit('planPhase', phase, next.request))
+    this.planner.on('planThinking', (planMd: string, request: string) => {
+      this.emit('planThinking', planMd, request)
+    })
     this.planner.on('done', (beadCount: number) => {
       this.planning = false
       this.currentPlanRequest = null

@@ -48,6 +48,8 @@ import {
   validateSwarmBuildMonitorStatus,
   validateSwarmActivityForBead,
   validateSwarmActivityForAgent,
+  validateSwarmPlanApprove,
+  validateSwarmPlanReject,
 } from './loop/swarmValidation'
 import type { TelegramNotifyLevel } from './types'
 import { EnableOptions } from './types'
@@ -622,6 +624,7 @@ export function registerIpc(
     swarm.on('agents', (agents: unknown) => broadcast('swarm:agents', projectPath, agents))
     swarm.on('activity', (event: unknown) => broadcast('swarm:activity', projectPath, event))
     swarm.on('planPhase', (phase: string, request: string) => broadcast('swarm:planPhase', projectPath, phase, request))
+    swarm.on('planThinking', (planMd: string, request: string) => broadcast('swarm:planThinking', projectPath, planMd, request))
     swarm.on('planQueue', (queue: unknown) => broadcast('swarm:planQueue', projectPath, queue))
     swarm.on('stopped', () => {
       swarms.delete(projectPath)
@@ -666,6 +669,28 @@ export function registerIpc(
       const v = validateSwarmQueue(projectPath)
       const swarm = swarms.get(v.projectPath)
       return swarm ? swarm.getPlanQueue() : []
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:plan-approve', (_e, projectPath: unknown, modifiedPlan: unknown) => {
+    try {
+      const v = validateSwarmPlanApprove(projectPath, modifiedPlan)
+      const swarm = swarms.get(v.projectPath)
+      if (!swarm) return { ok: false, error: 'No swarm' }
+      return { ok: swarm.approvePlan(v.modifiedPlan) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:plan-reject', (_e, projectPath: unknown) => {
+    try {
+      const v = validateSwarmPlanReject(projectPath)
+      const swarm = swarms.get(v.projectPath)
+      if (!swarm) return { ok: false, error: 'No swarm' }
+      return { ok: swarm.rejectPlan() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }

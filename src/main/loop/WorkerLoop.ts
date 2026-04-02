@@ -27,6 +27,19 @@ const BD_SYSTEM_PROMPT = `
 - Focus on implementing the assigned bead.
 - Commit your changes with a descriptive message when done.
 - If you discover new issues, note them in your output — do not try to fix everything.
+
+## CASS Memory (\`cm\` CLI)
+Before starting work, retrieve relevant knowledge from CASS memory:
+\`\`\`
+cm context "brief description of the task" --limit 30
+\`\`\`
+This returns relevant rules, anti-patterns, and historical context. Use it to inform your approach.
+When done, record the outcome:
+\`\`\`
+cm outcome success --summary "what was done"
+cm outcome failure --summary "what went wrong"
+\`\`\`
+If \`cm\` is not installed, skip these steps silently and proceed with the task.
 `
 
 /**
@@ -178,9 +191,8 @@ export class WorkerLoop extends EventEmitter {
   private _buildCapabilities(): WorkerCapabilities {
     return {
       runClaude: (prompt, label, cwd, model) => this._runClaude(prompt, label, cwd, model),
-      buildExecutePrompt: (bead, cassContext) => this._buildExecutePrompt(bead, cassContext),
+      buildExecutePrompt: (bead) => this._buildExecutePrompt(bead),
       buildReviewPrompt: (bead) => this._buildReviewPrompt(bead),
-      getCassContext: (task) => this._getCassContext(task),
       detectApiLimit: (output) => detectApiLimit(output),
       stripAnsi: (s) => stripAnsi(s),
       extractText: (raw) => this._extractText(raw),
@@ -387,8 +399,6 @@ export class WorkerLoop extends EventEmitter {
           // Paused and then stopped — fall through
         } else {
         // ── Fetch CASS context from cm CLI ──────────────────────────
-        const cassContext = await this._getCassContext(`${bead.title}\n${bead.description ?? ''}`)
-
         // ── Phase 1: Execute — implement the bead ───────────────────
         this._setPhase('executing', bead.id, bead.title)
         this._log('INFO', `[${this.agentId}] Executing bead…`)
@@ -398,7 +408,7 @@ export class WorkerLoop extends EventEmitter {
         })
         executeOutput = ''
         try {
-          executeOutput = await this._runClaude(this._buildExecutePrompt(bead, cassContext), 'execute', workDir, this.config.claudeModelExecute)
+          executeOutput = await this._runClaude(this._buildExecutePrompt(bead), 'execute', workDir, this.config.claudeModelExecute)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('ERROR', `[${this.agentId}] Execute failed: ${msg}`)
@@ -605,7 +615,7 @@ export class WorkerLoop extends EventEmitter {
   private _runClaude(prompt: string, label: string, cwd?: string, model?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = ['-p', prompt, '--output-format', this.config.claudeOutputFormat,
-        '--dangerously-skip-permissions']
+        '--verbose', '--dangerously-skip-permissions']
       if (model) args.push('--model', model)
       if (this.config.continueSession && this.sessionId) args.push('--resume', this.sessionId)
 
@@ -724,7 +734,7 @@ export class WorkerLoop extends EventEmitter {
   }
 
   /** Build the execute prompt for a bead with CASS memory context */
-  private _buildExecutePrompt(bead: Bead, cassContext: string): string {
+  private _buildExecutePrompt(bead: Bead): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const parentContext = this._buildParentContext(bead)
@@ -745,7 +755,6 @@ export class WorkerLoop extends EventEmitter {
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       parentContext ? `\n${parentContext}` : '',
       knowledgeContext ? `\n${knowledgeContext}` : '',
-      cassContext ? `\n${cassContext}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
       `\n---\n## Task`,
@@ -764,50 +773,13 @@ export class WorkerLoop extends EventEmitter {
       `- Is the code idiomatic and consistent with the rest of the codebase?`,
       `\nIf issues are found, fix them now. If good, say so briefly.`,
       `Commit any fixes. Do NOT re-implement from scratch.`,
+      `\nIf you discover issues outside the scope of this bead (e.g. pre-existing bugs, unrelated test failures, tech debt), do NOT fix them here. Instead, create a new bead for each issue using \`bd create "title" -t task -p 2 -d "description" -l "fix-later" --json\` so it gets tracked and addressed separately.`,
       `You can use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
-      `Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, \`bd create\`, or \`bd delete\` — the orchestrator handles bead lifecycle.`,
-    ].join('\n')
+      `Do NOT run \`bd close\`, \`bd reopen\`, \`bd claim\`, or \`bd delete\` — the orchestrator handles bead lifecycle.`,
+      BD_SYSTEM_PROMPT,
+    ].filter(Boolean).join('\n')
   }
 
-  /** Fetch formatted CASS memory context for a task description via direct cm CLI call. Gracefully returns empty string if cm CLI unavailable. */
-  private async _getCassContext(task: string): Promise<string> {
-    try {
-      const out = await new Promise<string>((resolve, reject) => {
-        cp.execFile('cm', ['context', task, '--json', '--limit', '30'], { timeout: 30_000 }, (err, stdout, stderr) => {
-          if (err) reject(new Error(stderr?.trim() || err.message))
-          else resolve(stdout)
-        })
-      })
-      const parsed = JSON.parse(out)
-      const rules = parsed.relevantBullets ?? parsed.relevant_bullets ?? []
-      const antiPatterns = parsed.antiPatterns ?? parsed.anti_patterns ?? []
-      const history = parsed.historySnippets ?? parsed.history_snippets ?? []
-
-      const sections: string[] = []
-      if (rules.length > 0) {
-        sections.push('### Relevant knowledge (from CASS memory)')
-        for (const rule of rules.slice(0, 15)) {
-          const conf = rule.confidence ? ` [confidence: ${rule.confidence}%]` : ''
-          sections.push(`- ${rule.text}${conf}`)
-        }
-      }
-      if (antiPatterns.length > 0) {
-        sections.push('\n### Anti-patterns to avoid')
-        for (const ap of antiPatterns.slice(0, 5)) {
-          sections.push(`- ⚠ ${ap.text}`)
-        }
-      }
-      if (history.length > 0) {
-        sections.push('\n### Historical context')
-        for (const snippet of history.slice(0, 3)) {
-          sections.push(`- ${snippet}`)
-        }
-      }
-      return sections.length > 0 ? sections.join('\n') : ''
-    } catch {
-      return ''
-    }
-  }
 
   /**
    * Wait for API quota to reset by polling the circuit breaker's rateLimitLifted().

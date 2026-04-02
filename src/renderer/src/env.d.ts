@@ -109,7 +109,10 @@ interface SlashbotAPI {
     onGraph: (cb: (proj: string, stats: ProgressStats) => void) => () => void
     onAgents: (cb: (proj: string, agents: import('./types/ipc').AgentInfo[]) => void) => () => void
     onActivity: (cb: (proj: string, event: ActivityEvent) => void) => () => void
+    planApprove: (p: string, modifiedPlan?: string) => Promise<{ ok: boolean }>
+    planReject: (p: string) => Promise<{ ok: boolean }>
     onPlanPhase: (cb: (proj: string, phase: string, request?: string) => void) => () => void
+    onPlanThinking: (cb: (proj: string, planMd: string, request: string) => void) => () => void
     onPlanQueue: (cb: (proj: string, queue: PlanQueueItem[]) => void) => () => void
     onStopped: (cb: () => void) => () => void
     buildMonitor: {

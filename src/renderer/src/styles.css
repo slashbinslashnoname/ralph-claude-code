@@ -1318,6 +1318,67 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 }
 .update-banner .btn-sm:hover { background: rgba(255,255,255,0.3); }
 
+/* ── Swarm Page (flat layout) ─────────────────────────────────────────────── */
+
+.swarm-tabs {
+  display: flex; gap: 2px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--bg-2); padding-bottom: 0; margin-bottom: 0;
+}
+
+.swarm-content {
+  flex: 1; min-height: 0; overflow-y: auto;
+}
+
+.swarm-content .agent-output-live {
+  flex: 1; min-height: 300px; max-height: calc(100vh - 280px);
+  overflow-y: auto; background: var(--bg-0);
+  border: 1px solid var(--bg-2); border-radius: 8px; padding: 12px;
+}
+
+/* ── Plan Page ────────────────────────────────────────────────────────────── */
+
+.plan-page { display: flex; flex-direction: column; gap: 16px; }
+
+.plan-inject { display: flex; gap: 8px; align-items: flex-end; }
+.plan-inject .textarea-prompt {
+  flex: 1; resize: vertical; min-height: 60px;
+  background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 8px;
+  color: var(--fg-0); padding: 10px 12px; font-family: inherit; font-size: 13px;
+}
+.plan-inject .textarea-prompt:focus { border-color: var(--accent); outline: none; }
+
+.plan-queue { display: flex; flex-direction: column; gap: 4px; }
+.plan-queue-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: 6px; background: var(--bg-1);
+  font-size: 13px;
+}
+.plan-queue-active { border-left: 3px solid var(--warning); }
+.plan-queue-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-1); }
+
+.plan-review {
+  background: var(--bg-1); border: 1px solid var(--accent); border-radius: 10px;
+  padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.plan-review-header { display: flex; flex-direction: column; gap: 4px; }
+.plan-review-header h3 { font-size: 15px; font-weight: 700; color: var(--accent); }
+.plan-review-request { font-size: 12px; color: var(--fg-2); }
+.plan-review-editor {
+  width: 100%; resize: vertical; min-height: 200px;
+  background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 6px;
+  color: var(--fg-0); padding: 10px 12px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px;
+  line-height: 1.5;
+}
+.plan-review-editor:focus { border-color: var(--accent); outline: none; }
+.plan-review-actions { display: flex; gap: 8px; }
+
+.plan-output { display: flex; flex-direction: column; gap: 8px; }
+.plan-output-title { font-size: 14px; font-weight: 600; color: var(--fg-1); }
+.plan-output .agent-output {
+  max-height: 500px; overflow-y: auto; background: var(--bg-0);
+  border: 1px solid var(--bg-2); border-radius: 8px; padding: 12px;
+}
+
 /* ── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

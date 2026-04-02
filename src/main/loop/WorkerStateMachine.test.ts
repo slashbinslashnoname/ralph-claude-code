@@ -84,7 +84,6 @@ function makeCapabilities(overrides: Partial<WorkerCapabilities> = {}): WorkerCa
     runClaude: vi.fn().mockResolvedValue('output'),
     buildExecutePrompt: vi.fn().mockReturnValue('exec prompt'),
     buildReviewPrompt: vi.fn().mockReturnValue('review prompt'),
-    getCassContext: vi.fn().mockResolvedValue(''),
     detectApiLimit: vi.fn().mockReturnValue(false),
     stripAnsi: vi.fn().mockImplementation((s: string) => s),
     extractText: vi.fn().mockImplementation((s: string) => s),

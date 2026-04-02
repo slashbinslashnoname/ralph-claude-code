@@ -78,12 +78,10 @@ export interface WorkerFlags {
 export interface WorkerCapabilities {
   /** Run a Claude CLI subprocess. Returns raw output. */
   runClaude: (prompt: string, label: string, cwd: string, model?: string) => Promise<string>
-  /** Build the execute prompt for a bead with CASS context */
-  buildExecutePrompt: (bead: Bead, cassContext: string) => string
+  /** Build the execute prompt for a bead */
+  buildExecutePrompt: (bead: Bead) => string
   /** Build the review prompt for a bead */
   buildReviewPrompt: (bead: Bead) => string
-  /** Fetch formatted CASS memory context for a task description */
-  getCassContext: (task: string) => Promise<string>
   /** Detect API rate limiting in output */
   detectApiLimit: (output: string) => boolean
   /** Strip ANSI codes from output */
@@ -279,15 +277,10 @@ export async function executing(ctx: WorkerContext): Promise<StateId> {
     beadTitle: bead.title, summary: 'Implementing…'
   })
 
-  // Fetch CASS memory context for the execute prompt
-  const cassContext = await ctx.capabilities.getCassContext(
-    `${bead.title}\n${bead.description ?? ''}`
-  )
-
   let executeOutput = ''
   try {
     executeOutput = await ctx.capabilities.runClaude(
-      ctx.capabilities.buildExecutePrompt(bead, cassContext),
+      ctx.capabilities.buildExecutePrompt(bead),
       'execute', workDir, ctx.config.claudeModelExecute
     )
     ctx.executeOutput = executeOutput

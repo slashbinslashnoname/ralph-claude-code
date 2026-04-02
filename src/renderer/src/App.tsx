@@ -7,16 +7,18 @@ import BeadsPage from './pages/BeadsPage'
 import SwarmPage from './pages/SwarmPage'
 import LogViewer from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
+import PlanPage from './pages/PlanPage'
 import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
 
 const sb = window.slashbot
 
-type Page = 'dashboard' | 'beads' | 'swarm' | 'logs' | 'config' | 'setup'
+type Page = 'dashboard' | 'beads' | 'swarm' | 'plan' | 'logs' | 'config' | 'setup'
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u25C9' },
+  { id: 'plan', label: 'Plan', icon: '\u25B6' },
   { id: 'beads', label: 'Beads', icon: '\u29BE' },
   { id: 'swarm', label: 'Swarm', icon: '\u2B21' },
   { id: 'logs', label: 'Logs', icon: '\u2630' },
@@ -99,6 +101,9 @@ export default function App() {
     return () => { tabs.forEach(t => sb.unsubscribeProject(t.path)) }
   }, [loaded, tabs.map(t => t.path).join('\0')])
 
+  // Plan approval state (persists across navigation)
+  const [pendingPlan, setPendingPlan] = useState<{ planMd: string; request: string } | null>(null)
+
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
   const [agentOutputs, setAgentOutputs] = useState<Record<string, string>>(globalAgentOutputs)
   const [swarmActivity, setSwarmActivity] = useState<ActivityEvent[]>(globalActivity)
@@ -132,6 +137,12 @@ export default function App() {
         globalAgentOutputs[agentId] = (globalAgentOutputs[agentId] ?? '').slice(-50000) + chunk
         outputDirty.current = true
         scheduleFlush()
+      }),
+      sb.swarm.onPlanThinking((_p: string, planMd: string, request: string) => {
+        setPendingPlan({ planMd, request })
+      }),
+      sb.swarm.onPlanPhase((_p: string, phase: string) => {
+        if (phase === 'done' || phase === '') setPendingPlan(null)
       }),
       sb.swarm.onActivity((_p: string, event: ActivityEvent) => {
         const key = `${event.ts}:${event.agentId}:${event.type}`
@@ -294,6 +305,15 @@ export default function App() {
               setAgentOutputs={setAgentOutputs}
               activity={swarmActivity}
               setActivity={setSwarmActivity}
+            />
+          )}
+          {current.page === 'plan' && current.isEnabled && (
+            <PlanPage
+              projectPath={current.path}
+              pendingPlan={pendingPlan}
+              setPendingPlan={setPendingPlan}
+              agentOutputs={agentOutputs}
+              setAgentOutputs={setAgentOutputs}
             />
           )}
           {current.page === 'logs' && current.isEnabled && <LogViewer projectPath={current.path} />}
