@@ -7,10 +7,9 @@ const sb = window.slashbot
 
 interface Props { projectPath: string }
 
-type BeadFilter = 'all' | 'open' | 'in_progress' | 'closed'
+type BeadFilter = 'open' | 'in_progress' | 'closed'
 
 const TABS: { id: BeadFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
   { id: 'open', label: 'Open' },
   { id: 'in_progress', label: 'In Progress' },
   { id: 'closed', label: 'Closed' },
@@ -18,7 +17,7 @@ const TABS: { id: BeadFilter; label: string }[] = [
 
 export default function BeadsPage({ projectPath }: Props) {
   const [beads, setBeads] = useState<Bead[]>([])
-  const [filter, setFilter] = useState<BeadFilter>('all')
+  const [filter, setFilter] = useState<BeadFilter>('open')
   const [bdAvailable, setBdAvailable] = useState(true)
   const [loading, setLoading] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
@@ -46,7 +45,7 @@ export default function BeadsPage({ projectPath }: Props) {
     const check = await sb.beads.check(projectPath)
     setBdAvailable(check.available)
     if (check.available) {
-      const r = await sb.beads.list(projectPath, filter === 'all' ? 'all' : filter)
+      const r = await sb.beads.list(projectPath, filter)
       if (r.ok) setBeads(r.tasks)
     }
     setLoading(false)
@@ -205,14 +204,6 @@ export default function BeadsPage({ projectPath }: Props) {
       refresh()
     }
   }, [sortedBeads, projectPath, refresh])
-
-  // Count beads per status for tab badges
-  const counts = {
-    all: beads.length,
-    open: 0, in_progress: 0, closed: 0
-  }
-  // We re-count from the "all" set if on all tab, otherwise just show current
-  // For simplicity, we always show the current list length
 
   if (!bdAvailable) {
     return (
