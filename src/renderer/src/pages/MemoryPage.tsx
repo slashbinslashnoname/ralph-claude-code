@@ -10,10 +10,15 @@ interface Bullet {
   maturity?: string
   scope?: string
   state?: string
-  feedbackCount?: number
-  helpfulCount?: number
-  harmfulCount?: number
-  createdAt?: string
+  relevanceScore?: number
+  reasoning?: string
+}
+
+interface ContextResult {
+  relevantBullets?: Bullet[]
+  antiPatterns?: Bullet[]
+  historySnippets?: { snippet: string; agent?: string; score?: number; source_path?: string }[]
+  suggestedCassQueries?: string[]
 }
 
 interface Trauma {
@@ -36,18 +41,18 @@ interface Stats {
   staleCount?: number
 }
 
-type Tab = 'rules' | 'top' | 'stale' | 'traumas' | 'query'
+type Tab = 'query' | 'rules' | 'top' | 'stale' | 'traumas'
 
 export default function MemoryPage() {
   const [available, setAvailable] = useState<boolean | null>(null)
-  const [activeTab, setActiveTab] = useState<Tab>('rules')
+  const [activeTab, setActiveTab] = useState<Tab>('query')
   const [stats, setStats] = useState<Stats | null>(null)
   const [bullets, setBullets] = useState<Bullet[]>([])
   const [topBullets, setTopBullets] = useState<Bullet[]>([])
   const [staleBullets, setStaleBullets] = useState<Bullet[]>([])
   const [traumas, setTraumas] = useState<Trauma[]>([])
   const [queryTask, setQueryTask] = useState('')
-  const [queryResult, setQueryResult] = useState<unknown>(null)
+  const [queryResult, setQueryResult] = useState<ContextResult | null>(null)
   const [querying, setQuerying] = useState(false)
   const [detail, setDetail] = useState<{ id: string; data: unknown } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -56,13 +61,18 @@ export default function MemoryPage() {
     sb.cm.check().then(r => setAvailable(r.available))
   }, [])
 
+  // Load stats on mount
+  useEffect(() => {
+    if (available) sb.cm.stats().then(s => setStats((s as { data?: Stats })?.data ?? null))
+  }, [available])
+
   const loadTab = useCallback(async (tab: Tab) => {
+    if (tab === 'query') return
     setLoading(true)
     setDetail(null)
     try {
       if (tab === 'rules') {
-        const [s, r] = await Promise.all([sb.cm.stats(), sb.cm.playbookList()])
-        setStats((s as { data?: Stats })?.data ?? null)
+        const r = await sb.cm.playbookList()
         setBullets(((r as { data?: { bullets?: Bullet[] } })?.data?.bullets) ?? [])
       } else if (tab === 'top') {
         const r = await sb.cm.top(20)
@@ -92,11 +102,12 @@ export default function MemoryPage() {
   const runQuery = useCallback(async () => {
     if (!queryTask.trim()) return
     setQuerying(true)
+    setQueryResult(null)
     try {
-      const r = await sb.cm.context(queryTask)
-      setQueryResult(r)
+      const r = await sb.cm.context(queryTask) as { data?: ContextResult; success?: boolean }
+      setQueryResult(r?.data ?? r as unknown as ContextResult)
     } catch (e) {
-      setQueryResult({ error: e instanceof Error ? e.message : String(e) })
+      setQueryResult(null)
     }
     setQuerying(false)
   }, [queryTask])
@@ -141,6 +152,81 @@ export default function MemoryPage() {
     </div>
   )
 
+  const renderContextResults = (ctx: ContextResult) => (
+    <div className="memory-results">
+      {/* Relevant rules */}
+      {ctx.relevantBullets && ctx.relevantBullets.length > 0 && (
+        <div className="memory-section">
+          <h4 className="memory-section-title">Relevant rules</h4>
+          {ctx.relevantBullets.map(b => (
+            <div key={b.id} className="activity-item" style={{ cursor: 'pointer' }}
+              onClick={() => showDetail(b.id)}>
+              <span className={`badge badge-${scoreColor(b.effectiveScore)}`} style={{ minWidth: 36, textAlign: 'center' }}>
+                {b.effectiveScore?.toFixed(1) ?? '-'}
+              </span>
+              {b.relevanceScore !== undefined && (
+                <span className="activity-files">{Math.round(b.relevanceScore * 100)}% match</span>
+              )}
+              <span className="activity-summary" style={{ flex: 1 }}>{b.content}</span>
+              <span className="activity-files">{b.id}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Anti-patterns */}
+      {ctx.antiPatterns && ctx.antiPatterns.length > 0 && (
+        <div className="memory-section">
+          <h4 className="memory-section-title memory-section-danger">Anti-patterns to avoid</h4>
+          {ctx.antiPatterns.map(b => (
+            <div key={b.id} className="activity-item">
+              <span className="badge badge-danger" style={{ minWidth: 36, textAlign: 'center' }}>
+                {b.effectiveScore?.toFixed(1) ?? '-'}
+              </span>
+              <span className="activity-summary" style={{ flex: 1 }}>{b.content}</span>
+              <span className="activity-files">{b.id}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* History snippets */}
+      {ctx.historySnippets && ctx.historySnippets.length > 0 && (
+        <div className="memory-section">
+          <h4 className="memory-section-title">Historical context</h4>
+          {ctx.historySnippets.map((h, i) => (
+            <div key={i} className="activity-item">
+              {h.agent && <span className="badge badge-info">{h.agent}</span>}
+              {h.score !== undefined && <span className="activity-files">{Math.round(h.score * 100)}%</span>}
+              <span className="activity-summary" style={{ flex: 1, whiteSpace: 'pre-wrap' }}>
+                {h.snippet.length > 300 ? h.snippet.slice(0, 300) + '...' : h.snippet}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Suggested queries */}
+      {ctx.suggestedCassQueries && ctx.suggestedCassQueries.length > 0 && (
+        <div className="memory-section">
+          <h4 className="memory-section-title">Suggested deeper searches</h4>
+          {ctx.suggestedCassQueries.map((q, i) => (
+            <div key={i} className="activity-item">
+              <code className="activity-summary" style={{ flex: 1, fontSize: 12 }}>{q}</code>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty */}
+      {(!ctx.relevantBullets || ctx.relevantBullets.length === 0) &&
+       (!ctx.antiPatterns || ctx.antiPatterns.length === 0) &&
+       (!ctx.historySnippets || ctx.historySnippets.length === 0) && (
+        <div className="empty-state-sm"><p>No relevant memories found for this query.</p></div>
+      )}
+    </div>
+  )
+
   return (
     <div className="page memory-page">
       <header className="page-header">
@@ -154,6 +240,24 @@ export default function MemoryPage() {
         )}
       </header>
 
+      {/* Query prompt — always visible at top, like plan inject */}
+      <div className="plan-inject">
+        <textarea
+          className="textarea textarea-prompt"
+          placeholder="What are you working on? Query cross-agent memory for relevant rules, anti-patterns, and historical context..."
+          rows={2}
+          value={queryTask}
+          onChange={e => setQueryTask(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) runQuery() }}
+        />
+        <button className="btn btn-primary" onClick={runQuery} disabled={!queryTask.trim() || querying}>
+          {querying ? 'Querying...' : 'Query'}
+        </button>
+      </div>
+
+      {/* Query results */}
+      {queryResult && renderContextResults(queryResult)}
+
       {/* Stats overview */}
       {stats && stats.total > 0 && stats.scoreDistribution && (
         <div className="stats-bar">
@@ -166,16 +270,15 @@ export default function MemoryPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Tabs for browsing */}
       <div className="swarm-tabs">
-        {(['rules', 'top', 'stale', 'traumas', 'query'] as Tab[]).map(t => (
+        {(['rules', 'top', 'stale', 'traumas'] as Tab[]).map(t => (
           <button key={t} className={`tab ${activeTab === t ? 'active' : ''}`}
             onClick={() => setActiveTab(t)}>
             {t === 'rules' ? `Rules (${bullets.length})` :
              t === 'top' ? 'Top' :
              t === 'stale' ? 'Stale' :
-             t === 'traumas' ? `Traumas (${traumas.length})` :
-             'Query'}
+             `Traumas (${traumas.length})`}
           </button>
         ))}
       </div>
@@ -217,29 +320,6 @@ export default function MemoryPage() {
                 <span className="activity-files">{t.id}</span>
               </div>
             ))}
-          </div>
-        )}
-
-        {!detail && activeTab === 'query' && (
-          <div>
-            <div className="plan-inject" style={{ marginBottom: 16 }}>
-              <input
-                className="textarea textarea-prompt"
-                style={{ minHeight: 'auto', padding: '8px 12px' }}
-                placeholder="Describe a task to query CASS memory..."
-                value={queryTask}
-                onChange={e => setQueryTask(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') runQuery() }}
-              />
-              <button className="btn btn-primary" onClick={runQuery} disabled={!queryTask.trim() || querying}>
-                {querying ? 'Querying...' : 'Query'}
-              </button>
-            </div>
-            {queryResult && (
-              <pre className="memory-detail">
-                {JSON.stringify(queryResult, null, 2)}
-              </pre>
-            )}
           </div>
         )}
       </div>
