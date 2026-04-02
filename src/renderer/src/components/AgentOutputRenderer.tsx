@@ -47,6 +47,8 @@ function parseOutputSegments(raw: string): OutputSegment[] {
   for (const line of lines) {
     const trimmed = line.trim()
     if (!trimmed) { textBuf.push(''); continue }
+    // Skip verbose tool-call indicators (▸ Read, ▸ Bash, etc.) — tool_use segments show these
+    if (/^[▸▹►]/.test(trimmed)) continue
     if (!trimmed.startsWith('{')) { textBuf.push(line); continue }
 
     try {
@@ -112,35 +114,14 @@ function parseOutputSegments(raw: string): OutputSegment[] {
         continue
       }
 
-      // user messages contain tool_result content being sent back to Claude
+      // user messages contain tool_result content — skip entirely.
+      // Tool results are often huge (file contents, build output) and
+      // the interesting part (what Claude did with them) is in assistant messages.
       if (obj.type === 'user') {
-        const content = obj.message?.content
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_result') {
-              flushText()
-              const resultContent = typeof block.content === 'string'
-                ? block.content
-                : Array.isArray(block.content)
-                  ? block.content.map((c: { text?: string }) => c.text ?? '').join('\n')
-                  : JSON.stringify(block.content ?? '', null, 2)
-              if (resultContent.trim()) {
-                segments.push({ kind: 'tool_result', content: resultContent, is_error: block.is_error })
-              }
-            }
-          }
-        }
         continue
       }
 
-      // Skip known noise events silently (don't render as raw text)
-      if (['message_start', 'message_delta', 'message_stop',
-           'content_block_start', 'content_block_delta', 'content_block_stop',
-           'ping', 'error'].includes(obj.type)) {
-        continue
-      }
-
-      // Unknown JSON — skip silently to avoid raw JSON noise
+      // Skip all other JSON event types silently
       continue
     } catch {
       textBuf.push(line)
@@ -286,21 +267,18 @@ function truncateInput(input: string, max = 120): string {
 
 function ToolUseBlock({ name, input }: { name: string; input: string }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = input.length > 150
 
   return (
     <div className="sj-tool-use">
-      <div className="sj-tool-header" onClick={() => isLong && setExpanded(!expanded)}>
+      <div className="sj-tool-header" onClick={() => setExpanded(!expanded)}>
         <span className="sj-tool-icon">{'\u25B8'}</span>
         <span className="sj-tool-name">{name}</span>
-        {!expanded && isLong && (
+        {!expanded && (
           <span className="sj-tool-preview">{truncateInput(input)}</span>
         )}
-        {isLong && (
-          <span className={`sj-tool-expand ${expanded ? 'sj-expanded' : ''}`}>{'\u25B6'}</span>
-        )}
+        <span className={`sj-tool-expand ${expanded ? 'sj-expanded' : ''}`}>{'\u25B6'}</span>
       </div>
-      {(expanded || !isLong) && (
+      {expanded && (
         <pre className="sj-tool-input"><code>{input}</code></pre>
       )}
     </div>
@@ -309,20 +287,20 @@ function ToolUseBlock({ name, input }: { name: string; input: string }) {
 
 function ToolResultBlock({ content, is_error }: { content: string; is_error?: boolean }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = content.length > 300
+  const lines = content.split('\n').length
 
   return (
     <div className={`sj-tool-result ${is_error ? 'sj-tool-error' : ''}`}>
-      <div className="sj-result-header" onClick={() => isLong && setExpanded(!expanded)}>
+      <div className="sj-result-header" onClick={() => setExpanded(!expanded)}>
         <span className="sj-result-icon">{is_error ? '\u2717' : '\u2190'}</span>
-        <span className="sj-result-label">{is_error ? 'Error' : 'Result'}</span>
-        {isLong && (
-          <span className={`sj-tool-expand ${expanded ? 'sj-expanded' : ''}`}>{'\u25B6'}</span>
-        )}
+        <span className="sj-result-label">{is_error ? 'Error' : 'Result'} ({lines} lines)</span>
+        <span className={`sj-tool-expand ${expanded ? 'sj-expanded' : ''}`}>{'\u25B6'}</span>
       </div>
-      <pre className={`sj-result-content ${isLong && !expanded ? 'sj-truncated' : ''}`}>
-        <code>{expanded || !isLong ? content : content.slice(0, 300) + '\u2026'}</code>
-      </pre>
+      {expanded && (
+        <pre className="sj-result-content">
+          <code>{content}</code>
+        </pre>
+      )}
     </div>
   )
 }
