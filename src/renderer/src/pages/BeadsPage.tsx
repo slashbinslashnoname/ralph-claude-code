@@ -205,13 +205,6 @@ export default function BeadsPage({ projectPath }: Props) {
     }
   }, [sortedBeads, projectPath, refresh])
 
-  // Count beads per status for tab badges
-  const counts = {
-    open: 0, in_progress: 0, closed: 0
-  }
-  // We re-count from the "all" set if on all tab, otherwise just show current
-  // For simplicity, we always show the current list length
-
   if (!bdAvailable) {
     return (
       <div className="page">
