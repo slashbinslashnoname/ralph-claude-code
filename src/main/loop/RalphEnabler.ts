@@ -67,6 +67,7 @@ function generateRalphrc(ctx: ProjectContext, opts: EnableOptions): string {
     'Write', 'Read', 'Edit',
     'Bash(git add *)', 'Bash(git commit *)', 'Bash(git status)', 'Bash(git diff)', 'Bash(git log)',
     'Bash(bd *)',
+    'Bash(sm *)',
     ...(ctx.type === 'nodejs' ? ['Bash(npm *)'] : []),
     ...(ctx.type === 'python' ? ['Bash(pytest)', 'Bash(pip *)'] : []),
     ...(ctx.type === 'rust' ? ['Bash(cargo *)'] : []),
@@ -115,6 +116,78 @@ bd create "title" -t task -p 2 -d "desc" # Create if you discover new work
 - After implementing, run tests: \`${ctx.testCmd || 'your test command'}\`
 - Commit your work: \`git add -A && git commit -m "feat: description"\`
 - Close the bead via bd when done
+
+## Memory — slashmem
+
+You have access to \`sm\`, a local memory store. Use it to persist and retrieve procedural knowledge across sessions.
+
+Memory is automatically scoped per project: when run inside a git repository, \`sm\` detects the repo root and uses a project-specific database. No configuration needed. Use \`--project <name>\` to access a different project's memory.
+
+### Before starting a task
+
+Query for relevant context:
+\`\`\`bash
+sm context "<brief description of the task>"
+\`\`\`
+Review the returned \`relevant_rules\` (proven best practices) and \`anti_patterns\` (known pitfalls) before proceeding. Adjust your approach accordingly.
+
+### After completing a task
+
+Record what happened and reinforce/penalize rules:
+\`\`\`bash
+sm ingest --task "<task-id>" --body "<what happened and why>" --agent "<your-agent-id>" \\
+  [--success <rule-id>...] [--harm <rule-id>...]
+\`\`\`
+- Use \`--success <rule-id>\` for each rule that contributed to a good outcome
+- Use \`--harm <rule-id>\` for each rule that led to a bad outcome or was proven wrong
+
+### When you discover a reusable lesson
+
+Add it as a procedural rule:
+\`\`\`bash
+sm rules add "<rule-id>" "<rule text>" --source "<where you learned this>"
+\`\`\`
+Choose a short, descriptive kebab-case ID (e.g. \`always-run-migrations\`, \`no-force-push\`).
+
+### Periodic maintenance
+
+Run distill to decay stale rules and prune weak ones:
+\`\`\`bash
+sm distill
+\`\`\`
+
+### Checking status
+
+\`\`\`bash
+sm status
+\`\`\`
+
+### Managing rules
+
+\`\`\`bash
+sm rules list                    # list all rules
+sm rules list --query "deploy"   # search rules
+sm rules show <rule-id>          # inspect a rule
+sm rules rm <rule-id>            # remove a rule
+\`\`\`
+
+### Cross-project access
+
+\`\`\`bash
+sm projects                      # list all known projects
+sm --project <name> context "deploy"  # query another project's memory
+\`\`\`
+
+### Output format
+
+All commands output JSON when piped (or with \`--json\`). Parse output with \`jq\` or your JSON library. Errors follow this envelope:
+\`\`\`json
+{"error": {"code": "...", "message": "...", "suggestions": [...], "exit_code": N}}
+\`\`\`
+
+### Exit codes
+
+0 = success, 1 = not found, 2 = invalid input, 3 = db error, 4 = I/O error, 5 = parse error.
 
 ## Status reporting
 End every response with:
