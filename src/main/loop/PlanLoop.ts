@@ -6,6 +6,7 @@ import type { ChildProcess } from 'child_process'
 import { RalphConfig } from '../types'
 import { AgentCoordinator } from './AgentCoordinator'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
+import { extractResultFromJsonStream } from './ResponseAnalyzer'
 import { ProjectPaths } from './ProjectStore'
 
 export class PlanLoop extends EventEmitter {
@@ -81,7 +82,9 @@ export class PlanLoop extends EventEmitter {
     let planMd = ''
     try {
       const raw = await this._runClaude(this._buildPlanPrompt(userRequest), 'plan', this.config.claudeModelThink)
-      planMd = stripAnsi(raw)
+      // Extract plan text from stream-json result (the final {"type":"result"} object)
+      const { text: resultText } = extractResultFromJsonStream(raw)
+      planMd = stripAnsi(resultText || raw)
       this._log('SUCCESS', `Plan ready (${planMd.length} chars)`)
     } catch (err) {
       this._log('ERROR', `Plan failed: ${err instanceof Error ? err.message : err}`)
