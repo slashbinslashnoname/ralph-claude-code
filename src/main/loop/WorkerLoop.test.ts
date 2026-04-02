@@ -61,6 +61,7 @@ function makeConfig(overrides: Partial<RalphConfig> = {}): RalphConfig {
     cbErrorWindowThreshold: 5,
     cbPermissionDenialThreshold: 3,
     cbCooldownMinutes: 30,
+    cbMaxCooldownMinutes: 480,
     autoPush: false,
     maxRetries: 2,
     autoSplitThreshold: 3,
@@ -2611,6 +2612,111 @@ None.
         // Stop the worker to allow clean exit
         worker.stop()
         for (let i = 0; i < 4; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+        await startPromise.catch(() => {})
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('per-worker CB state file uses agentId', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        let claimCount = 0
+        coord.claimBestBead.mockImplementation(async () => {
+          claimCount++
+          if (claimCount > 1) return null
+          return makeBead({ id: 'sb-w9', title: 'Worker 9 bead' })
+        })
+        coord.hasOpenWorkAsync.mockResolvedValue(false)
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/worker-9', branch: 'worker/worker-9' })
+        coord.completeBead.mockResolvedValue(undefined)
+
+        const config = makeConfig({ cbNoProgressThreshold: 3 })
+        const worker = new WorkerLoop('worker-9', 0, '/project', config, coord, makePaths())
+
+        // Mock _runClaude to return progress output so cb.save() is called on the happy path
+        ;(worker as any)._runClaude = vi.fn(async () =>
+          '{"type":"result","result":"RALPH_STATUS: { \\"STATUS\\": \\"COMPLETE\\", \\"EXIT_SIGNAL\\": true, \\"FILES_MODIFIED\\": 2, \\"WORK_SUMMARY\\": \\"done\\" }"}'
+        )
+
+        const startPromise = worker.start()
+
+        // Advance enough for the bead to be processed
+        for (let i = 0; i < 30; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+
+        // Stop the worker after the bead is processed
+        worker.stop()
+        for (let i = 0; i < 10; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+        await startPromise.catch(() => {})
+
+        // Verify that circuit breaker state file includes the agentId "worker-9"
+        const cbSaveCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+          ([filePath]) => String(filePath).includes('.circuit_breaker_state_worker-9')
+        )
+        expect(cbSaveCalls.length).toBeGreaterThanOrEqual(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('detectApiLimit true triggers cb.recordRateLimit and _waitForQuotaReset', async () => {
+      vi.useFakeTimers()
+      try {
+        const coord = makeCoordinator()
+        let claimCount = 0
+        coord.claimBestBead.mockImplementation(async () => {
+          claimCount++
+          if (claimCount > 1) return null
+          return makeBead({ id: 'sb-rl', title: 'Rate limited bead' })
+        })
+        coord.hasOpenWorkAsync.mockResolvedValue(false)
+        coord.createWorktree.mockResolvedValue({ worktreePath: '/project/.worktrees/agent-0', branch: 'worker/agent-0' })
+        coord.reopenBead.mockResolvedValue(undefined)
+
+        const config = makeConfig({ cbNoProgressThreshold: 99 })
+        const worker = new WorkerLoop('agent-0', 0, '/project', config, coord, makePaths())
+
+        // Think succeeds; execute returns rate-limit output (detectApiLimit matches "rate limit reached")
+        let callIdx = 0
+        ;(worker as any)._runClaude = vi.fn(async () => {
+          callIdx++
+          if (callIdx === 1) return '{"type":"result","result":"analysis done"}' // think
+          // Execute returns rate-limit indicator that detectApiLimit recognizes
+          return '{"type":"result","result":"rate limit reached — please try again later"}'
+        })
+
+        const startPromise = worker.start()
+
+        // Advance enough for the think+execute phases to complete and rate limit path to trigger
+        for (let i = 0; i < 30; i++) {
+          await vi.advanceTimersByTimeAsync(500)
+        }
+
+        // Verify bead was reopened (rate limit path reopens the bead)
+        expect(coord.reopenBead).toHaveBeenCalledWith('agent-0', 'sb-rl')
+
+        // Verify activity was posted with 'API quota exhausted' summary
+        const rateLimitCalls = coord.postActivity.mock.calls.filter(
+          ([arg]: any) => typeof arg.summary === 'string' && arg.summary.includes('API quota exhausted')
+        )
+        expect(rateLimitCalls.length).toBeGreaterThanOrEqual(1)
+
+        // Verify CB state was saved with rate limit recorded
+        const cbSaveCalls = vi.mocked(fs.writeFileSync).mock.calls.filter(
+          ([filePath]) => String(filePath).includes('.circuit_breaker_state')
+        )
+        expect(cbSaveCalls.length).toBeGreaterThanOrEqual(1)
+
+        // Stop the worker to exit the _waitForQuotaReset loop
+        worker.stop()
+        for (let i = 0; i < 10; i++) {
           await vi.advanceTimersByTimeAsync(500)
         }
         await startPromise.catch(() => {})
