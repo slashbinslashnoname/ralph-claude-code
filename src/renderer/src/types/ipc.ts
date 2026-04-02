@@ -54,6 +54,8 @@ export interface AgentInfo {
   phase: AgentPhase | string
   currentBeadId: string | null
   currentBeadTitle: string | null
+  currentBeadDescription: string | null
+  currentBeadType: BeadType | null
   loopCount: number
   lastActivity: string
   worktreeBranch: string | null
@@ -210,6 +212,42 @@ export type UpdateEvent =
   | { type: 'progress'; progress: UpdateProgress }
   | { type: 'downloaded'; info: UpdateInfo }
   | { type: 'error'; error: string }
+
+// ---------------------------------------------------------------------------
+// Memory (cm CLI) types
+// ---------------------------------------------------------------------------
+
+export interface MemoryBullet {
+  id: string
+  content: string
+  category?: string
+  score?: number
+  feedback?: { helpful: number; harmful: number }
+}
+
+export interface MemoryContextResult {
+  success: boolean
+  data: {
+    task: string
+    relevantBullets: MemoryBullet[]
+    antiPatterns: MemoryBullet[]
+    historySnippets: unknown[]
+    deprecatedWarnings: unknown[]
+    suggestedCassQueries: string[]
+    degraded?: Record<string, unknown>
+  }
+  metadata?: { executionMs: number; version?: string }
+}
+
+export interface MemorySimilarResult {
+  success: boolean
+  data: {
+    query: string
+    mode: string
+    results: MemoryBullet[]
+  }
+  metadata?: { executionMs: number; version?: string }
+}
 
 // ---------------------------------------------------------------------------
 // Config types (structured .slashbotrc)

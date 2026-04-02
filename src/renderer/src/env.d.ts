@@ -4,6 +4,7 @@ import type {
   Bead, BeadType, ActivityEvent, KnowledgeEntry,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
   RalphConfig, UpdateState, UpdateInfo, UpdateProgress,
+  MemoryContextResult, MemorySimilarResult,
 } from './types/ipc'
 
 export {}
@@ -120,6 +121,13 @@ interface SlashbotAPI {
       status: (p: string) => Promise<{ enabled: boolean; running: boolean; lastStatus?: string; error?: string }>
     }
     onBuildStatus: (cb: (proj: string, status: string, detail?: BuildStatusDetail) => void) => () => void
+  }
+  memory: {
+    check: () => Promise<{ installed: boolean }>
+    context: (p: string, query: string) => Promise<{ ok: boolean; data?: MemoryContextResult; error?: string }>
+    similar: (p: string, query: string) => Promise<{ ok: boolean; data?: MemorySimilarResult; error?: string }>
+    stats: (p: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
+    top: (p: string, count?: number) => Promise<{ ok: boolean; data?: unknown; error?: string }>
   }
   telegram: {
     status: (p: string) => Promise<{

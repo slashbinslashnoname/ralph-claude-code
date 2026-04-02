@@ -621,6 +621,39 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Slashmem migration banner
+// ---------------------------------------------------------------------------
+
+const SM_SECTION_MARKER = '## Memory — slashmem'
+
+function SlashmemMigrationNote({ dismissed, onDismiss }: { dismissed: boolean; onDismiss: () => void }) {
+  if (dismissed) return null
+  return (
+    <div className="alert alert-info slashmem-migration-note" style={{ marginBottom: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <strong>Missing slashmem (sm) section</strong>
+          <p style={{ margin: '4px 0 0' }}>
+            Your PROMPT.md was created before slashmem integration.
+            To add it, paste the <code>## Memory — slashmem</code> section above
+            &quot;Status reporting&quot;, or re-enable the project with <code>force: true</code> to
+            regenerate PROMPT.md with the sm section included.
+          </p>
+        </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onDismiss}
+          aria-label="Dismiss migration note"
+          style={{ marginLeft: 8, flexShrink: 0 }}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ConfigEditor (main component)
 // ---------------------------------------------------------------------------
 
@@ -630,6 +663,12 @@ export default function ConfigEditor({ projectPath }: Props) {
   const [content, setContent] = useState('')
   const [saved, setSaved] = useState(true)
   const [error, setError] = useState('')
+  const [smNoteDismissed, setSmNoteDismissed] = useState(false)
+
+  const showSmNote = activeFile === 'PROMPT.md'
+    && content.length > 0
+    && !content.includes(SM_SECTION_MARKER)
+    && !smNoteDismissed
 
   useEffect(() => {
     if (activeTab !== 'prompts') return
@@ -638,6 +677,11 @@ export default function ConfigEditor({ projectPath }: Props) {
       else setError(r.error ?? 'Failed to read file')
     })
   }, [projectPath, activeFile, activeTab])
+
+  // Reset dismiss state when switching files
+  useEffect(() => {
+    setSmNoteDismissed(false)
+  }, [activeFile])
 
   const save = useCallback(async () => {
     const r = await sb.writeFile(projectPath, activeFile, content)
@@ -697,6 +741,12 @@ export default function ConfigEditor({ projectPath }: Props) {
               </button>
             ))}
           </div>
+          {showSmNote && (
+            <SlashmemMigrationNote
+              dismissed={smNoteDismissed}
+              onDismiss={() => setSmNoteDismissed(true)}
+            />
+          )}
           {error && <div className="alert alert-danger">{error}</div>}
           <textarea
             className="code-editor"
@@ -714,4 +764,4 @@ export default function ConfigEditor({ projectPath }: Props) {
 }
 
 // Export for testing
-export { SettingsSection, NumberField, CheckboxField, TextField, validateField, NUMERIC_RANGES }
+export { SettingsSection, NumberField, CheckboxField, TextField, validateField, NUMERIC_RANGES, SM_SECTION_MARKER, SlashmemMigrationNote }

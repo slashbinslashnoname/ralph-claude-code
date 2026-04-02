@@ -46,6 +46,8 @@ describe('SwarmPage type contracts', () => {
       phase: 'executing',
       currentBeadId: 'sb-1',
       currentBeadTitle: 'Fix bug',
+      currentBeadDescription: 'Fix the authentication bug in login flow',
+      currentBeadType: 'bug',
       loopCount: 3,
       lastActivity: '2026-03-21T10:00:00Z',
       worktreeBranch: 'feat/fix',
@@ -55,6 +57,8 @@ describe('SwarmPage type contracts', () => {
     // Nullable fields — these would cause null-deref bugs with any
     expect(agent.thinkingSummary).toBeNull()
     expect(agent.currentBeadId).toBe('sb-1')
+    expect(agent.currentBeadDescription).toBe('Fix the authentication bug in login flow')
+    expect(agent.currentBeadType).toBe('bug')
   })
 
   it('AgentInfo with all-null nullable fields', () => {
@@ -64,6 +68,8 @@ describe('SwarmPage type contracts', () => {
       phase: 'idle',
       currentBeadId: null,
       currentBeadTitle: null,
+      currentBeadDescription: null,
+      currentBeadType: null,
       loopCount: 0,
       lastActivity: '2026-03-21T09:00:00Z',
       worktreeBranch: null,
@@ -71,6 +77,8 @@ describe('SwarmPage type contracts', () => {
     }
     // Accessing .currentBeadId on an idle agent returns null, not undefined
     expect(agent.currentBeadId).toBeNull()
+    expect(agent.currentBeadDescription).toBeNull()
+    expect(agent.currentBeadType).toBeNull()
   })
 
   it('ProgressStats replaces stats: any', () => {

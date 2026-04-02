@@ -977,6 +977,75 @@ export function registerIpc(
     }
   })
 
+  // ── Memory (cm CLI) ──────────────────────────────────────────────────
+
+  ipcMain.handle('memory:check', async () => {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        cp.exec('which cm', { env: buildEnv(), timeout: 3000 }, (err) => err ? reject(err) : resolve())
+      })
+      return { installed: true }
+    } catch {
+      return { installed: false }
+    }
+  })
+
+  ipcMain.handle('memory:context', async (_e, projectPath: string, query: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync(`cm context ${JSON.stringify(query)} --json`, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 30_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:similar', async (_e, projectPath: string, query: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync(`cm similar ${JSON.stringify(query)} --json`, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 30_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:stats', async (_e, projectPath: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync('cm stats --json', {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:top', async (_e, projectPath: string, count = 10) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync(`cm top ${count} --json`, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // ── Telegram ─────────────────────────────────────────────────────────
 
   function persistTelegramToRc(

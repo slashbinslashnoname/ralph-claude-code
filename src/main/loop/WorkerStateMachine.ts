@@ -153,8 +153,8 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
     ctx.agentId = idleId
     ctx.coordinator.registerAgent({
       id: idleId, index: ctx.agentIndex, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: ctx.flags.loopCount,
-      lastActivity: new Date().toISOString(),
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null,
+      loopCount: ctx.flags.loopCount, lastActivity: new Date().toISOString(),
       worktreeBranch: null, thinkingSummary: null
     })
   } else {
@@ -162,6 +162,8 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
       phase: 'idle',
       currentBeadId: null,
       currentBeadTitle: null,
+      currentBeadDescription: null,
+      currentBeadType: null,
       worktreeBranch: null,
       thinkingSummary: null
     })
@@ -239,8 +241,9 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
   ctx.agentId = beadAgentId
   ctx.coordinator.registerAgent({
     id: beadAgentId, index: ctx.agentIndex, phase: 'claiming',
-    currentBeadId: bead.id, currentBeadTitle: bead.title, loopCount: ctx.flags.loopCount,
-    lastActivity: new Date().toISOString(),
+    currentBeadId: bead.id, currentBeadTitle: bead.title,
+    currentBeadDescription: bead.description || null, currentBeadType: bead.type || null,
+    loopCount: ctx.flags.loopCount, lastActivity: new Date().toISOString(),
     worktreeBranch: null, thinkingSummary: null
   })
 

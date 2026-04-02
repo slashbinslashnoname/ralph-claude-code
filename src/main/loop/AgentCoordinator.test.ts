@@ -77,7 +77,7 @@ describe('AgentCoordinator — atomic writes', () => {
   it('writeAgents is atomic — no .tmp file left behind', () => {
     coord.writeAgents([{
       id: 'agent-0', index: 0, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: 0,
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     }])
     const agentsFile = tmpPaths.agents
@@ -366,7 +366,7 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
   it('preserves worktree owned by an active agent', async () => {
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'executing',
-      currentBeadId: 'b1', currentBeadTitle: 'test', loopCount: 1,
+      currentBeadId: 'b1', currentBeadTitle: 'test', currentBeadDescription: null, currentBeadType: null, loopCount: 1,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
 
@@ -384,7 +384,7 @@ describe('AgentCoordinator — orphaned worktree cleanup', () => {
   it('removes orphans but preserves owned in mixed set', async () => {
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: 0,
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
 
@@ -439,7 +439,7 @@ describe('AgentCoordinator — file locks and agent registry', () => {
   it('deregisterAgent removes agent and releases its locks', () => {
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: 0,
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
     coord.reserveFiles('agent-0', 'b1', ['file.ts'])
@@ -500,7 +500,7 @@ describe('AgentCoordinator — agent registration', () => {
 
   const makeAgent = (overrides: Partial<AgentInfo> = {}): AgentInfo => ({
     id: 'agent-0', index: 0, phase: 'idle',
-    currentBeadId: null, currentBeadTitle: null, loopCount: 0,
+    currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 0,
     lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null,
     ...overrides
   })
@@ -1012,8 +1012,8 @@ describe('AgentCoordinator — bead claiming with contention', () => {
     const plan1Time = '2026-03-22T10:00:00Z'
     const plan2Time = '2026-03-22T11:00:00Z'
     // Register the claiming agents as live so their beads are respected
-    coord.registerAgent({ id: 'agent-1', index: 1, phase: 'executing', currentBeadId: '1', currentBeadTitle: '', loopCount: 1, lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null })
-    coord.registerAgent({ id: 'agent-2', index: 2, phase: 'executing', currentBeadId: '2', currentBeadTitle: '', loopCount: 1, lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null })
+    coord.registerAgent({ id: 'agent-1', index: 1, phase: 'executing', currentBeadId: '1', currentBeadTitle: '', currentBeadDescription: null, currentBeadType: null, loopCount: 1, lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null })
+    coord.registerAgent({ id: 'agent-2', index: 2, phase: 'executing', currentBeadId: '2', currentBeadTitle: '', currentBeadDescription: null, currentBeadType: null, loopCount: 1, lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null })
     // Plan 1 beads are all claimed/locked except id '3', Plan 2 has id '4' available
     const beads = [
       makeBead({ id: '1', priority: 2, createdAt: plan1Time, claimedBy: 'agent-1' }),

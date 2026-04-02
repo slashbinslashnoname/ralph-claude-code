@@ -127,6 +127,18 @@ contextBridge.exposeInMainWorld('slashbot', {
     disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
   },
 
+  // ── Memory (cm CLI) ─────────────────────────────────────────────────
+  memory: {
+    check: () => ipcRenderer.invoke('memory:check'),
+    context: (projectPath: string, query: string) =>
+      ipcRenderer.invoke('memory:context', projectPath, query),
+    similar: (projectPath: string, query: string) =>
+      ipcRenderer.invoke('memory:similar', projectPath, query),
+    stats: (projectPath: string) => ipcRenderer.invoke('memory:stats', projectPath),
+    top: (projectPath: string, count?: number) =>
+      ipcRenderer.invoke('memory:top', projectPath, count ?? 10),
+  },
+
   // ── Config (structured settings) ────────────────────────────────────
   config: {
     read: (projectPath: string) => ipcRenderer.invoke('config:read', projectPath),

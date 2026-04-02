@@ -115,8 +115,8 @@ export class WorkerLoop extends EventEmitter {
     this.agentId = `worker-${this.agentIndex}`
     this.coordinator.registerAgent({
       id: this.agentId, index: this.agentIndex, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: this.loopCount,
-      lastActivity: new Date().toISOString(),
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null,
+      loopCount: this.loopCount, lastActivity: new Date().toISOString(),
       worktreeBranch: null, thinkingSummary: null
     })
   }
@@ -129,8 +129,8 @@ export class WorkerLoop extends EventEmitter {
     this._log('INFO', `━━ Worker ${this.agentId} starting (cmd: ${this.resolvedCmd}) ━━`)
     this.coordinator.registerAgent({
       id: this.agentId, index: this.agentIndex, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: 0,
-      lastActivity: new Date().toISOString(),
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null,
+      loopCount: 0, lastActivity: new Date().toISOString(),
       worktreeBranch: null
     })
     this.coordinator.postActivity({ agentId: this.agentId, type: 'started', summary: `Worker ${this.agentId} online` })
@@ -367,8 +367,9 @@ export class WorkerLoop extends EventEmitter {
       this.agentId = beadAgentId
       this.coordinator.registerAgent({
         id: beadAgentId, index: this.agentIndex, phase: 'claiming',
-        currentBeadId: bead.id, currentBeadTitle: bead.title, loopCount: this.loopCount,
-        lastActivity: new Date().toISOString(),
+        currentBeadId: bead.id, currentBeadTitle: bead.title,
+        currentBeadDescription: bead.description || null, currentBeadType: bead.type || null,
+        loopCount: this.loopCount, lastActivity: new Date().toISOString(),
         worktreeBranch: null, thinkingSummary: null
       })
 
