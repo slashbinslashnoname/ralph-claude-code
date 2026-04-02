@@ -76,6 +76,9 @@ export class PlanLoop extends EventEmitter {
     this._log('INFO', `━━ PlanLoop: resolved claude cmd: ${this.resolvedCmd} ━━`)
     this._pendingRequest = userRequest
 
+    // Ensure Dolt server is alive before Claude shells out to bd
+    await this.coordinator.bd.ensureDolt()
+
     // Step 1 — Single plan generation
     this.emit('phase', 'planning')
     this._log('INFO', 'Step 1 — Generating plan…')
@@ -210,8 +213,9 @@ export class PlanLoop extends EventEmitter {
 
       // Ensure projectRoot/.beads symlinks to storeDir/.beads so bd CLI
       // in the Claude process uses the centralized beads database.
+      // Only needed when beads are stored centrally, not when .beads is in the project root.
       const beadsLink = path.join(this.paths.projectRoot, '.beads')
-      if (fs.existsSync(this.paths.beadsRoot)) {
+      if (fs.existsSync(this.paths.beadsRoot) && this.paths.beadsRoot !== beadsLink) {
         try {
           const stat = fs.lstatSync(beadsLink)
           if (!stat.isSymbolicLink()) {
@@ -312,33 +316,29 @@ Write ONE detailed, actionable development plan. Think about second-order effect
 Be specific. Reference actual file names from the codebase. No implementation code — architecture and decisions only.
 Output ONLY the plan as clean Markdown.
 
-## CASS Memory (\`cm\` CLI) — MANDATORY for Planning
-CASS is a cross-agent procedural memory system. Rules learned by ALL agents across sessions and projects are available. **You MUST query before planning.**
+## CASS Memory (\`cm\` CLI)
+CASS is a cross-agent procedural memory system. Rules learned by ALL agents (Claude, Cursor, Codex, Aider) across sessions and projects are available.
 
 If \`cm\` is not installed, skip all cm steps silently and proceed.
 
-### STEP 1 — Before planning: Query memory
+### Before planning: Query memory
 \`\`\`bash
 cm context "<user request summary>" --json
 \`\`\`
-Read carefully:
-- \`relevantBullets\`: Architecture rules and patterns from past sessions (note IDs)
-- \`antiPatterns\`: Pitfalls to avoid in the plan
-- \`historySnippets\`: Past sessions that solved similar problems — learn from them
-- \`suggestedCassQueries\`: Run for deeper investigation on specific areas
+Read carefully and apply what you learn:
+- \`relevantBullets\`: Architecture rules and patterns from past sessions across all agents.
+- \`antiPatterns\`: Pitfalls to avoid in the plan — other agents hit them before.
+- \`historySnippets\`: Past sessions that solved similar problems — learn from them.
+- \`suggestedCassQueries\`: Run for deeper investigation on specific areas.
 
-### STEP 2 — During planning: Reference rules
 When a rule influences your plan, cite it: "Following b-8f3a2c: always separate auth from business logic".
-Mark rules:
-\`\`\`bash
-cm mark b-<id> --helpful --reason "informed good architecture decision"
-cm mark b-<id> --harmful --reason "outdated advice for this stack"
-\`\`\`
 
-### STEP 3 — After planning: Record outcome
-\`\`\`bash
-cm outcome success b-rule1,b-rule2 --text "plan created: <N> phases, <M> beads, key decisions: <summary>"
-\`\`\``
+### What NOT to do with CASS
+- Do NOT run \`cm reflect\` — automation handles this
+- Do NOT run \`cm mark\` — use inline comments instead: \`// [cass: helpful b-xxx] reason\`
+- Do NOT run \`cm playbook add\` — the system learns from your sessions automatically
+- Do NOT run \`cm outcome\` — automation handles this
+- Do NOT worry about the learning pipeline — just query context before working`
   }
 
   private _buildEncodePrompt(

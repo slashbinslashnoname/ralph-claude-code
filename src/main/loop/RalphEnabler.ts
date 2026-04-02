@@ -176,17 +176,18 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
     }
 
     // Symlink projectRoot/.beads → centralized beadsRoot so bd CLI works
-    // from the project root (e.g. PlanLoop Claude processes).
-    if (fs.existsSync(p.beadsRoot)) {
-      const beadsLink = path.join(projectPath, '.beads')
+    // from the project root. Only needed when beads are stored centrally
+    // (in ~/.slashbot/), not when .beads already lives in the project root.
+    const projectBeads = path.join(projectPath, '.beads')
+    if (fs.existsSync(p.beadsRoot) && p.beadsRoot !== projectBeads) {
       try {
-        const stat = fs.lstatSync(beadsLink)
+        const stat = fs.lstatSync(projectBeads)
         if (!stat.isSymbolicLink()) {
           // Real directory exists — don't overwrite
         }
       } catch {
         // Doesn't exist — create symlink
-        try { fs.symlinkSync(p.beadsRoot, beadsLink, 'dir') } catch { /* ignore */ }
+        try { fs.symlinkSync(p.beadsRoot, projectBeads, 'dir') } catch { /* ignore */ }
       }
     }
 

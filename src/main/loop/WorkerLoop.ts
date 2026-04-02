@@ -31,73 +31,56 @@ const BD_SYSTEM_PROMPT = `
 
 /** CASS Memory instructions — phase-aware cm CLI usage */
 const CM_SYSTEM_PROMPT = `
-## CASS Memory (\`cm\` CLI) — MANDATORY at every phase
-CASS is a cross-agent procedural memory system. Rules learned by ALL agents (Claude, Cursor, Codex, etc.) across sessions and projects are available to you. **You MUST use cm at every step.**
+## CASS Memory (\`cm\` CLI)
+CASS is a cross-agent procedural memory system. Rules learned by ALL agents (Claude, Cursor, Codex, Aider) across sessions and projects are available to you. Query context before starting work.
 
 If \`cm\` is not installed, skip all cm steps silently and proceed with the task.
 `
 
 /** Phase-specific cm instructions injected into each prompt */
 const CM_EXECUTE_INSTRUCTIONS = `
-### CASS Memory — Execute Phase (MANDATORY)
+### CASS Memory — Execute Phase
 
-**STEP 1 — Before any code:** Query memory for this task
+**Before any code:** Query memory for this task
 \`\`\`bash
 cm context "<bead title and description>" --json
 \`\`\`
-Read the response carefully:
-- \`relevantBullets\`: Follow high-confidence rules. Note their IDs.
-- \`antiPatterns\`: Avoid these pitfalls explicitly.
+Read the response carefully and apply what you learn:
+- \`relevantBullets\`: Follow high-confidence rules from past sessions across all agents (Claude, Cursor, Codex, Aider).
+- \`antiPatterns\`: Avoid these pitfalls explicitly — other agents hit them before.
 - \`historySnippets\`: Learn from past sessions that solved similar problems.
 - \`suggestedCassQueries\`: Run these for deeper investigation if needed.
 
-**STEP 2 — During implementation:** Track which rules you follow
-When a rule guides your approach, leave inline feedback:
-\`\`\`
-// [cass: helpful b-8f3a2c] - this pattern worked perfectly here
-// [cass: harmful b-x7k9p1] - this advice was wrong for our use case
-\`\`\`
-Mark rules explicitly as you go:
-\`\`\`bash
-cm mark b-<id> --helpful --reason "guided correct approach"
-cm mark b-<id> --harmful --reason "caused_bug"
-\`\`\`
-
-**STEP 3 — After implementation, before finishing:** Record outcome
-\`\`\`bash
-# On success:
-cm outcome success b-rule1,b-rule2 --text "implemented <feature>, tests pass, clean merge"
-# On partial success:
-cm outcome mixed b-rule1,b-rule2 --text "feature works but had to work around <issue>"
-# On failure:
-cm outcome failure b-rule1 --errors 1 --text "approach from rule b-rule1 caused <problem>"
-\`\`\`
+**What NOT to do with CASS:**
+- Do NOT run \`cm reflect\` — automation handles this
+- Do NOT run \`cm mark\` — use inline comments instead: \`// [cass: helpful b-xxx] reason\`
+- Do NOT run \`cm playbook add\` — the system learns from your sessions automatically
+- Do NOT run \`cm outcome\` — automation handles this
+- Do NOT worry about the learning pipeline — just query context before working
 `
 
 const CM_REVIEW_INSTRUCTIONS = `
-### CASS Memory — Review Phase (MANDATORY)
+### CASS Memory — Review Phase
 
-**STEP 1 — Before reviewing:** Query memory for review patterns
+**Before reviewing:** Query memory for review patterns
 \`\`\`bash
 cm context "code review: <bead title>" --json --limit 5 --no-history
 \`\`\`
-Check for rules about: testing patterns, code quality, common mistakes in this area.
+Apply what you learn — rules about testing patterns, code quality, and common mistakes in this area come from all agents (Claude, Cursor, Codex, Aider) across sessions.
 
-**STEP 2 — During review:** Mark rules that helped or missed issues
-\`\`\`bash
-cm mark b-<id> --helpful --reason "caught a real issue during review"
-cm mark b-<id> --harmful --reason "rule suggested unnecessary changes"
-\`\`\`
+**What NOT to do with CASS:**
+- Do NOT run \`cm reflect\` — automation handles this
+- Do NOT run \`cm mark\` — use inline comments instead: \`// [cass: helpful b-xxx] reason\`
+- Do NOT run \`cm playbook add\` — the system learns from your sessions automatically
+- Do NOT run \`cm outcome\` — automation handles this
+- Do NOT worry about the learning pipeline — just query context before working
 
-**STEP 3 — After review:** Record review outcome
+### Out-of-scope issues
+If you discover issues outside the scope of the current bead during review, create a fix-later bead:
 \`\`\`bash
-# Clean review, no issues:
-cm outcome success b-rule1,b-rule2 --text "review clean, code quality good"
-# Found and fixed issues:
-cm outcome mixed b-rule1 --text "found <N> issues, fixed them"
-# Serious problems found:
-cm outcome failure b-rule1 --errors <N> --text "review found critical issues: <description>"
+bd create "Fix: <description of out-of-scope issue>" -t task -p 2 -l fix-later -d "<details>"
 \`\`\`
+Do NOT fix out-of-scope issues — only track them as new beads for future work.
 `
 
 /**
@@ -265,7 +248,7 @@ export class WorkerLoop extends EventEmitter {
       childProcRef: { childProc: this.childProc },
       commitWorktreeChanges: (worktreePath, agentId, env) => {
         try {
-          cp.execSync('git add -A && git diff --cached --quiet || git commit -m "agent work on bead"', {
+          cp.execSync('git add -A && git reset HEAD -- .beads .slashbot .slashbotrc 2>/dev/null; git diff --cached --quiet || git commit -m "agent work on bead"', {
             cwd: worktreePath, timeout: 10000, stdio: 'pipe',
             env: { ...env, GIT_AUTHOR_NAME: agentId, GIT_COMMITTER_NAME: agentId }
           })
@@ -456,7 +439,9 @@ export class WorkerLoop extends EventEmitter {
         } else if (await this._waitIfPaused()) {
           // Paused and then stopped — fall through
         } else {
-        // ── Fetch CASS context from cm CLI ──────────────────────────
+        // ── Ensure Dolt server is alive before Claude shells out to bd ──
+        await this.coordinator.bd.ensureDolt()
+
         // ── Phase 1: Execute — implement the bead ───────────────────
         this._setPhase('executing', bead.id, bead.title)
         this._log('INFO', `[${this.agentId}] Executing bead…`)
@@ -515,7 +500,7 @@ export class WorkerLoop extends EventEmitter {
 
             // Commit any uncommitted changes in the worktree
             try {
-              cp.execSync('git add -A && git diff --cached --quiet || git commit -m "agent work on bead"', {
+              cp.execSync('git add -A && git reset HEAD -- .beads .slashbot .slashbotrc 2>/dev/null; git diff --cached --quiet || git commit -m "agent work on bead"', {
                 cwd: wt.worktreePath, timeout: 10000, stdio: 'pipe',
                 env: { ...this.env, GIT_AUTHOR_NAME: this.agentId, GIT_COMMITTER_NAME: this.agentId }
               })
@@ -768,7 +753,7 @@ export class WorkerLoop extends EventEmitter {
       `\n---\n## Task`,
       `Implement this bead completely.`,
       `Write tests. Commit all changes when done with a descriptive commit message.`,
-      `After committing, run \`cm outcome\` to record the result (see CASS instructions above).`,
+      ``,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
   }

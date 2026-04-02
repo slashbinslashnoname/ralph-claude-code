@@ -78,6 +78,7 @@ function makeCoordinator() {
   return {
     bd: {
       listAll: vi.fn(() => []),
+      ensureDolt: vi.fn(async () => {}),
     },
     post: vi.fn(),
     postActivity: vi.fn()
@@ -85,6 +86,7 @@ function makeCoordinator() {
 }
 
 async function runThroughApproval(loop: PlanLoop, planOutput = 'plan') {
+  await new Promise(r => setTimeout(r, 0))
   mockProcesses[0].simulateStdout(planOutput)
   mockProcesses[0].simulateExit(0)
   await new Promise(r => setTimeout(r, 10))
@@ -102,6 +104,10 @@ describe('PlanLoop', () => {
     vi.spyOn(fs, 'appendFileSync').mockReturnValue(undefined)
     vi.spyOn(fs, 'readFileSync').mockReturnValue('')
     vi.spyOn(cp, 'execSync').mockReturnValue(Buffer.from('/usr/local/bin/claude'))
+    vi.spyOn(cp, 'execFile').mockImplementation((_cmd: any, _args: any, _opts: any, cb?: any) => {
+      if (typeof cb === 'function') cb(null, '', '')
+      return {} as any
+    })
     vi.spyOn(cp, 'spawn').mockImplementation(() => {
       const p = createProc()
       mockProcesses.push(p)
@@ -134,6 +140,7 @@ describe('PlanLoop', () => {
       const phases: string[] = []
       loop.on('phase', (p: string) => phases.push(p))
       const runPromise = loop.run('Build a REST API')
+      await new Promise(r => setTimeout(r, 0))
       mockProcesses[0].simulateStdout('# Plan\n## Architecture\nREST API\n')
       mockProcesses[0].simulateExit(0)
       await new Promise(r => setTimeout(r, 10))
@@ -150,6 +157,7 @@ describe('PlanLoop', () => {
       const errors: string[] = []
       loop.on('error', (e: string) => errors.push(e))
       const runPromise = loop.run('Build something')
+      await new Promise(r => setTimeout(r, 0))
       mockProcesses[0].simulateStderr('Command not found')
       mockProcesses[0].simulateExit(1)
       await runPromise
@@ -162,6 +170,7 @@ describe('PlanLoop', () => {
       const phases: string[] = []
       loop.on('phase', (p: string) => phases.push(p))
       const runPromise = loop.run('Build something')
+      await new Promise(r => setTimeout(r, 0))
       mockProcesses[0].simulateStdout('plan output')
       loop.stop()
       mockProcesses[0].simulateExit(0)
@@ -174,6 +183,7 @@ describe('PlanLoop', () => {
       const phases: string[] = []
       loop.on('phase', (p: string) => phases.push(p))
       const runPromise = loop.run('Build something')
+      await new Promise(r => setTimeout(r, 0))
       mockProcesses[0].simulateStdout('plan')
       mockProcesses[0].simulateExit(0)
       await new Promise(r => setTimeout(r, 10))
@@ -206,6 +216,7 @@ describe('PlanLoop', () => {
     it('routes --model per phase', async () => {
       const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const runPromise = loop.run('test')
+      await new Promise(r => setTimeout(r, 0))
       const planArgs = (cp.spawn as any).mock.calls[0][1] as string[]
       expect(planArgs[planArgs.indexOf('--model') + 1]).toBe('sonnet')
       mockProcesses[0].simulateStdout('plan')
@@ -239,6 +250,7 @@ describe('PlanLoop', () => {
       const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       loop.on('error', () => {})
       const runPromise = loop.run('test')
+      await new Promise(r => setTimeout(r, 0))
       const planArgs = (cp.spawn as any).mock.calls[0][1] as string[]
       expect(planArgs[1]).toContain('cm context')
       mockProcesses[0].simulateExit(1)
@@ -261,6 +273,7 @@ describe('PlanLoop', () => {
     it('pendingApproval is true while waiting', async () => {
       const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const runPromise = loop.run('test')
+      await new Promise(r => setTimeout(r, 0))
       mockProcesses[0].simulateStdout('plan')
       mockProcesses[0].simulateExit(0)
       await new Promise(r => setTimeout(r, 10))
@@ -274,6 +287,7 @@ describe('PlanLoop', () => {
     it('approvePlan with modified plan uses modified version', async () => {
       const loop = new PlanLoop(makePaths(), makeConfig(), makeCoordinator())
       const runPromise = loop.run('test')
+      await new Promise(r => setTimeout(r, 0))
       mockProcesses[0].simulateStdout('original plan')
       mockProcesses[0].simulateExit(0)
       await new Promise(r => setTimeout(r, 10))

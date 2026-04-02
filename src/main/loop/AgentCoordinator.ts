@@ -77,19 +77,9 @@ export class AgentCoordinator {
     this._loadKnowledgeFromDisk()
   }
 
-  /** Retry a bd async operation once after restarting dolt if the error looks like a server crash. */
-  private async _bdRetry<T>(op: () => Promise<T>, label: string): Promise<T> {
-    try {
-      return await op()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg.includes('circuit breaker') || msg.includes('EOF') || msg.includes('unreachable') || msg.includes('connection') || msg.includes('server')) {
-        this._log('WARN', `${label}: dolt server error, attempting restart…`)
-        try { await this.bd.runPublicAsync(['dolt', 'start']) } catch { /* ignore */ }
-        return await op()
-      }
-      throw err
-    }
+  /** Retry wrapper — BdClient now handles dolt restart internally, so this is a passthrough. */
+  private async _bdRetry<T>(op: () => Promise<T>, _label: string): Promise<T> {
+    return op()
   }
 
   private _loadActivityFromDisk(): void {
@@ -371,10 +361,20 @@ export class AgentCoordinator {
       fs.mkdirSync(path.dirname(worktreePath), { recursive: true })
       await this._runGit(['worktree', 'add', '-b', branch, worktreePath, currentBranch], { timeout: 15000 })
 
-      // Symlink .beads into worktree so bd CLI works there
+      // Symlink .beads into worktree so bd CLI works there.
+      // If .beads is tracked by git, the worktree checkout creates a partial copy
+      // (config only, no dolt/ data). Replace it with a symlink to the real .beads.
+      // Do NOT use `git rm --cached` — that stages a deletion that gets committed
+      // and merged back, destroying .beads in the main branch.
       const beadsLink = path.join(worktreePath, '.beads')
-      if (fs.existsSync(this.paths.beadsRoot) && !fs.existsSync(beadsLink)) {
-        fs.symlinkSync(this.paths.beadsRoot, beadsLink, 'dir')
+      if (fs.existsSync(this.paths.beadsRoot)) {
+        const stat = fs.lstatSync(beadsLink, { throwIfNoEntry: false })
+        if (stat && !stat.isSymbolicLink()) {
+          fs.rmSync(beadsLink, { recursive: true, force: true })
+        }
+        if (!fs.existsSync(beadsLink)) {
+          fs.symlinkSync(this.paths.beadsRoot, beadsLink, 'dir')
+        }
       }
 
       // Symlink .slashbot (centralized storeDir) into worktree so agent context is available
@@ -496,6 +496,7 @@ export class AgentCoordinator {
                 try {
                   await this._runGit(['checkout', '--ours', '.'], { cwd: worktreePath, timeout: 5000 })
                   await this._runGit(['add', '-A'], { cwd: worktreePath, timeout: 5000 })
+                  await this._unstageInfraFiles(worktreePath)
                   await this._runGit(['commit', '--no-edit'], { cwd: worktreePath, timeout: 10000 })
                 } catch {
                   // Last resort: abort and retry
@@ -510,6 +511,7 @@ export class AgentCoordinator {
               try {
                 await this._runGit(['checkout', '--ours', '.'], { cwd: worktreePath, timeout: 5000 })
                 await this._runGit(['add', '-A'], { cwd: worktreePath, timeout: 5000 })
+                await this._unstageInfraFiles(worktreePath)
                 await this._runGit(['commit', '--no-edit'], { cwd: worktreePath, timeout: 10000 })
               } catch {
                 try { await this._runGit(['merge', '--abort'], { cwd: worktreePath, timeout: 5000 }) } catch { /* ignore */ }
@@ -572,6 +574,13 @@ export class AgentCoordinator {
     } finally {
       this.mergeSemaphore.release()
     }
+  }
+
+  /** Unstage infra files (.beads, .slashbot, .slashbotrc) so they don't get committed by agents. */
+  private async _unstageInfraFiles(cwd?: string): Promise<void> {
+    try {
+      await this._runGit(['reset', 'HEAD', '--', '.beads', '.slashbot', '.slashbotrc'], { cwd, timeout: 5000 })
+    } catch { /* nothing to unstage */ }
   }
 
   /** Move untracked symlinks/dirs (.slashbot, .beads, etc.) out of the way before checkout. */
@@ -1087,8 +1096,9 @@ export class AgentCoordinator {
   async commitAndPush(agentId: string, beadId: string, autoPush = true): Promise<string | null> {
     await this.commitSemaphore.acquire(60000)
     try {
-      // Stage everything (merged code + .beads db changes)
+      // Stage everything (merged code) but exclude infra symlinks
       await this._runGit(['add', '-A'], { timeout: 10000 })
+      await this._unstageInfraFiles()
 
       // Check if there's anything to commit
       try {

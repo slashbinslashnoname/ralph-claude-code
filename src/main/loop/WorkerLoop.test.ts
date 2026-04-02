@@ -134,7 +134,8 @@ function makeCoordinator() {
       addDep: vi.fn(),
       addLabel: vi.fn(),
       close: vi.fn(),
-      assignTo: vi.fn(() => true)
+      assignTo: vi.fn(() => true),
+      ensureDolt: vi.fn(async () => {}),
     },
     readKnowledge: vi.fn(() => []),
     postKnowledge: vi.fn(),

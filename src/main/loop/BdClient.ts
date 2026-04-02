@@ -17,6 +17,18 @@ export class BdClient {
 
   private run(args: string[]): string {
     try {
+      return this._runOnce(args)
+    } catch (err) {
+      if (this._isDoltServerError(err)) {
+        this._restartDoltSync()
+        return this._runOnce(args)
+      }
+      throw err
+    }
+  }
+
+  private _runOnce(args: string[]): string {
+    try {
       return cp.execFileSync(this.bdCmd, args, {
         cwd: this.cwd,
         env: buildEnv(),
@@ -30,6 +42,18 @@ export class BdClient {
     }
   }
 
+  private _restartDoltSync(): void {
+    try {
+      cp.execFileSync(this.bdCmd, ['dolt', 'start'], {
+        cwd: this.cwd,
+        env: buildEnv(),
+        timeout: 15_000,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+    } catch { /* ignore */ }
+  }
+
   private runJson<T>(args: string[]): T {
     const raw = this.run([...args, '--json'])
     if (!raw) return [] as unknown as T // bd returns empty output when no results
@@ -37,6 +61,16 @@ export class BdClient {
   }
 
   private async runAsync(args: string[]): Promise<string> {
+    return this._runAsyncOnce(args).catch(async (err) => {
+      if (this._isDoltServerError(err)) {
+        await this._restartDolt()
+        return this._runAsyncOnce(args)
+      }
+      throw err
+    })
+  }
+
+  private _runAsyncOnce(args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
       cp.execFile(this.bdCmd, args, {
         cwd: this.cwd,
@@ -50,6 +84,24 @@ export class BdClient {
         }
       })
     })
+  }
+
+  /** Ensure Dolt server is running. Idempotent — no-op if already up. */
+  async ensureDolt(): Promise<void> {
+    try {
+      await this._runAsyncOnce(['dolt', 'start'])
+    } catch { /* ignore — bd dolt start may not exist in older versions */ }
+  }
+
+  private _isDoltServerError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err)
+    return /circuit breaker|EOF|unreachable|connection|server|ECONNREFUSED|broken pipe/i.test(msg)
+  }
+
+  private async _restartDolt(): Promise<void> {
+    try {
+      await this._runAsyncOnce(['dolt', 'start'])
+    } catch { /* ignore */ }
   }
 
   /** Public wrappers for arbitrary bd commands (used by AgentCoordinator for unclaim). */
