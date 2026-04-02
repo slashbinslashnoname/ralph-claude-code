@@ -1,9 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import BeadDetailPanel from '../components/BeadDetailPanel'
-import TreeBrowser from '../components/TreeBrowser'
-import type { DAGBead } from '../components/TreeBrowser'
-import KanbanBoard from '../components/KanbanBoard'
 import type { Bead, BeadType, PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
@@ -42,7 +39,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [rollingBack, setRollingBack] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'list' | 'tree' | 'kanban'>('list')
+
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -162,14 +159,6 @@ export default function BeadsPage({ projectPath }: Props) {
 
   const sortedBeads = useMemo(() => sortBeads(beads, sortBy, sortDir), [beads, sortBy, sortDir])
 
-  const dagBeads: DAGBead[] = useMemo(() => beads.map(b => ({
-    id: b.id,
-    title: b.title,
-    status: b.status,
-    deps: b.deps ?? [],
-    epicId: b.epicId,
-  })), [beads])
-
   // ── Drag-and-drop reordering ──────────────────────────────────────────
   const dragItem = useRef<number | null>(null)
   const dragOverItem = useRef<number | null>(null)
@@ -260,29 +249,6 @@ export default function BeadsPage({ projectPath }: Props) {
       <header className="page-header">
         <h2>Beads</h2>
         <div className="header-actions">
-          <div className="view-toggle">
-            <button
-              className={`btn btn-xs ${viewMode === 'list' ? 'btn-sort-active' : 'btn-ghost'}`}
-              onClick={() => setViewMode('list')}
-              data-testid="view-mode-list"
-            >
-              List
-            </button>
-            <button
-              className={`btn btn-xs ${viewMode === 'kanban' ? 'btn-sort-active' : 'btn-ghost'}`}
-              onClick={() => setViewMode('kanban')}
-              data-testid="view-mode-kanban"
-            >
-              Kanban
-            </button>
-            <button
-              className={`btn btn-xs ${viewMode === 'tree' ? 'btn-sort-active' : 'btn-ghost'}`}
-              onClick={() => setViewMode('tree')}
-              data-testid="view-mode-tree"
-            >
-              Tree
-            </button>
-          </div>
           <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}>
             + Create Bead
           </button>
@@ -438,10 +404,8 @@ export default function BeadsPage({ projectPath }: Props) {
         </div>
       )}
 
-      {viewMode === 'list' && (
-        <>
-          {/* Sort bar */}
-          <div className="sort-bar">
+      {/* Sort bar */}
+      <div className="sort-bar">
             <span className="sort-label">Sort by:</span>
             {SORT_OPTIONS.map(opt => (
               <button
@@ -550,45 +514,6 @@ export default function BeadsPage({ projectPath }: Props) {
               </div>
             ))}
           </div>
-        </>
-      )}
-
-      {viewMode === 'kanban' && (
-        <>
-          <KanbanBoard
-            beads={beads}
-            onClaimBead={claimBead}
-            onCloseBead={closeBead}
-            onReopenBead={reopenBead}
-            onSelectBead={toggleDetail}
-            selectedBeadId={expandedBead}
-          />
-          {expandedBead && beads.find(b => b.id === expandedBead) && (
-            <BeadDetailPanel
-              beadId={expandedBead}
-              beadStatus={beads.find(b => b.id === expandedBead)!.status}
-              projectPath={projectPath}
-            />
-          )}
-        </>
-      )}
-
-      {viewMode === 'tree' && (
-        <>
-          <TreeBrowser
-            beads={dagBeads}
-            selectedBeadId={expandedBead}
-            onSelectBead={toggleDetail}
-          />
-          {expandedBead && beads.find(b => b.id === expandedBead) && (
-            <BeadDetailPanel
-              beadId={expandedBead}
-              beadStatus={beads.find(b => b.id === expandedBead)!.status}
-              projectPath={projectPath}
-            />
-          )}
-        </>
-      )}
     </div>
   )
 }
