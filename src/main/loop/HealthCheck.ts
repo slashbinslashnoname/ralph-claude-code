@@ -10,9 +10,16 @@ export interface HealthCheckError {
   remediation: string
 }
 
+export interface HealthCheckWarning {
+  check: string
+  message: string
+  remediation: string
+}
+
 export interface HealthCheckResult {
   ok: boolean
   errors: HealthCheckError[]
+  warnings: HealthCheckWarning[]
 }
 
 /**
@@ -21,6 +28,7 @@ export interface HealthCheckResult {
  */
 export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): HealthCheckResult {
   const errors: HealthCheckError[] = []
+  const warnings: HealthCheckWarning[] = []
 
   // 1. Check `bd` CLI and .beads directory
   const bd = new BdClient(getProjectPaths(projectPath).storeDir)
@@ -63,12 +71,51 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
     })
   }
 
-  return { ok: errors.length === 0, errors }
+  // 4. Check `cm` CLI availability (non-fatal)
+  let cmAvailable = false
+  try {
+    execFileSync('which', ['cm'], { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
+    cmAvailable = true
+  } catch {
+    warnings.push({
+      check: 'cm',
+      message: '`cm` (CASS memory) CLI not found on PATH.',
+      remediation: 'Install cm for enhanced context retrieval: https://github.com/anthropics/cass',
+    })
+  }
+
+  // 4b. If cm exists, check if playbook has rules
+  if (cmAvailable) {
+    try {
+      const output = execFileSync('cm', ['playbook', 'list'], {
+        timeout: 5000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).toString()
+      if (output.includes('PLAYBOOK RULES (0)') || output.includes('No active rules found')) {
+        warnings.push({
+          check: 'cm-playbook',
+          message: 'CASS memory playbook is empty — no rules loaded.',
+          remediation: "Run `cm reflect` to learn rules from sessions, or `cm playbook add \"...\"` to add rules manually.",
+        })
+      }
+    } catch {
+      // cm exists but playbook list failed — not critical, skip
+    }
+  }
+
+  return { ok: errors.length === 0, errors, warnings }
 }
 
 /** Format health check errors into a human-readable report. */
 export function formatHealthErrors(errors: HealthCheckError[]): string {
   return errors.map(e =>
     `[${e.check}] ${e.message}\n  → ${e.remediation}`
+  ).join('\n\n')
+}
+
+/** Format health check warnings into a human-readable report. */
+export function formatHealthWarnings(warnings: HealthCheckWarning[]): string {
+  return warnings.map(w =>
+    `[${w.check}] ${w.message}\n  → ${w.remediation}`
   ).join('\n\n')
 }

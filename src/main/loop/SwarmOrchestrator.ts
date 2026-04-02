@@ -6,7 +6,7 @@ import { loadConfig } from './RcParser'
 import { AgentCoordinator } from './AgentCoordinator'
 import { PlanLoop } from './PlanLoop'
 import { WorkerLoop } from './WorkerLoop'
-import { runHealthCheck, formatHealthErrors } from './HealthCheck'
+import { runHealthCheck, formatHealthErrors, formatHealthWarnings } from './HealthCheck'
 import { BuildMonitor } from './BuildMonitor'
 import { ProjectPaths, ensureStoreDirs } from './ProjectStore'
 import { rotateLogFile } from './utils'
@@ -120,6 +120,10 @@ export class SwarmOrchestrator extends EventEmitter {
       const report = formatHealthErrors(health.errors)
       this._log('ERROR', `Health check failed:\n${report}`)
       throw new Error(`Health check failed:\n${report}`)
+    }
+    if (health.warnings.length > 0) {
+      const warnReport = formatHealthWarnings(health.warnings)
+      this._log('WARN', `Health check warnings:\n${warnReport}`)
     }
     if (!this.sessionStartedAt) this.sessionStartedAt = new Date().toISOString()
 

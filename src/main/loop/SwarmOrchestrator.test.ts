@@ -572,7 +572,7 @@ describe('SwarmOrchestrator — build monitor integration', () => {
     vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
     vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
     // Mock health check since it still checks legacy paths
-    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [], warnings: [] })
 
     // startWorkers should create the build monitor
     orch.startWorkers(1)
@@ -743,7 +743,7 @@ describe('SwarmOrchestrator — worker-N naming', () => {
   it('startWorkers creates worker-N keys (not agent-N)', () => {
     vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
     vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
-    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [], warnings: [] })
 
     orch.startWorkers(2)
     const keys = [...(orch as any).workers.keys()].sort()
@@ -753,7 +753,7 @@ describe('SwarmOrchestrator — worker-N naming', () => {
   it('scaling down from 3 to 1 stops worker-1 and worker-2', () => {
     vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
     vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
-    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [], warnings: [] })
 
     orch.startWorkers(3)
     expect(orch.workerCount()).toBe(3)
@@ -974,7 +974,7 @@ describe('SwarmOrchestrator — stopWorkers double-emit guard (Bug 2)', () => {
     // Mock health check and related methods for startWorkers
     vi.spyOn(orch.coordinator, 'reopenStaleBeads').mockImplementation(() => {})
     vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
-    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [] })
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({ ok: true, errors: [], warnings: [] })
 
     orch.startWorkers(1)
     expect((orch as any)._stoppedEmitted).toBe(false)
