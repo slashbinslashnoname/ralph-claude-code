@@ -65,6 +65,16 @@ export class AgentCoordinator {
     return stdout.trim()
   }
 
+  /** Run a bd command asynchronously. Returns trimmed stdout. */
+  private async _runBd(args: string[], opts?: { cwd?: string; timeout?: number }): Promise<string> {
+    const { stdout } = await execFileAsync('bd', args, {
+      cwd: opts?.cwd ?? this.paths.projectRoot,
+      timeout: opts?.timeout ?? 10000,
+      maxBuffer: 10 * 1024 * 1024,
+    })
+    return stdout.trim()
+  }
+
   constructor(paths: ProjectPaths) {
     this.paths = paths
     this.lockFile = paths.fileLocks
@@ -335,70 +345,35 @@ export class AgentCoordinator {
 
   // ── Git worktree management ─────────────────────────────────────────────
 
-  /** Create a git worktree for an agent's isolated work */
+  /** Create a git worktree for an agent's isolated work using `bd worktree create`.
+   *  bd handles .beads redirect automatically — no manual symlinks needed. */
   async createWorktree(agentId: string, beadId: string): Promise<{ worktreePath: string; branch: string } | null> {
     const branch = `worker/${beadId}`
-    const worktreePath = path.join(this.paths.worktreesDir, `worker-${beadId}`)
+    const worktreeName = `worker-${beadId}`
+    const worktreePath = path.join(this.paths.worktreesDir, worktreeName)
 
     try {
       // Ensure repo has at least one commit (worktrees require a valid HEAD)
       try {
         await this._runGit(['rev-parse', 'HEAD'], { timeout: 5000 })
       } catch {
-        // Empty repo — create initial commit so worktrees can branch from it
         this._log('INFO', `[${agentId}] Empty git repo — creating initial commit`)
         await this._runGit(['add', '-A'], { timeout: 5000 })
         await this._runGit(['commit', '--allow-empty', '-m', 'chore: initial commit'], { timeout: 5000 })
       }
 
-      // Get current branch
-      const currentBranch = await this._runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })
-
       // Clean up stale worktree if exists
       if (fs.existsSync(worktreePath)) {
-        try { await this._runGit(['worktree', 'remove', '--force', worktreePath], { timeout: 10000 }) } catch { /* ignore */ }
-        // Force-remove directory if git worktree remove didn't clean it
+        try { await this._runBd(['worktree', 'remove', worktreePath, '--force'], { timeout: 10000 }) } catch { /* ignore */ }
         try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
       }
 
-      // Prune stale worktree references so git doesn't block creating new ones
-      try { await this._runGit(['worktree', 'prune'], { timeout: 5000 }) } catch { /* ignore */ }
-
-      // Delete branch if it exists from a previous attempt
-      try { await this._runGit(['branch', '-D', branch], { timeout: 5000 }) } catch { /* ignore */ }
-
-      // Create worktree with new branch
-      fs.mkdirSync(path.dirname(worktreePath), { recursive: true })
-      await this._runGit(['worktree', 'add', '-b', branch, worktreePath, currentBranch], { timeout: 15000 })
-
-      // Make .beads accessible in worktree so bd CLI works there.
-      // If .beads is tracked by git, the checkout has config files but not the
-      // database. We need to replace it with a symlink to the real .beads, but
-      // git merge/stash chokes on "beyond a symbolic link" for tracked paths.
-      // Fix: mark tracked .beads files as assume-unchanged, then replace with symlink.
-      // This hides the change from git without staging a deletion (unlike git rm --cached).
-      const beadsLink = path.join(worktreePath, '.beads')
-      if (fs.existsSync(this.paths.beadsRoot)) {
-        // Mark all tracked .beads files as assume-unchanged so git ignores the symlink swap
-        try {
-          const trackedBeads = await this._runGit(
-            ['ls-files', '.beads'], { cwd: worktreePath, timeout: 3000 }
-          )
-          if (trackedBeads) {
-            for (const f of trackedBeads.split('\n').filter(Boolean)) {
-              try { await this._runGit(['update-index', '--assume-unchanged', f], { cwd: worktreePath, timeout: 3000 }) } catch { /* ignore */ }
-            }
-          }
-        } catch { /* no tracked .beads files */ }
-
-        const stat = fs.lstatSync(beadsLink, { throwIfNoEntry: false })
-        if (stat && !stat.isSymbolicLink()) {
-          fs.rmSync(beadsLink, { recursive: true, force: true })
-        }
-        if (!fs.existsSync(beadsLink)) {
-          fs.symlinkSync(this.paths.beadsRoot, beadsLink, 'dir')
-        }
-      }
+      // Create worktree via bd — handles .beads redirect automatically
+      fs.mkdirSync(this.paths.worktreesDir, { recursive: true })
+      await this._runBd(
+        ['worktree', 'create', worktreePath, '--branch', branch],
+        { timeout: 15000 }
+      )
 
       // Symlink .slashbot (centralized storeDir) into worktree so agent context is available
       const slashbotLink = path.join(worktreePath, '.slashbot')
@@ -415,7 +390,7 @@ export class AgentCoordinator {
 
       // Ensure symlinks are not committed by the agent
       const wtGitignore = path.join(worktreePath, '.gitignore')
-      const ignoreEntries = ['.slashbot/', '.slashbotrc', '.beads/', '.worktrees/', '*.__merge_tmp/']
+      const ignoreEntries = ['.slashbot/', '.slashbotrc', '.worktrees/', '*.__merge_tmp/']
       if (fs.existsSync(wtGitignore)) {
         const existing = fs.readFileSync(wtGitignore, 'utf8')
         const missing = ignoreEntries.filter(e => !existing.includes(e))
@@ -697,13 +672,11 @@ export class AgentCoordinator {
     }
   }
 
-  private async _cleanupWorktree(worktreePath: string, branch: string): Promise<void> {
-    try { await this._runGit(['worktree', 'remove', '--force', worktreePath], { timeout: 10000 }) } catch { /* ignore */ }
-    // Force-remove directory if git worktree remove didn't clean it up
+  private async _cleanupWorktree(worktreePath: string, _branch: string): Promise<void> {
+    // bd worktree remove handles git worktree + branch cleanup + beads redirect
+    try { await this._runBd(['worktree', 'remove', worktreePath, '--force'], { timeout: 10000 }) } catch { /* ignore */ }
+    // Force-remove directory if bd didn't clean it up
     try { if (fs.existsSync(worktreePath)) fs.rmSync(worktreePath, { recursive: true, force: true }) } catch { /* ignore */ }
-    // Prune stale worktree references so git doesn't think the worktree still exists
-    try { await this._runGit(['worktree', 'prune'], { timeout: 5000 }) } catch { /* ignore */ }
-    try { await this._runGit(['branch', '-D', branch], { timeout: 5000 }) } catch { /* ignore */ }
   }
 
   // ── Bead operations via bd CLI ─────────────────────────────────────────
