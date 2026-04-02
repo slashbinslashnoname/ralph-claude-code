@@ -51,12 +51,12 @@ describe('IPC types', () => {
       files: [],
       priority: 2,
       tags: [],
-      claimedBy: 'agent-0',
+      claimedBy: 'worker-0',
       claimedAt: '2026-03-21T10:00:00Z',
       epicId: 'sb-epic',
       taskId: 'sb-task'
     }
-    expect(bead.claimedBy).toBe('agent-0')
+    expect(bead.claimedBy).toBe('worker-0')
   })
 
   it('BeadStatus covers all values', () => {
@@ -79,7 +79,7 @@ describe('IPC types', () => {
 
   it('AgentInfo has all required fields', () => {
     const agent: AgentInfo = {
-      id: 'agent-0',
+      id: 'worker-0',
       index: 0,
       phase: 'executing',
       currentBeadId: 'sb-1',
@@ -89,12 +89,12 @@ describe('IPC types', () => {
       worktreeBranch: 'feat/test',
       thinkingSummary: 'Analyzing...'
     }
-    expect(agent.id).toBe('agent-0')
+    expect(agent.id).toBe('worker-0')
   })
 
   it('AgentInfo accepts null nullable fields', () => {
     const agent: AgentInfo = {
-      id: 'agent-1',
+      id: 'worker-1',
       index: 1,
       phase: 'idle',
       currentBeadId: null,
@@ -110,7 +110,7 @@ describe('IPC types', () => {
   it('ActivityEvent has required and optional fields', () => {
     const event: ActivityEvent = {
       ts: '2026-03-21T10:00:00Z',
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'completed',
       beadId: 'sb-1',
       summary: 'Done'
@@ -122,7 +122,7 @@ describe('IPC types', () => {
   it('KnowledgeEntry is structurally valid', () => {
     const entry: KnowledgeEntry = {
       ts: '2026-03-21T10:00:00Z',
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       beadId: 'sb-1',
       category: 'gotcha',
       summary: 'Watch out',

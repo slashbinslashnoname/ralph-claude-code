@@ -399,9 +399,9 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       const storeDir = computeStoreDir(projectPath)
 
       fsReadCalls.length = 0
-      invoke('swarm:agent-log-content', projectPath, 'agent-0_think_2025-01-01.log')
+      invoke('swarm:agent-log-content', projectPath, 'worker-0_think_2025-01-01.log')
 
-      expect(fsReadCalls).toContain(path.join(storeDir, 'logs', 'agent-0_think_2025-01-01.log'))
+      expect(fsReadCalls).toContain(path.join(storeDir, 'logs', 'worker-0_think_2025-01-01.log'))
     })
   })
 
@@ -411,9 +411,9 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       const storeDir = computeStoreDir(projectPath)
 
       fsReadCalls.length = 0
-      invoke('swarm:agent-output', projectPath, 'agent-0')
+      invoke('swarm:agent-output', projectPath, 'worker-0')
 
-      expect(fsReadCalls).toContain(path.join(storeDir, 'logs', 'agent-0.log'))
+      expect(fsReadCalls).toContain(path.join(storeDir, 'logs', 'worker-0.log'))
     })
   })
 

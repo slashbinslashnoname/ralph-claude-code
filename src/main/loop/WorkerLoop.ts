@@ -70,7 +70,7 @@ export class WorkerLoop extends EventEmitter {
   private cass = new CassClient()
 
   constructor(
-    private agentId: string,
+    public agentId: string,
     private agentIndex: number,
     private projectPath: string,
     private config: RalphConfig,
@@ -83,6 +83,18 @@ export class WorkerLoop extends EventEmitter {
     this.env = buildEnv()
     this.resolvedCmd = resolveCmd(config.claudeCodeCmd, this.env)
     fs.mkdirSync(this.logDir, { recursive: true })
+  }
+
+  /** Re-register with a slot-based idle ID after completing/failing a bead. */
+  private _resetAgentIdToIdle(): void {
+    this.coordinator.deregisterAgent(this.agentId)
+    this.agentId = `worker-${this.agentIndex}`
+    this.coordinator.registerAgent({
+      id: this.agentId, index: this.agentIndex, phase: 'idle',
+      currentBeadId: null, currentBeadTitle: null, loopCount: this.loopCount,
+      lastActivity: new Date().toISOString(),
+      worktreeBranch: null, thinkingSummary: null
+    })
   }
 
   async start(): Promise<void> {
@@ -325,9 +337,20 @@ export class WorkerLoop extends EventEmitter {
       }
       this.emptyRetries = 0
 
+      // Re-register with bead-based agentId: worker-{beadId}
+      const prevAgentId = this.agentId
+      const beadAgentId = `worker-${bead.id}`
+      this.coordinator.deregisterAgent(prevAgentId)
+      this.agentId = beadAgentId
+      this.coordinator.registerAgent({
+        id: beadAgentId, index: this.agentIndex, phase: 'claiming',
+        currentBeadId: bead.id, currentBeadTitle: bead.title, loopCount: this.loopCount,
+        lastActivity: new Date().toISOString(),
+        worktreeBranch: null, thinkingSummary: null
+      })
+
       this._setPhase('claiming', bead.id, bead.title)
       this._log('INFO', `[${this.agentId}] Claimed: [${bead.id}] ${bead.title}`)
-      this.coordinator.updateAgent(this.agentId, { currentBeadId: bead.id, currentBeadTitle: bead.title, loopCount: this.loopCount })
       this._currentBeadId = bead.id
 
       // ── Create worktree for isolated work ─────────────────────────
@@ -341,7 +364,7 @@ export class WorkerLoop extends EventEmitter {
         })
         await this.coordinator.reopenBead(this.agentId, bead.id)
         this._currentBeadId = null
-        this.coordinator.updateAgent(this.agentId, { currentBeadId: null, currentBeadTitle: null, worktreeBranch: null, phase: 'idle' })
+        this._resetAgentIdToIdle()
         await this._sleep(10_000)
         continue
       }
@@ -487,14 +510,14 @@ export class WorkerLoop extends EventEmitter {
             beadTitle: bead.title,
             summary: `Merge failed (attempt ${attempt + 1}/${maxRetries + 1}) — retrying after backoff`
           })
-          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
+          this._resetAgentIdToIdle()
           await this._sleep(backoffMs)
           continue
         }
 
         this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] merge permanently failed after ${maxRetries + 1} attempts`)
         await this.coordinator.failBead(this.agentId, bead.id, `merge_failed after ${maxRetries + 1} attempts`)
-        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
+        this._resetAgentIdToIdle()
         await this._sleep(3000)
         continue
       }
@@ -513,7 +536,7 @@ export class WorkerLoop extends EventEmitter {
             beadTitle: bead.title,
             summary: `Attempt ${attempt + 1}/${maxRetries + 1} failed — retrying after backoff`
           })
-          this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
+          this._resetAgentIdToIdle()
           await this._sleep(backoffMs)
           continue
         }
@@ -521,7 +544,7 @@ export class WorkerLoop extends EventEmitter {
         // Max retries exhausted — permanent failure
         this._log('ERROR', `[${this.agentId}] Bead [${bead.id}] permanently failed after ${maxRetries + 1} attempts`)
         await this.coordinator.failBead(this.agentId, bead.id, `execute_failed after ${maxRetries + 1} attempts`)
-        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
+        this._resetAgentIdToIdle()
         await this._sleep(3000)
         continue
       }
@@ -541,7 +564,7 @@ export class WorkerLoop extends EventEmitter {
         await this._waitForQuotaReset(cb)
         // Now reopen so it goes back to the pool for a fresh attempt
         await this.coordinator.reopenBead(this.agentId, bead.id)
-        this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
+        this._resetAgentIdToIdle()
         continue
       }
       if (this.stopped) {
@@ -572,7 +595,7 @@ export class WorkerLoop extends EventEmitter {
       this._setPhase('closing', bead.id, bead.title)
       await this.coordinator.completeBead(this.agentId, bead.id, filesChanged, this.config.autoPush)
       this._log('SUCCESS', `[${this.agentId}] ✓ Closed bead [${bead.id}]`)
-      this.coordinator.updateAgent(this.agentId, { phase: 'idle', currentBeadId: null, currentBeadTitle: null, worktreeBranch: null })
+      this._resetAgentIdToIdle()
       await this._sleep(1500)
     }
     this._exit('stopped')

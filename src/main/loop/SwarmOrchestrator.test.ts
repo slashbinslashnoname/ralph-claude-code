@@ -247,7 +247,7 @@ describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
   it('stopWorkers deregisters all agents from coordinator', () => {
     // Register a fake agent
     orch.coordinator.registerAgent({
-      id: 'agent-0', index: 0, phase: 'idle',
+      id: 'worker-0', index: 0, phase: 'idle',
       currentBeadId: null, currentBeadTitle: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
@@ -301,29 +301,29 @@ describe('SwarmOrchestrator — pause/resume workers', () => {
   })
 
   it('pauseWorker/resumeWorker returns true for existing worker', () => {
-    const fakeWorker = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
-    ;(orch as any).workers.set('agent-0', fakeWorker)
-    expect(orch.pauseWorker('agent-0')).toBe(true)
+    const fakeWorker = { agentId: 'worker-0', pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('slot-0', fakeWorker)
+    expect(orch.pauseWorker('worker-0')).toBe(true)
     expect(fakeWorker.pause).toHaveBeenCalled()
-    expect(orch.resumeWorker('agent-0')).toBe(true)
+    expect(orch.resumeWorker('worker-0')).toBe(true)
     expect(fakeWorker.resume).toHaveBeenCalled()
   })
 
   it('pauseAllWorkers calls pause on all workers', () => {
-    const w0 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
-    const w1 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
-    ;(orch as any).workers.set('agent-0', w0)
-    ;(orch as any).workers.set('agent-1', w1)
+    const w0 = { agentId: 'worker-0', pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    const w1 = { agentId: 'worker-1', pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('slot-0', w0)
+    ;(orch as any).workers.set('slot-1', w1)
     orch.pauseAllWorkers()
     expect(w0.pause).toHaveBeenCalled()
     expect(w1.pause).toHaveBeenCalled()
   })
 
   it('resumeAllWorkers calls resume on all workers', () => {
-    const w0 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
-    const w1 = { pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
-    ;(orch as any).workers.set('agent-0', w0)
-    ;(orch as any).workers.set('agent-1', w1)
+    const w0 = { agentId: 'worker-0', pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    const w1 = { agentId: 'worker-1', pause: vi.fn(), resume: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('slot-0', w0)
+    ;(orch as any).workers.set('slot-1', w1)
     orch.resumeAllWorkers()
     expect(w0.resume).toHaveBeenCalled()
     expect(w1.resume).toHaveBeenCalled()
@@ -331,11 +331,11 @@ describe('SwarmOrchestrator — pause/resume workers', () => {
 
   it('pauseWorker broadcasts agents (debounced)', async () => {
     vi.useFakeTimers()
-    const fakeWorker = { pause: vi.fn(), stop: vi.fn() }
-    ;(orch as any).workers.set('agent-0', fakeWorker)
+    const fakeWorker = { agentId: 'worker-0', pause: vi.fn(), stop: vi.fn() }
+    ;(orch as any).workers.set('slot-0', fakeWorker)
     const broadcasts: any[] = []
     orch.on('agents', (a: any) => broadcasts.push(a))
-    orch.pauseWorker('agent-0')
+    orch.pauseWorker('worker-0')
     // Not emitted yet — debounced
     expect(broadcasts.length).toBe(0)
     vi.advanceTimersByTime(200)
@@ -592,8 +592,8 @@ describe('SwarmOrchestrator — build monitor integration', () => {
       'CLAUDE_CODE_CMD=false\nBUILD_MONITOR_CMD=echo ok\nBUILD_MONITOR_INTERVAL=60\n')
 
     // Simulate a running swarm by injecting fake workers
-    const fakeWorker = { stop: vi.fn(), pause: vi.fn(), resume: vi.fn() }
-    ;(orch as any).workers.set('agent-0', fakeWorker)
+    const fakeWorker = { agentId: 'worker-0', stop: vi.fn(), pause: vi.fn(), resume: vi.fn() }
+    ;(orch as any).workers.set('slot-0', fakeWorker)
 
     // Toggle on — monitor should be created
     orch.toggleBuildMonitor(true)
@@ -654,73 +654,75 @@ describe('SwarmOrchestrator — heartbeat map', () => {
     // Simulate a worker emitting heartbeat via the wiring in startWorkers
     const map = (orch as any)._heartbeatMap as Map<string, number>
     const before = Date.now()
-    map.set('agent-0', before)
-    expect(orch.getHeartbeat('agent-0')).toBe(before)
+    map.set('worker-0', before)
+    expect(orch.getHeartbeat('worker-0')).toBe(before)
   })
 
   it('getStaleAgents returns agents older than threshold', () => {
     const map = (orch as any)._heartbeatMap as Map<string, number>
     const now = Date.now()
-    map.set('agent-0', now - 20 * 60_000) // 20 min ago — stale
-    map.set('agent-1', now - 1_000)        // 1 sec ago — fresh
+    map.set('worker-0', now - 20 * 60_000) // 20 min ago — stale
+    map.set('worker-1', now - 1_000)        // 1 sec ago — fresh
     const stale = orch.getStaleAgents(10 * 60_000)
-    expect(stale).toEqual(['agent-0'])
+    expect(stale).toEqual(['worker-0'])
   })
 
   it('getStaleAgents returns empty array when all agents are fresh', () => {
     const map = (orch as any)._heartbeatMap as Map<string, number>
-    map.set('agent-0', Date.now())
-    map.set('agent-1', Date.now())
+    map.set('worker-0', Date.now())
+    map.set('worker-1', Date.now())
     expect(orch.getStaleAgents()).toEqual([])
   })
 
   it('getStaleAgents uses default 10-minute threshold', () => {
     const map = (orch as any)._heartbeatMap as Map<string, number>
-    map.set('agent-0', Date.now() - 11 * 60_000) // 11 min — stale with default
-    expect(orch.getStaleAgents()).toEqual(['agent-0'])
+    map.set('worker-0', Date.now() - 11 * 60_000) // 11 min — stale with default
+    expect(orch.getStaleAgents()).toEqual(['worker-0'])
   })
 
   it('stopWorkers clears the heartbeat map', () => {
     const map = (orch as any)._heartbeatMap as Map<string, number>
-    map.set('agent-0', Date.now())
+    map.set('worker-0', Date.now())
     orch.stopWorkers()
-    expect(orch.getHeartbeat('agent-0')).toBeUndefined()
+    expect(orch.getHeartbeat('worker-0')).toBeUndefined()
   })
 
   it('worker exit event removes agent from heartbeat map', () => {
     // Simulate worker event wiring: inject a fake worker with an EventEmitter
     const { EventEmitter } = require('events')
     const fakeWorker = new EventEmitter()
+    fakeWorker.agentId = 'worker-0'
     fakeWorker.stop = vi.fn()
-    ;(orch as any).workers.set('agent-0', fakeWorker)
-    ;(orch as any)._heartbeatMap.set('agent-0', Date.now())
+    ;(orch as any).workers.set('slot-0', fakeWorker)
+    ;(orch as any)._heartbeatMap.set('worker-0', Date.now())
 
     // Wire heartbeat and exit listeners like startWorkers does
     fakeWorker.on('heartbeat', () => {
-      ;(orch as any)._heartbeatMap.set('agent-0', Date.now())
+      ;(orch as any)._heartbeatMap.set('worker-0', Date.now())
     })
     fakeWorker.on('exit', () => {
-      ;(orch as any).workers.delete('agent-0')
-      ;(orch as any)._heartbeatMap.delete('agent-0')
+      ;(orch as any).workers.delete('slot-0')
+      ;(orch as any)._heartbeatMap.delete('worker-0')
     })
 
     fakeWorker.emit('exit', 'test')
-    expect(orch.getHeartbeat('agent-0')).toBeUndefined()
+    expect(orch.getHeartbeat('worker-0')).toBeUndefined()
   })
 
   it('heartbeat event updates timestamp in the map', () => {
     const { EventEmitter } = require('events')
     const fakeWorker = new EventEmitter()
+    fakeWorker.agentId = 'worker-0'
     fakeWorker.stop = vi.fn()
 
     // Wire heartbeat listener
     fakeWorker.on('heartbeat', () => {
-      ;(orch as any)._heartbeatMap.set('agent-0', Date.now())
+      ;(orch as any)._heartbeatMap.set('worker-0', Date.now())
     })
 
     const before = Date.now()
     fakeWorker.emit('heartbeat')
-    const ts = (orch as any)._heartbeatMap.get('agent-0')
+    const ts = (orch as any)._heartbeatMap.get('worker-0')
     expect(ts).toBeGreaterThanOrEqual(before)
     expect(ts).toBeLessThanOrEqual(Date.now())
   })
@@ -940,14 +942,14 @@ describe('SwarmOrchestrator — stopWorkers double-emit guard (Bug 2)', () => {
     const fakeWorker1 = new EventEmitter()
     fakeWorker1.stop = vi.fn()
 
-    ;(orch as any).workers.set('worker-0', fakeWorker0)
-    ;(orch as any).workers.set('worker-1', fakeWorker1)
+    ;(orch as any).workers.set('slot-0', fakeWorker0)
+    ;(orch as any).workers.set('slot-1', fakeWorker1)
 
     // Wire exit handlers like startWorkers does
-    for (const [agentId, worker] of [['worker-0', fakeWorker0], ['worker-1', fakeWorker1]] as const) {
+    for (const [slotKey, worker] of [['slot-0', fakeWorker0], ['slot-1', fakeWorker1]] as const) {
       (worker as any).on('exit', () => {
-        ;(orch as any).workers.delete(agentId)
-        ;(orch as any)._heartbeatMap.delete(agentId)
+        ;(orch as any).workers.delete(slotKey)
+        ;(orch as any)._heartbeatMap.delete(slotKey)
         if ((orch as any).workers.size === 0 && !(orch as any)._stoppedEmitted) {
           ;(orch as any)._stoppedEmitted = true
           orch.emit('stopped')

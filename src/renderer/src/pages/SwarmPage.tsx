@@ -408,7 +408,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                 const sessionStart = swarmStatus?.sessionStartedAt
                 if (sessionStart) {
                   const startTs = sessionStart.replace(/[:.]/g, '-').slice(0, 19)
-                  setHistoryLogs(logs.filter(l => l.file >= `agent-0_a_${startTs}`))
+                  setHistoryLogs(logs.filter(l => l.file >= `worker-0_a_${startTs}`))
                 } else {
                   setHistoryLogs(logs)
                 }

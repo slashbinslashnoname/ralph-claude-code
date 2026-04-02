@@ -23,7 +23,7 @@ function makeBead(overrides: Partial<Bead> = {}): Bead {
     files: ['src/foo.ts'],
     priority: 2,
     tags: [],
-    claimedBy: 'agent-0',
+    claimedBy: 'worker-0',
     ...overrides
   }
 }
@@ -57,10 +57,10 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
       return []
     })
 
-    // Post a stale activity event for agent-0 (well past 2× timeout)
+    // Post a stale activity event for worker-0 (well past 2× timeout)
     const staleTs = new Date(Date.now() - 3 * claudeTimeoutMinutes * 60_000).toISOString()
     coord.postActivity({
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'claimed',
       beadId: 'sb-stuck',
       beadTitle: 'Stuck bead',
@@ -88,7 +88,7 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
     // Post stale activity
     const staleTs = new Date(Date.now() - 3 * claudeTimeoutMinutes * 60_000).toISOString()
     coord.postActivity({
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'claimed',
       beadId: 'sb-stuck',
       beadTitle: 'Stuck bead',
@@ -97,7 +97,7 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
     })
 
     // But agent has a fresh heartbeat — it's still alive
-    coord.heartbeat('agent-0')
+    coord.heartbeat('worker-0')
 
     const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
@@ -117,7 +117,7 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
 
     // Post fresh activity (within 2× threshold)
     coord.postActivity({
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'executing',
       beadId: 'sb-stuck',
       beadTitle: 'Stuck bead',
@@ -142,7 +142,7 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
 
     const staleTs = new Date(Date.now() - 3 * claudeTimeoutMinutes * 60_000).toISOString()
     coord.postActivity({
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'claimed',
       beadId: 'sb-stuck',
       beadTitle: 'Stuck bead',
@@ -166,8 +166,8 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
   })
 
   it('reopens multiple timed-out beads from different agents', async () => {
-    const stuckA = makeBead({ id: 'sb-a', claimedBy: 'agent-0', title: 'Bead A' })
-    const stuckB = makeBead({ id: 'sb-b', claimedBy: 'agent-1', title: 'Bead B' })
+    const stuckA = makeBead({ id: 'sb-a', claimedBy: 'worker-0', title: 'Bead A' })
+    const stuckB = makeBead({ id: 'sb-b', claimedBy: 'worker-1', title: 'Bead B' })
 
     vi.spyOn(coord.bd, 'listByStatusAsync').mockImplementation(async (status: string) => {
       if (status === 'in_progress') return [stuckA, stuckB]
@@ -175,8 +175,8 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
     })
 
     const staleTs = new Date(Date.now() - 3 * claudeTimeoutMinutes * 60_000).toISOString()
-    coord.postActivity({ agentId: 'agent-0', type: 'claimed', beadId: 'sb-a', beadTitle: 'Bead A', summary: 'Claimed', ts: staleTs })
-    coord.postActivity({ agentId: 'agent-1', type: 'claimed', beadId: 'sb-b', beadTitle: 'Bead B', summary: 'Claimed', ts: staleTs })
+    coord.postActivity({ agentId: 'worker-0', type: 'claimed', beadId: 'sb-a', beadTitle: 'Bead A', summary: 'Claimed', ts: staleTs })
+    coord.postActivity({ agentId: 'worker-1', type: 'claimed', beadId: 'sb-b', beadTitle: 'Bead B', summary: 'Claimed', ts: staleTs })
 
     const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 
@@ -197,7 +197,7 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
 
     const staleTs = new Date(Date.now() - 3 * claudeTimeoutMinutes * 60_000).toISOString()
     coord.postActivity({
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       type: 'claimed',
       beadId: 'sb-stuck',
       beadTitle: 'Stuck bead',
@@ -206,8 +206,8 @@ describe('heartbeat watchdog — _checkClaimTimeouts background sweep', () => {
     })
 
     // Agent had a heartbeat but it was cleared (agent deregistered)
-    coord.heartbeat('agent-0')
-    coord.clearHeartbeat('agent-0')
+    coord.heartbeat('worker-0')
+    coord.clearHeartbeat('worker-0')
 
     const reopenSpy = vi.spyOn(coord.bd, 'reopenAsync').mockImplementation(async () => {})
 

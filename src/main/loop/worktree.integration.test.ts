@@ -38,7 +38,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('creates a worktree at paths.worktreesDir/worker-<beadId>', () => {
-    const result = coord.createWorktree('agent-0', 'sb-123')
+    const result = coord.createWorktree('worker-0', 'sb-123')
 
     expect(result).not.toBeNull()
     const expected = path.join(paths.worktreesDir, 'worker-sb-123')
@@ -47,7 +47,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('returns bead-centric branch name worker/<beadId>', () => {
-    const result = coord.createWorktree('agent-0', 'sb-123')
+    const result = coord.createWorktree('worker-0', 'sb-123')
 
     expect(result).not.toBeNull()
     expect(result!.branch).toBe('worker/sb-123')
@@ -58,7 +58,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('symlinks .beads to paths.beadsRoot', () => {
-    const result = coord.createWorktree('agent-0', 'sb-link')
+    const result = coord.createWorktree('worker-0', 'sb-link')
 
     expect(result).not.toBeNull()
     const beadsLink = path.join(result!.worktreePath, '.beads')
@@ -70,7 +70,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('symlinks .slashbot to paths.storeDir', () => {
-    const result = coord.createWorktree('agent-0', 'sb-store')
+    const result = coord.createWorktree('worker-0', 'sb-store')
 
     expect(result).not.toBeNull()
     const slashbotLink = path.join(result!.worktreePath, '.slashbot')
@@ -82,7 +82,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('symlinks .slashbotrc to project root .slashbotrc', () => {
-    const result = coord.createWorktree('agent-0', 'sb-rc')
+    const result = coord.createWorktree('worker-0', 'sb-rc')
 
     expect(result).not.toBeNull()
     const rcLink = path.join(result!.worktreePath, '.slashbotrc')
@@ -94,7 +94,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('writes .gitignore with required entries', () => {
-    const result = coord.createWorktree('agent-0', 'sb-gi')
+    const result = coord.createWorktree('worker-0', 'sb-gi')
 
     expect(result).not.toBeNull()
     const gitignorePath = path.join(result!.worktreePath, '.gitignore')
@@ -108,7 +108,7 @@ describe('AgentCoordinator.createWorktree', () => {
   })
 
   it('worktree directory contains project files from main branch', () => {
-    const result = coord.createWorktree('agent-0', 'sb-files')
+    const result = coord.createWorktree('worker-0', 'sb-files')
 
     expect(result).not.toBeNull()
     // README.md was committed in the init commit
@@ -117,18 +117,18 @@ describe('AgentCoordinator.createWorktree', () => {
 
   it('cleans up stale worktree and recreates it', () => {
     // Create a worktree first
-    const result1 = coord.createWorktree('agent-0', 'sb-stale')
+    const result1 = coord.createWorktree('worker-0', 'sb-stale')
     expect(result1).not.toBeNull()
 
     // Create again with same ids — should clean up and recreate
-    const result2 = coord.createWorktree('agent-0', 'sb-stale')
+    const result2 = coord.createWorktree('worker-0', 'sb-stale')
     expect(result2).not.toBeNull()
     expect(fs.existsSync(result2!.worktreePath)).toBe(true)
   })
 
   it('different agents working on different beads get separate worktrees', () => {
-    const r1 = coord.createWorktree('agent-0', 'sb-alpha')
-    const r2 = coord.createWorktree('agent-1', 'sb-beta')
+    const r1 = coord.createWorktree('worker-0', 'sb-alpha')
+    const r2 = coord.createWorktree('worker-1', 'sb-beta')
 
     expect(r1).not.toBeNull()
     expect(r2).not.toBeNull()
@@ -141,12 +141,12 @@ describe('AgentCoordinator.createWorktree', () => {
   it('agentId is ignored in branch/path naming (bead-centric)', () => {
     // Two different agents creating a worktree for the same bead
     // should produce the same path — the second call cleans up the first
-    const r1 = coord.createWorktree('agent-0', 'sb-same')
+    const r1 = coord.createWorktree('worker-0', 'sb-same')
     expect(r1).not.toBeNull()
     expect(r1!.branch).toBe('worker/sb-same')
     expect(r1!.worktreePath).toContain('worker-sb-same')
 
-    const r2 = coord.createWorktree('agent-1', 'sb-same')
+    const r2 = coord.createWorktree('worker-1', 'sb-same')
     expect(r2).not.toBeNull()
     expect(r2!.branch).toBe('worker/sb-same')
     // Same path — agent identity doesn't affect naming

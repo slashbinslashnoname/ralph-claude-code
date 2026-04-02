@@ -123,40 +123,42 @@ export class SwarmOrchestrator extends EventEmitter {
     }
     if (!this.sessionStartedAt) this.sessionStartedAt = new Date().toISOString()
 
-    // Stop excess workers if reducing count
-    const currentIds = [...this.workers.keys()].sort()
-    for (const id of currentIds) {
-      const idx = parseInt(id.replace('worker-', ''), 10)
-      if (idx >= n) {
-        this._log('INFO', `Stopping excess worker ${id}`)
-        this.workers.get(id)?.stop()
-        this.workers.delete(id)
+    // Stop excess workers if reducing count (keyed by slot index)
+    const currentSlots = [...this.workers.keys()]
+      .map(k => parseInt(k.replace('slot-', ''), 10))
+      .sort((a, b) => a - b)
+    for (const slot of currentSlots) {
+      if (slot >= n) {
+        const slotKey = `slot-${slot}`
+        this._log('INFO', `Stopping excess worker slot ${slot}`)
+        this.workers.get(slotKey)?.stop()
+        this.workers.delete(slotKey)
       }
     }
 
     // Reopen any beads left claimed/in_progress from a previous session
     await this.coordinator.reopenStaleBeadsAsync()
 
-    // Start missing workers up to n
+    // Start missing workers up to n (keyed by slot index, agentId is dynamic per bead)
     for (let i = 0; i < n; i++) {
-      const agentId = `worker-${i}`
-      if (this.workers.has(agentId)) continue
-      const worker = new WorkerLoop(agentId, i, this.projectPath, config, this.coordinator, this.paths)
-      worker.on('log', (level: string, msg: string) => this._log(level, msg, agentId))
+      const slotKey = `slot-${i}`
+      if (this.workers.has(slotKey)) continue
+      const worker = new WorkerLoop(`worker-${i}`, i, this.projectPath, config, this.coordinator, this.paths)
+      worker.on('log', (level: string, msg: string) => this._log(level, msg, worker.agentId))
       worker.on('output', (chunk: string) => {
-        this._bufferOutput(agentId, chunk)
-        this.emit('output', agentId, chunk)
+        this._bufferOutput(worker.agentId, chunk)
+        this.emit('output', worker.agentId, chunk)
       })
       worker.on('phase', (phase: string, bid?: string, btitle?: string) => {
         this._broadcastAgents()
-        this._log('INFO', `[${agentId}] phase=${phase}${bid ? ` bead=${bid}` : ''}`, agentId)
+        this._log('INFO', `[${worker.agentId}] phase=${phase}${bid ? ` bead=${bid}` : ''}`, worker.agentId)
       })
       worker.on('heartbeat', () => {
-        this._heartbeatMap.set(agentId, Date.now())
+        this._heartbeatMap.set(worker.agentId, Date.now())
       })
       worker.on('exit', (reason: string) => {
-        this.workers.delete(agentId)
-        this._heartbeatMap.delete(agentId)
+        this.workers.delete(slotKey)
+        this._heartbeatMap.delete(worker.agentId)
         this._broadcastAgents()
         if (this.workers.size === 0 && !this._stoppedEmitted) {
           this._stoppedEmitted = true
@@ -164,15 +166,15 @@ export class SwarmOrchestrator extends EventEmitter {
           this.emit('stopped')
         }
       })
-      this.workers.set(agentId, worker)
+      this.workers.set(slotKey, worker)
       const loopPromise = worker.start().catch(err => {
-        this._log('ERROR', `[${agentId}] start failed: ${err instanceof Error ? err.message : err}`)
-        this.workers.delete(agentId)
+        this._log('ERROR', `[${worker.agentId}] start failed: ${err instanceof Error ? err.message : err}`)
+        this.workers.delete(slotKey)
         this._broadcastAgents()
       }).finally(() => {
-        this.workerLoopPromises.delete(agentId)
+        this.workerLoopPromises.delete(slotKey)
       })
-      this.workerLoopPromises.set(agentId, loopPromise)
+      this.workerLoopPromises.set(slotKey, loopPromise)
     }
     this._startActivityPoll()
     this._broadcastAgents()
@@ -211,22 +213,30 @@ export class SwarmOrchestrator extends EventEmitter {
     this._log('INFO', 'Graceful stop requested — workers will finish current beads then exit')
   }
 
-  /** Pause a single worker agent. */
+  /** Pause a single worker agent (looked up by current agentId). */
   pauseWorker(agentId: string): boolean {
-    const worker = this.workers.get(agentId)
+    const worker = this._findWorkerByAgentId(agentId)
     if (!worker) return false
     worker.pause()
     this._broadcastAgents()
     return true
   }
 
-  /** Resume a single paused worker agent. */
+  /** Resume a single paused worker agent (looked up by current agentId). */
   resumeWorker(agentId: string): boolean {
-    const worker = this.workers.get(agentId)
+    const worker = this._findWorkerByAgentId(agentId)
     if (!worker) return false
     worker.resume()
     this._broadcastAgents()
     return true
+  }
+
+  /** Find a worker by its current (dynamic) agentId. */
+  private _findWorkerByAgentId(agentId: string): WorkerLoop | undefined {
+    for (const worker of this.workers.values()) {
+      if (worker.agentId === agentId) return worker
+    }
+    return undefined
   }
 
   /** Pause all workers. */
@@ -452,7 +462,7 @@ export class SwarmOrchestrator extends EventEmitter {
     const now = Date.now()
 
     for (const [agentId, lastTs] of this._heartbeatMap) {
-      if (!this.workers.has(agentId)) continue
+      if (!this._findWorkerByAgentId(agentId)) continue
       if (now - lastTs > thresholdMs) {
         this._log('WARN', `Dead agent detected: ${agentId} (no heartbeat for ${Math.round((now - lastTs) / 60_000)}m)`)
 
@@ -472,7 +482,7 @@ export class SwarmOrchestrator extends EventEmitter {
 
         // Stop the dead worker — do NOT delete from workers map here;
         // the exit handler will handle cleanup and 'stopped' emission
-        const worker = this.workers.get(agentId)
+        const worker = this._findWorkerByAgentId(agentId)
         if (worker) {
           worker.stop()
         }

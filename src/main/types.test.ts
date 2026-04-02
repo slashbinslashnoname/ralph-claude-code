@@ -105,7 +105,7 @@ describe('KnowledgeEntry types', () => {
   it('KnowledgeEntry accepts valid entry', () => {
     const entry: KnowledgeEntry = {
       ts: '2026-03-21T10:00:00Z',
-      agentId: 'agent-0',
+      agentId: 'worker-0',
       beadId: 'sb-0o0.1',
       category: 'pattern',
       summary: 'Use worktrees for isolation',
@@ -113,7 +113,7 @@ describe('KnowledgeEntry types', () => {
       confidence: 'high'
     }
     expect(entry.ts).toBe('2026-03-21T10:00:00Z')
-    expect(entry.agentId).toBe('agent-0')
+    expect(entry.agentId).toBe('worker-0')
     expect(entry.beadId).toBe('sb-0o0.1')
     expect(entry.category).toBe('pattern')
     expect(entry.summary).toBe('Use worktrees for isolation')
@@ -124,16 +124,16 @@ describe('KnowledgeEntry types', () => {
   it('MailMessage accepts valid message', () => {
     const msg: MailMessage = {
       ts: '2026-03-23T12:00:00Z',
-      from: 'agent-0',
-      to: 'agent-1',
+      from: 'worker-0',
+      to: 'worker-1',
       subject: 'Need help with types.ts',
       body: 'Can you review the MailMessage interface?',
       threadId: 'thread-abc',
       read: false
     }
     expect(msg.ts).toBe('2026-03-23T12:00:00Z')
-    expect(msg.from).toBe('agent-0')
-    expect(msg.to).toBe('agent-1')
+    expect(msg.from).toBe('worker-0')
+    expect(msg.to).toBe('worker-1')
     expect(msg.subject).toBe('Need help with types.ts')
     expect(msg.body).toBe('Can you review the MailMessage interface?')
     expect(msg.threadId).toBe('thread-abc')
@@ -144,7 +144,7 @@ describe('KnowledgeEntry types', () => {
     const categories: KnowledgeCategory[] = ['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk']
     const entries: KnowledgeEntry[] = categories.map((cat) => ({
       ts: '2026-03-21T10:00:00Z',
-      agentId: 'agent-1',
+      agentId: 'worker-1',
       beadId: 'sb-abc.1',
       category: cat,
       summary: `Test ${cat}`,
