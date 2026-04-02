@@ -65,12 +65,14 @@ describe('BeadsPage', () => {
     expect(html).toContain('Refresh')
   })
 
-  test('renders tab filters', () => {
+  test('renders tab filters without All tab', () => {
     const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
-    expect(html).toContain('All')
     expect(html).toContain('Open')
     expect(html).toContain('In Progress')
     expect(html).toContain('Closed')
+    // "All" tab should not exist — only Open, In Progress, Closed
+    // Check that no tab button contains "All" as its label
+    expect(html).not.toMatch(/>All</)
   })
 
   test('renders sort options', () => {
