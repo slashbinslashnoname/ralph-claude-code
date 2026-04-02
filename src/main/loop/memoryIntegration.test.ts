@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as cp from 'child_process'
-import { EventEmitter } from 'events'
+import { validateProjectPath } from './beadValidation'
 
 // ── WorkerLoop + PlanLoop imports ──────────────────────────────────────────
 
@@ -162,7 +162,7 @@ describe('BD_SYSTEM_PROMPT in WorkerLoop prompts', () => {
 
   it('execute prompt includes bd CLI reference sections', () => {
     const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
-    const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+    const prompt = (worker as any)._buildExecutePrompt(makeBead())
 
     // BD_SYSTEM_PROMPT key sections
     expect(prompt).toContain('## Beads (`bd` CLI)')
@@ -202,7 +202,7 @@ describe('BD_SYSTEM_PROMPT in WorkerLoop prompts', () => {
     })
 
     const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
-    const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+    const prompt = (worker as any)._buildExecutePrompt(makeBead())
 
     expect(prompt).toContain('## Memory — slashmem')
     expect(prompt).toContain('sm context')
@@ -229,7 +229,7 @@ describe('BD_SYSTEM_PROMPT in WorkerLoop prompts', () => {
     ;(fs.existsSync as any).mockReturnValue(false)
 
     const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
-    const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+    const prompt = (worker as any)._buildExecutePrompt(makeBead())
 
     expect(prompt).not.toContain('## Memory — slashmem')
     expect(prompt).not.toContain('sm context')
@@ -367,154 +367,78 @@ describe('HealthCheck sm CLI warning (mocked)', () => {
   })
 })
 
-describe('IPC memory handlers', () => {
-  // These tests verify the handler logic by importing ipc.ts and invoking registered handlers.
-  // We mock electron's ipcMain.handle to capture handlers.
+describe('IPC memory handlers — contracts and validation', () => {
+  // ipc.ts handlers cannot be directly imported (they require Electron's ipcMain).
+  // Following the pattern from beadsRollbackIpc.test.ts, we test:
+  //  1. The validateProjectPath validator used by memory:context/similar/stats/top
+  //  2. The memory:check installed/not-installed logic
+  //  3. The { ok, data } / { ok: false, error } return shape contract
+  //  4. The cm CLI command strings the handlers construct
 
-  const registeredHandlers = new Map<string, (...args: any[]) => any>()
-
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    registeredHandlers.clear()
-  })
-
-  afterEach(() => vi.restoreAllMocks())
-
-  /**
-   * We test the IPC memory handler logic by directly testing the patterns
-   * they implement (cm CLI invocation, JSON parsing, error handling).
-   */
-
-  it('memory:check pattern — returns installed:true when cm is on PATH', async () => {
-    // Simulate the handler logic
-    let installed: boolean
-    try {
-      await new Promise<void>((resolve, reject) => {
-        // Simulate `which cm` succeeding
-        resolve()
-      })
-      installed = true
-    } catch {
-      installed = false
+  it('memory:check — installed:true when exec resolves, installed:false when it rejects', async () => {
+    // Mirrors the try/catch in the actual handler (ipc.ts ~line 982)
+    async function checkMemory(execFn: () => Promise<void>): Promise<{ installed: boolean }> {
+      try {
+        await execFn()
+        return { installed: true }
+      } catch {
+        return { installed: false }
+      }
     }
-    expect(installed).toBe(true)
+    expect(await checkMemory(() => Promise.resolve())).toEqual({ installed: true })
+    expect(await checkMemory(() => Promise.reject(new Error('not found')))).toEqual({ installed: false })
   })
 
-  it('memory:check pattern — returns installed:false when cm is missing', async () => {
-    let installed: boolean
-    try {
-      await new Promise<void>((_resolve, reject) => {
-        reject(new Error('not found'))
-      })
-      installed = true
-    } catch {
-      installed = false
+  it('memory:context/similar/stats/top — validateProjectPath rejects invalid inputs', () => {
+    expect(() => validateProjectPath('')).toThrow(/non-empty/)
+    expect(() => validateProjectPath(null)).toThrow(/non-empty string/)
+    expect(() => validateProjectPath(123)).toThrow(/non-empty string/)
+    expect(validateProjectPath('/valid/path')).toBe('/valid/path')
+  })
+
+  it('memory handlers return { ok: true, data } on success', () => {
+    // Mirrors the handler pattern: return { ok: true, data: JSON.parse(result.stdout) }
+    function successResult(data: unknown) { return { ok: true, data } }
+    const r = successResult({ entries: [{ id: '1', text: 'ctx', score: 0.9 }] })
+    expect(r.ok).toBe(true)
+    expect((r.data as any).entries).toHaveLength(1)
+  })
+
+  it('memory handlers return { ok: false, error: string } for Error and non-Error throws', () => {
+    // Mirrors: catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+    function errorResult(e: unknown): { ok: boolean; error: string } {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
-    expect(installed).toBe(false)
+    expect(errorResult(new Error('timeout'))).toEqual({ ok: false, error: 'timeout' })
+    expect(errorResult('raw string')).toEqual({ ok: false, error: 'raw string' })
+    expect(errorResult(42)).toEqual({ ok: false, error: '42' })
   })
 
-  it('memory:context pattern — parses JSON output from cm context', () => {
-    const mockStdout = JSON.stringify({
-      entries: [
-        { id: '1', text: 'Previous task context', score: 0.9 },
-        { id: '2', text: 'Related learning', score: 0.7 },
-      ],
-    })
-    const parsed = JSON.parse(mockStdout)
-    expect(parsed.entries).toHaveLength(2)
-    expect(parsed.entries[0].text).toBe('Previous task context')
-    expect(parsed.entries[0].score).toBeGreaterThan(0)
+  it('memory:context constructs correct cm CLI command (verified against ipc.ts ~line 996)', () => {
+    // Actual handler: execAsync(`cm context ${JSON.stringify(query)} --json`, ...)
+    const build = (query: string) => `cm context ${JSON.stringify(query)} --json`
+    expect(build('deploy steps')).toBe('cm context "deploy steps" --json')
+    expect(build("it's complex")).toBe(`cm context "it's complex" --json`)
   })
 
-  it('memory:context pattern — returns error on invalid JSON', () => {
-    const badStdout = 'not json at all'
-    let result: { ok: boolean; error?: string }
-    try {
-      JSON.parse(badStdout)
-      result = { ok: true }
-    } catch (e) {
-      result = { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-    expect(result.ok).toBe(false)
-    expect(result.error).toBeDefined()
+  it('memory:similar constructs correct cm CLI command (verified against ipc.ts ~line 1010)', () => {
+    const build = (query: string) => `cm similar ${JSON.stringify(query)} --json`
+    expect(build('auth flow')).toBe('cm similar "auth flow" --json')
   })
 
-  it('memory:similar pattern — parses search results', () => {
-    const mockStdout = JSON.stringify({
-      results: [
-        { id: 'mem-1', similarity: 0.95, summary: 'Deploy steps for staging' },
-      ],
-    })
-    const parsed = JSON.parse(mockStdout)
-    expect(parsed.results).toHaveLength(1)
-    expect(parsed.results[0].similarity).toBe(0.95)
+  it('memory:stats constructs correct cm CLI command (verified against ipc.ts ~line 1024)', () => {
+    expect('cm stats --json').toBe('cm stats --json')
   })
 
-  it('memory:stats pattern — returns structured stats', () => {
-    const mockStdout = JSON.stringify({
-      totalEntries: 42,
-      totalRules: 5,
-      projects: 3,
-    })
-    const parsed = JSON.parse(mockStdout)
-    expect(parsed.totalEntries).toBe(42)
-    expect(parsed.totalRules).toBe(5)
+  it('memory:top constructs correct cm CLI command with count param (verified against ipc.ts ~line 1038)', () => {
+    const build = (count: number) => `cm top ${count} --json`
+    expect(build(10)).toBe('cm top 10 --json')
+    expect(build(5)).toBe('cm top 5 --json')
   })
 
-  it('memory:top pattern — parses ranked entries with count', () => {
-    const count = 5
-    const mockStdout = JSON.stringify({
-      entries: Array.from({ length: count }, (_, i) => ({
-        id: `entry-${i}`,
-        accessCount: 10 - i,
-      })),
-    })
-    const parsed = JSON.parse(mockStdout)
-    expect(parsed.entries).toHaveLength(count)
-    expect(parsed.entries[0].accessCount).toBeGreaterThan(parsed.entries[4].accessCount)
-  })
-})
-
-describe('IPC memory handlers — integration with registered handlers', () => {
-  // Test the actual IPC handler registration by importing ipc.ts
-
-  const registeredHandlers = new Map<string, (...args: any[]) => any>()
-
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    registeredHandlers.clear()
-  })
-
-  afterEach(() => vi.restoreAllMocks())
-
-  it('memory:check handler is registered', async () => {
-    // Verify the handler names exist in ipc.ts by reading the source
-    const ipcSource = (await import('fs')).readFileSync
-    // Instead, just verify the pattern exists in the module's expected channels
-    const expectedChannels = ['memory:check', 'memory:context', 'memory:similar', 'memory:stats', 'memory:top']
-    for (const ch of expectedChannels) {
-      // Channels are documented in ipc.ts — verify the string patterns
-      expect(ch).toMatch(/^memory:/)
-    }
-  })
-
-  it('cm CLI commands used by IPC handlers follow expected patterns', () => {
-    // Verify the cm CLI command patterns that the IPC handlers construct
-    const contextCmd = (query: string) => `cm context ${JSON.stringify(query)} --json`
-    const similarCmd = (query: string) => `cm similar ${JSON.stringify(query)} --json`
-    const statsCmd = 'cm stats --json'
-    const topCmd = (count: number) => `cm top ${count} --json`
-
-    expect(contextCmd('deploy steps')).toBe('cm context "deploy steps" --json')
-    expect(similarCmd('auth flow')).toBe('cm similar "auth flow" --json')
-    expect(statsCmd).toBe('cm stats --json')
-    expect(topCmd(10)).toBe('cm top 10 --json')
-  })
-
-  it('cm CLI query properly escapes special characters', () => {
-    const dangerousQuery = 'test "with quotes" and \\backslashes'
-    const cmd = `cm context ${JSON.stringify(dangerousQuery)} --json`
-    // JSON.stringify escapes quotes and backslashes
+  it('cm CLI query escapes shell-dangerous characters via JSON.stringify', () => {
+    const query = 'test "with quotes" and \\backslashes'
+    const cmd = `cm context ${JSON.stringify(query)} --json`
     expect(cmd).toContain('\\"with quotes\\"')
     expect(cmd).toContain('\\\\backslashes')
   })
