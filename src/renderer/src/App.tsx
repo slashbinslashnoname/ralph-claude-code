@@ -22,7 +22,7 @@ const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: 'plan', label: 'Plan', icon: '\u25B6' },
   { id: 'beads', label: 'Beads', icon: '\u29BE' },
   { id: 'swarm', label: 'Swarm', icon: '\u2B21' },
-  { id: 'memory', label: 'Memory', icon: '\u{1F9E0}' },
+  { id: 'memory', label: 'Memory', icon: '\u29C1' },
   { id: 'logs', label: 'Logs', icon: '\u2630' },
   { id: 'config', label: 'Config', icon: '\u2699' },
 ]
