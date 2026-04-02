@@ -8,19 +8,21 @@ import SwarmPage from './pages/SwarmPage'
 import LogViewer from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
 import PlanPage from './pages/PlanPage'
+import MemoryPage from './pages/MemoryPage'
 import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
 
 const sb = window.slashbot
 
-type Page = 'dashboard' | 'beads' | 'swarm' | 'plan' | 'logs' | 'config' | 'setup'
+type Page = 'dashboard' | 'beads' | 'swarm' | 'plan' | 'memory' | 'logs' | 'config' | 'setup'
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u25C9' },
   { id: 'plan', label: 'Plan', icon: '\u25B6' },
   { id: 'beads', label: 'Beads', icon: '\u29BE' },
   { id: 'swarm', label: 'Swarm', icon: '\u2B21' },
+  { id: 'memory', label: 'Memory', icon: '\u{1F9E0}' },
   { id: 'logs', label: 'Logs', icon: '\u2630' },
   { id: 'config', label: 'Config', icon: '\u2699' },
 ]
@@ -316,6 +318,7 @@ export default function App() {
               setAgentOutputs={setAgentOutputs}
             />
           )}
+          {current.page === 'memory' && current.isEnabled && <MemoryPage />}
           {current.page === 'logs' && current.isEnabled && <LogViewer projectPath={current.path} />}
           {current.page === 'config' && current.isEnabled && <ConfigEditor projectPath={current.path} />}
         </main>

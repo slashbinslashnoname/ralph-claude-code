@@ -153,6 +153,20 @@ contextBridge.exposeInMainWorld('slashbot', {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   },
 
+  // ── CASS Memory (cm CLI) ──────────────────────────────────────────────
+  cm: {
+    check: () => ipcRenderer.invoke('cm:check'),
+    stats: () => ipcRenderer.invoke('cm:stats'),
+    playbookList: () => ipcRenderer.invoke('cm:playbook-list'),
+    playbookGet: (id: string) => ipcRenderer.invoke('cm:playbook-get', id),
+    playbookRemove: (id: string) => ipcRenderer.invoke('cm:playbook-remove', id),
+    top: (count?: number) => ipcRenderer.invoke('cm:top', count ?? 10),
+    stale: () => ipcRenderer.invoke('cm:stale'),
+    traumaList: () => ipcRenderer.invoke('cm:trauma-list'),
+    context: (task: string) => ipcRenderer.invoke('cm:context', task),
+    why: (id: string) => ipcRenderer.invoke('cm:why', id),
+  },
+
   // ── Cleanup ──────────────────────────────────────────────────────────
   cleanup: (projectPath?: string) => ipcRenderer.invoke('window:cleanup', projectPath),
 })

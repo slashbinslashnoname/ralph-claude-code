@@ -1177,5 +1177,80 @@ export function registerIpc(
     }
   })
 
+  // ── CASS Memory (cm CLI) ──────────────────────────────────────────────────
+
+  function runCm(args: string[]): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      cp.execFile('cm', args, { timeout: 30_000 }, (err, stdout, stderr) => {
+        if (err) {
+          // Try to parse JSON error from stdout
+          try { const j = JSON.parse(stdout); resolve(j) } catch { /* ignore */ }
+          reject(new Error(stderr?.trim() || err.message))
+        } else {
+          try { resolve(JSON.parse(stdout)) } catch { resolve(stdout) }
+        }
+      })
+    })
+  }
+
+  ipcMain.handle('cm:check', async () => {
+    try {
+      await runCm(['doctor', '--json'])
+      return { available: true }
+    } catch {
+      return { available: false }
+    }
+  })
+
+  ipcMain.handle('cm:stats', async () => {
+    try { return await runCm(['stats', '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:playbook-list', async () => {
+    try { return await runCm(['playbook', 'list', '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:playbook-get', async (_e, id: unknown) => {
+    if (typeof id !== 'string') return { success: false, error: 'id must be a string' }
+    try { return await runCm(['playbook', 'get', id, '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:playbook-remove', async (_e, id: unknown) => {
+    if (typeof id !== 'string') return { success: false, error: 'id must be a string' }
+    try { return await runCm(['playbook', 'remove', id, '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:top', async (_e, count: unknown) => {
+    const n = typeof count === 'number' ? String(count) : '10'
+    try { return await runCm(['top', n, '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:stale', async () => {
+    try { return await runCm(['stale', '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:trauma-list', async () => {
+    try { return await runCm(['trauma', 'list', '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:context', async (_e, task: unknown) => {
+    if (typeof task !== 'string') return { success: false, error: 'task must be a string' }
+    try { return await runCm(['context', task, '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
+  ipcMain.handle('cm:why', async (_e, id: unknown) => {
+    if (typeof id !== 'string') return { success: false, error: 'id must be a string' }
+    try { return await runCm(['why', id, '--json']) }
+    catch (e) { return { success: false, error: e instanceof Error ? e.message : String(e) } }
+  })
+
   return { getAutoUpdater: getOrCreateAutoUpdater }
 }
