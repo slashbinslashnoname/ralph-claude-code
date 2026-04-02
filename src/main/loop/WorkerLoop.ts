@@ -10,7 +10,6 @@ import { classifyError } from './ErrorClassifier'
 import { stripAnsi, buildEnv, resolveCmd } from './utils'
 import { runStateMachine, createWorkerContext, WorkerContext, WorkerCapabilities } from './WorkerStateMachine'
 import { ProjectPaths } from './ProjectStore'
-import { CassClient } from './CassClient'
 
 /** System prompt for agent context */
 const BD_SYSTEM_PROMPT = `
@@ -66,8 +65,6 @@ export class WorkerLoop extends EventEmitter {
   private _stateMachineCtx: WorkerContext | null = null
   /** Current bead ID being worked on. */
   private _currentBeadId: string | null = null
-  /** CASS memory client for cm CLI context retrieval. */
-  private cass = new CassClient()
 
   constructor(
     public agentId: string,
@@ -772,11 +769,41 @@ export class WorkerLoop extends EventEmitter {
     ].join('\n')
   }
 
-  /** Fetch formatted CASS memory context for a task description. Gracefully returns empty string if cm CLI unavailable. */
+  /** Fetch formatted CASS memory context for a task description via direct cm CLI call. Gracefully returns empty string if cm CLI unavailable. */
   private async _getCassContext(task: string): Promise<string> {
     try {
-      const ctx = await this.cass.context(task)
-      return this.cass.formatForPrompt(ctx)
+      const out = await new Promise<string>((resolve, reject) => {
+        cp.execFile('cm', ['context', task, '--json', '--limit', '30'], { timeout: 30_000 }, (err, stdout, stderr) => {
+          if (err) reject(new Error(stderr?.trim() || err.message))
+          else resolve(stdout)
+        })
+      })
+      const parsed = JSON.parse(out)
+      const rules = parsed.relevantBullets ?? parsed.relevant_bullets ?? []
+      const antiPatterns = parsed.antiPatterns ?? parsed.anti_patterns ?? []
+      const history = parsed.historySnippets ?? parsed.history_snippets ?? []
+
+      const sections: string[] = []
+      if (rules.length > 0) {
+        sections.push('### Relevant knowledge (from CASS memory)')
+        for (const rule of rules.slice(0, 15)) {
+          const conf = rule.confidence ? ` [confidence: ${rule.confidence}%]` : ''
+          sections.push(`- ${rule.text}${conf}`)
+        }
+      }
+      if (antiPatterns.length > 0) {
+        sections.push('\n### Anti-patterns to avoid')
+        for (const ap of antiPatterns.slice(0, 5)) {
+          sections.push(`- ⚠ ${ap.text}`)
+        }
+      }
+      if (history.length > 0) {
+        sections.push('\n### Historical context')
+        for (const snippet of history.slice(0, 3)) {
+          sections.push(`- ${snippet}`)
+        }
+      }
+      return sections.length > 0 ? sections.join('\n') : ''
     } catch {
       return ''
     }
