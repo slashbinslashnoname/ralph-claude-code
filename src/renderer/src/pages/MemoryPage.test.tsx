@@ -142,6 +142,28 @@ describe('MemoryPage — interactive', () => {
     expect(container.innerHTML).toContain('>Slashmem</button>')
   })
 
+  test('defaults to slashmem mode when only sm is installed, so search calls smContext not cm', async () => {
+    mocks.mockCheck.mockResolvedValue({ installed: false })
+    mocks.mockSmCheck.mockResolvedValue({ installed: true })
+    await act(async () => {
+      root.render(<MemoryPage projectPath="/test" />)
+    })
+    await act(async () => {})
+
+    const input = container.querySelector('input') as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(input, 'my query')
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    const searchBtn = container.querySelector('.btn-primary') as HTMLButtonElement
+    await act(async () => { searchBtn.click() })
+    await act(async () => {})
+
+    expect(mocks.mockSmContext).toHaveBeenCalledWith('/test', 'my query')
+    expect(mocks.mockContext).not.toHaveBeenCalled()
+  })
+
   test('shows only cm tabs when sm is not installed', async () => {
     mocks.mockCheck.mockResolvedValue({ installed: true })
     mocks.mockSmCheck.mockResolvedValue({ installed: false })

@@ -32,8 +32,12 @@ export default function MemoryPage({ projectPath }: Props) {
   const [hasSearched, setHasSearched] = useState(false)
 
   useEffect(() => {
-    sb.memory.check().then(r => setInstalled(r.installed))
-    sb.memory.smCheck().then(r => setSmInstalled(r.installed))
+    Promise.all([
+      sb.memory.check().then(r => { setInstalled(r.installed); return r.installed }),
+      sb.memory.smCheck().then(r => { setSmInstalled(r.installed); return r.installed }),
+    ]).then(([cmOk, smOk]) => {
+      if (!cmOk && smOk) setMode('slashmem')
+    })
   }, [])
 
   const clearResults = useCallback(() => {
@@ -91,7 +95,7 @@ export default function MemoryPage({ projectPath }: Props) {
     }
   }, [search])
 
-  if (installed === null) return <div className="page"><p>Loading...</p></div>
+  if (installed === null || smInstalled === null) return <div className="page"><p>Loading...</p></div>
 
   const neitherInstalled = !installed && !smInstalled
 
