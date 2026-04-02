@@ -248,7 +248,7 @@ describe('SwarmOrchestrator — stopWorkers and stopAll', () => {
     // Register a fake agent
     orch.coordinator.registerAgent({
       id: 'worker-0', index: 0, phase: 'idle',
-      currentBeadId: null, currentBeadTitle: null, loopCount: 0,
+      currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 0,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
     expect(orch.coordinator.getAgents().length).toBe(1)
@@ -1003,7 +1003,7 @@ describe('SwarmOrchestrator — dead agent cleanup via exit handler (Bug 3)', ()
 
     // Mock dependencies
     vi.spyOn(orch.coordinator, 'getAgents').mockReturnValue([
-      { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'b1', currentBeadTitle: 'Test', loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null }
+      { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'b1', currentBeadTitle: 'Test', currentBeadDescription: null, currentBeadType: null, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null }
     ])
     vi.spyOn(orch.coordinator, 'reopenBead').mockImplementation(() => {})
     vi.spyOn(orch.coordinator, 'postActivity').mockImplementation(() => {})
@@ -1039,7 +1039,7 @@ describe('SwarmOrchestrator — dead agent cleanup via exit handler (Bug 3)', ()
     orch.on('stopped', () => { stoppedCount++ })
 
     vi.spyOn(orch.coordinator, 'getAgents').mockReturnValue([
-      { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'b1', currentBeadTitle: 'Test', loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null }
+      { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'b1', currentBeadTitle: 'Test', currentBeadDescription: null, currentBeadType: null, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null }
     ])
     vi.spyOn(orch.coordinator, 'reopenBead').mockImplementation(() => {})
     vi.spyOn(orch.coordinator, 'postActivity').mockImplementation(() => {})

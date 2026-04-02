@@ -198,7 +198,7 @@ describe('AgentCoordinator.cleanOrphanedWorktrees — new and legacy patterns', 
     // Register an agent with an active worktree branch
     coord.registerAgent({
       id: 'worker-0', index: 0, phase: 'executing',
-      currentBeadId: 'sb-active', currentBeadTitle: 'test', loopCount: 1,
+      currentBeadId: 'sb-active', currentBeadTitle: 'test', currentBeadDescription: null, currentBeadType: null, loopCount: 1,
       lastActivity: new Date().toISOString(), worktreeBranch: 'worker/sb-active', thinkingSummary: null
     })
 
@@ -216,7 +216,7 @@ describe('AgentCoordinator.cleanOrphanedWorktrees — new and legacy patterns', 
   it('preserves legacy-pattern worktree owned by active agent', () => {
     coord.registerAgent({
       id: 'agent-0', index: 0, phase: 'executing',
-      currentBeadId: 'b1', currentBeadTitle: 'test', loopCount: 1,
+      currentBeadId: 'b1', currentBeadTitle: 'test', currentBeadDescription: null, currentBeadType: null, loopCount: 1,
       lastActivity: new Date().toISOString(), worktreeBranch: null, thinkingSummary: null
     })
 
@@ -233,7 +233,7 @@ describe('AgentCoordinator.cleanOrphanedWorktrees — new and legacy patterns', 
   it('cleans mixed new and legacy orphans while preserving owned', () => {
     coord.registerAgent({
       id: 'worker-0', index: 0, phase: 'executing',
-      currentBeadId: 'sb-owned', currentBeadTitle: 'test', loopCount: 1,
+      currentBeadId: 'sb-owned', currentBeadTitle: 'test', currentBeadDescription: null, currentBeadType: null, loopCount: 1,
       lastActivity: new Date().toISOString(), worktreeBranch: 'worker/sb-owned', thinkingSummary: null
     })
 

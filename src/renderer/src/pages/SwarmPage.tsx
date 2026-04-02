@@ -276,6 +276,25 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     return 'idle'
   }
 
+  const beadTypeIcon = (type: string | null) => {
+    switch (type) {
+      case 'task': return '\u{1F4CB}'
+      case 'bug': return '\u{1F41B}'
+      case 'feature': return '\u2728'
+      case 'epic': return '\u{1F3AF}'
+      case 'chore': return '\u{1F527}'
+      default: return '\u{1F4CB}'
+    }
+  }
+
+  const relativeTime = (ts: string) => {
+    const diff = Date.now() - new Date(ts).getTime()
+    if (diff < 60_000) return 'just now'
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+    return `${Math.floor(diff / 86_400_000)}d ago`
+  }
+
   type FeedItem =
     | { kind: 'activity'; ts: string; data: ActivityEvent }
     | { kind: 'knowledge'; ts: string; data: KnowledgeEntry }
@@ -418,10 +437,17 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
           <div className="swarm-tabs-agents">
             {agents.map(a => (
               <button key={a.id} className={`swarm-tab swarm-tab-agent ${activeTab === a.id ? 'active' : ''}`}
-                onClick={() => setActiveTab(a.id)}>
+                onClick={() => setActiveTab(a.id)}
+                title={a.currentBeadTitle ? `[${a.currentBeadId}] ${a.currentBeadTitle}` : a.id}>
                 <span className={`agent-dot ${a.phase}`} />
                 <span className="swarm-tab-agent-name">{a.id}</span>
-                {a.currentBeadId && <span className="swarm-tab-bead">{a.currentBeadId}</span>}
+                {a.currentBeadId && (
+                  <span className="swarm-tab-bead">
+                    {a.currentBeadTitle
+                      ? (a.currentBeadTitle.length > 30 ? a.currentBeadTitle.slice(0, 30) + '\u2026' : a.currentBeadTitle)
+                      : a.currentBeadId}
+                  </span>
+                )}
               </button>
             ))}
             {(isPlanning || agentOutputs['planner']) && (
@@ -453,18 +479,20 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                         <span className={`badge badge-${phaseColor(a.phase)}`}>
                           {a.phase}
                         </span>
-                      </div>
-                      <div className="worker-panel-meta">
-                        {a.currentBeadId && (
-                          <span className="worker-panel-bead">
-                            <span className="worker-panel-bead-id">{a.currentBeadId}</span>
-                            {a.currentBeadTitle && <span className="worker-panel-bead-title">{a.currentBeadTitle}</span>}
+                        {a.currentBeadType && (
+                          <span className="worker-panel-type" title={a.currentBeadType}>
+                            {beadTypeIcon(a.currentBeadType)} {a.currentBeadType}
                           </span>
                         )}
+                      </div>
+                      <div className="worker-panel-meta">
+                        <span className="worker-panel-loops">Loop #{a.loopCount}</span>
+                        <span className="worker-panel-time" title={a.lastActivity}>
+                          {relativeTime(a.lastActivity)}
+                        </span>
                         {a.worktreeBranch && (
                           <span className="worker-panel-branch">{a.worktreeBranch}</span>
                         )}
-                        <span className="worker-panel-loops">Loop #{a.loopCount}</span>
                         {a.phase === 'paused' ? (
                           <button className="btn btn-xs btn-accent" onClick={e => { e.stopPropagation(); resumeAgent(a.id) }}>
                             Resume
@@ -476,10 +504,31 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                         )}
                       </div>
                     </div>
-                    {a.thinkingSummary && a.phase === 'thinking' && (
+                    {/* Bead info section — always visible when working on a bead */}
+                    {a.currentBeadId && (
+                      <div className="worker-panel-bead-info">
+                        <div className="worker-panel-bead-header">
+                          <span className="worker-panel-bead-id">{a.currentBeadId}</span>
+                          {a.currentBeadTitle && (
+                            <span className="worker-panel-bead-title">{a.currentBeadTitle}</span>
+                          )}
+                        </div>
+                        {a.currentBeadDescription && (
+                          <p className="worker-panel-bead-desc">
+                            {a.currentBeadDescription.length > 200
+                              ? a.currentBeadDescription.slice(0, 200) + '\u2026'
+                              : a.currentBeadDescription}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {/* Thinking summary — shown whenever available, not just during thinking phase */}
+                    {a.thinkingSummary && (
                       <div className="agent-thinking">
-                        <span className="thinking-label">Thinking:</span>
-                        <p>{a.thinkingSummary.slice(0, 300)}</p>
+                        <span className="thinking-label">
+                          {a.phase === 'thinking' ? 'Thinking:' : 'Plan:'}
+                        </span>
+                        <p>{a.thinkingSummary.slice(0, 400)}</p>
                       </div>
                     )}
                     {/* Live output preview */}

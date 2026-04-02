@@ -440,8 +440,8 @@ describe('TelegramBridge', () => {
     it('routes /status and sends bot status with stats and workers', async () => {
       createBridge('all')
       orchestrator.getAgents.mockReturnValue([
-        { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'sb-1', currentBeadTitle: 'Fix auth', loopCount: 3, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
-        { id: 'worker-1', index: 1, phase: 'thinking', currentBeadId: 'sb-2', currentBeadTitle: null, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
+        { id: 'worker-0', index: 0, phase: 'executing', currentBeadId: 'sb-1', currentBeadTitle: 'Fix auth', currentBeadDescription: null, currentBeadType: null, loopCount: 3, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
+        { id: 'worker-1', index: 1, phase: 'thinking', currentBeadId: 'sb-2', currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
       ])
       await bot._handlers.get('status')!('', '123')
       expect(bot.getStatus).toHaveBeenCalled()
@@ -486,7 +486,7 @@ describe('TelegramBridge', () => {
       createBridge('all')
       const agents = Array.from({ length: 12 }, (_, i) => ({
         id: `worker-${i}`, index: i, phase: 'executing', currentBeadId: `sb-${i}`,
-        currentBeadTitle: `Task ${i}`, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null,
+        currentBeadTitle: `Task ${i}`, currentBeadDescription: null, currentBeadType: null, loopCount: 1, lastActivity: '', worktreeBranch: null, thinkingSummary: null,
       }))
       orchestrator.getAgents.mockReturnValue(agents)
       await bot._handlers.get('status')!('', '123')
@@ -500,7 +500,7 @@ describe('TelegramBridge', () => {
     it('/status shows idle when worker has no bead', async () => {
       createBridge('all')
       orchestrator.getAgents.mockReturnValue([
-        { id: 'worker-0', index: 0, phase: 'idle', currentBeadId: null, currentBeadTitle: null, loopCount: 0, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
+        { id: 'worker-0', index: 0, phase: 'idle', currentBeadId: null, currentBeadTitle: null, currentBeadDescription: null, currentBeadType: null, loopCount: 0, lastActivity: '', worktreeBranch: null, thinkingSummary: null },
       ])
       await bot._handlers.get('status')!('', '123')
       const msg = bot.sendMessage.mock.calls[0][0] as string

@@ -54,6 +54,8 @@ export interface AgentInfo {
   phase: AgentPhase | string
   currentBeadId: string | null
   currentBeadTitle: string | null
+  currentBeadDescription: string | null
+  currentBeadType: BeadType | null
   loopCount: number
   lastActivity: string
   worktreeBranch: string | null
