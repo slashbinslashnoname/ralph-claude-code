@@ -111,7 +111,7 @@ const mocks = vi.hoisted(() => {
 })
 
 import ConfigEditor from './ConfigEditor'
-import { SettingsSection, validateField, NUMERIC_RANGES } from './ConfigEditor'
+import { SettingsSection, validateField, NUMERIC_RANGES, SM_SECTION_MARKER } from './ConfigEditor'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -379,6 +379,79 @@ describe('Prompts tab', () => {
     const labels = Array.from(toggleBtns).map(b => b.textContent)
     expect(labels).toContain('PROMPT.md')
     expect(labels).toContain('AGENT.md')
+  })
+
+  test('shows slashmem migration note when PROMPT.md lacks sm section', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# My Prompt\n## Status reporting\n' })
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => {
+      promptsTab.click()
+    })
+    await act(async () => {})
+    const note = container.querySelector('.slashmem-migration-note')
+    expect(note).not.toBeNull()
+    expect(note!.textContent).toContain('Missing slashmem')
+    expect(note!.textContent).toContain('force: true')
+  })
+
+  test('does not show slashmem migration note when sm section is present', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: `# My Prompt\n${SM_SECTION_MARKER}\nsome sm content\n## Status reporting\n` })
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => {
+      promptsTab.click()
+    })
+    await act(async () => {})
+    const note = container.querySelector('.slashmem-migration-note')
+    expect(note).toBeNull()
+  })
+
+  test('dismiss button hides slashmem migration note', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# My Prompt\n## Status reporting\n' })
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => {
+      promptsTab.click()
+    })
+    await act(async () => {})
+    expect(container.querySelector('.slashmem-migration-note')).not.toBeNull()
+    const dismissBtn = container.querySelector('.slashmem-migration-note button') as HTMLButtonElement
+    await act(async () => {
+      dismissBtn.click()
+    })
+    expect(container.querySelector('.slashmem-migration-note')).toBeNull()
+  })
+
+  test('does not show slashmem migration note for AGENT.md', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# Agent instructions' })
+    await act(async () => {
+      root.render(<ConfigEditor projectPath="/test" />)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => {
+      promptsTab.click()
+    })
+    await act(async () => {})
+    // Switch to AGENT.md
+    const toggleBtns = container.querySelectorAll('.prompt-toggle-btn')
+    const agentBtn = Array.from(toggleBtns).find(b => b.textContent === 'AGENT.md') as HTMLButtonElement
+    await act(async () => {
+      agentBtn.click()
+    })
+    await act(async () => {})
+    const note = container.querySelector('.slashmem-migration-note')
+    expect(note).toBeNull()
   })
 })
 
