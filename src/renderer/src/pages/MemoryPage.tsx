@@ -271,9 +271,9 @@ export default function MemoryPage() {
       )}
 
       {/* Tabs for browsing */}
-      <div className="swarm-tabs">
+      <div className="swarm-tabs-nav">
         {(['rules', 'top', 'stale', 'traumas'] as Tab[]).map(t => (
-          <button key={t} className={`tab ${activeTab === t ? 'active' : ''}`}
+          <button key={t} className={`swarm-tab ${activeTab === t ? 'active' : ''}`}
             onClick={() => setActiveTab(t)}>
             {t === 'rules' ? `Rules (${bullets.length})` :
              t === 'top' ? 'Top' :

@@ -178,12 +178,12 @@ export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, age
       )}
 
       {/* Tabs: Current / History */}
-      <div className="swarm-tabs">
-        <button className={`tab ${activeTab === 'current' ? 'active' : ''}`}
+      <div className="swarm-tabs-nav">
+        <button className={`swarm-tab ${activeTab === 'current' ? 'active' : ''}`}
           onClick={() => setActiveTab('current')}>
           Live output
         </button>
-        <button className={`tab ${activeTab === 'history' ? 'active' : ''}`}
+        <button className={`swarm-tab ${activeTab === 'history' ? 'active' : ''}`}
           onClick={() => { setActiveTab('history'); loadHistory() }}>
           History ({historyLogs.length})
         </button>
