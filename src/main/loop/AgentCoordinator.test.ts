@@ -47,6 +47,7 @@ function makeTmpPaths(projectDir: string): ProjectPaths {
     mail: path.join(storeDir, 'mail.jsonl'),
     worktreesDir: path.join(projectDir, '.worktrees'),
     beadsRoot: path.join(projectDir, '.beads'),
+    beadsCwd: projectDir,
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
   }
 }

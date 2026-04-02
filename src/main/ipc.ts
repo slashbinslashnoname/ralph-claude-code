@@ -450,7 +450,7 @@ export function registerIpc(
 
   ipcMain.handle('beads:check', async (_e, projectPath: string) => {
     const paths = getProjectPaths(projectPath)
-    const bd = new BdClient(paths.storeDir)
+    const bd = new BdClient(paths.beadsCwd)
     return bd.checkAsync()
   })
 
@@ -471,7 +471,7 @@ export function registerIpc(
       const paths = getProjectPaths(p)
       ensureStoreDirs(paths)
       cp.execFileSync('bd', ['init'], {
-        cwd: paths.storeDir,
+        cwd: paths.beadsCwd,
         env: buildEnv(),
         timeout: 15_000,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -485,9 +485,19 @@ export function registerIpc(
   ipcMain.handle('beads:list', async (_e, projectPath: string, filter = 'open') => {
     try {
       const v = validateBeadsList(projectPath, filter)
-      const bd = new BdClient(getProjectPaths(v.projectPath).storeDir)
-      const tasks = v.filter === 'all' ? await bd.listAllAsync() : await bd.listByStatusAsync(v.filter)
-      return { ok: true, tasks }
+      const bd = new BdClient(getProjectPaths(v.projectPath).beadsCwd)
+      const list = () => v.filter === 'all' ? bd.listAllAsync() : bd.listByStatusAsync(v.filter)
+      try {
+        return { ok: true, tasks: await list() }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes('circuit breaker') || msg.includes('EOF') || msg.includes('connection') || msg.includes('server')) {
+          // Dolt server may have crashed — attempt one restart
+          try { await bd.runPublicAsync(['dolt', 'start']) } catch { /* ignore */ }
+          return { ok: true, tasks: await list() }
+        }
+        throw e
+      }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
     }
@@ -497,7 +507,7 @@ export function registerIpc(
     try {
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
-      const bd = new BdClient(getProjectPaths(p).storeDir)
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
       const task = await bd.showAsync(beadId)
       return task ? { ok: true, task } : { ok: false, error: 'Not found' }
     } catch (e) {
@@ -510,7 +520,7 @@ export function registerIpc(
   }) => {
     try {
       const v = validateBeadsCreate(projectPath, opts)
-      const bd = new BdClient(getProjectPaths(v.projectPath).storeDir)
+      const bd = new BdClient(getProjectPaths(v.projectPath).beadsCwd)
       const task = await bd.createAsync(v.opts as any)
       // Wire up dependencies after creation
       if (v.opts.deps?.length) {
@@ -534,7 +544,7 @@ export function registerIpc(
   }) => {
     try {
       const v = validateBeadsUpdate(projectPath, id, opts)
-      const bd = new BdClient(getProjectPaths(v.projectPath).storeDir)
+      const bd = new BdClient(getProjectPaths(v.projectPath).beadsCwd)
       bd.update(v.id, {
         priority: v.opts.priority,
         claim: v.opts.claim,
@@ -553,7 +563,7 @@ export function registerIpc(
     try {
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
-      const bd = new BdClient(getProjectPaths(p).storeDir)
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
       bd.close(beadId, reason)
       return { ok: true }
     } catch (e) {
@@ -565,7 +575,7 @@ export function registerIpc(
     try {
       const p = validateProjectPath(projectPath)
       const beadId = validateBeadId(id)
-      const bd = new BdClient(getProjectPaths(p).storeDir)
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
       bd.reopen(beadId, reason)
       return { ok: true }
     } catch (e) {
@@ -589,7 +599,7 @@ export function registerIpc(
 
   ipcMain.handle('beads:ready', async (_e, projectPath: string) => {
     try {
-      const bd = new BdClient(getProjectPaths(projectPath).storeDir)
+      const bd = new BdClient(getProjectPaths(projectPath).beadsCwd)
       return { ok: true, tasks: await bd.readyAsync() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), tasks: [] }
@@ -598,7 +608,7 @@ export function registerIpc(
 
   ipcMain.handle('beads:stats', async (_e, projectPath: string) => {
     try {
-      const bd = new BdClient(getProjectPaths(projectPath).storeDir)
+      const bd = new BdClient(getProjectPaths(projectPath).beadsCwd)
       return { ok: true, stats: await bd.statsAsync() }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

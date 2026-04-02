@@ -358,28 +358,6 @@ describe('ipc handlers use centralized ProjectPaths', () => {
     })
   })
 
-  describe('slashbot:cleanup-legacy', () => {
-    it('removes legacy .slashbot/ directory', () => {
-      const projectPath = path.join(tmpDir, 'myproject')
-      const legacyDir = path.join(projectPath, '.slashbot')
-      realFs.mkdirSync(legacyDir, { recursive: true })
-      realFs.writeFileSync(path.join(legacyDir, 'status.json'), '{}')
-
-      const result = invoke('slashbot:cleanup-legacy', projectPath)
-
-      expect(result).toEqual({ ok: true, removed: true })
-      expect(realFs.existsSync(legacyDir)).toBe(false)
-    })
-
-    it('returns removed: false when no legacy dir exists', () => {
-      const projectPath = path.join(tmpDir, 'clean-project')
-      realFs.mkdirSync(projectPath, { recursive: true })
-
-      const result = invoke('slashbot:cleanup-legacy', projectPath)
-
-      expect(result).toEqual({ ok: true, removed: false })
-    })
-  })
 
   describe('swarm:agent-logs', () => {
     it('reads from centralized logsDir', () => {
@@ -433,73 +411,6 @@ describe('ipc handlers use centralized ProjectPaths', () => {
     })
   })
 
-  describe('slashbot:migrate-check', () => {
-    it('migrates legacy storage and returns storeDir', () => {
-      const projectPath = path.join(tmpDir, 'migrate-proj')
-      const legacyDir = path.join(projectPath, '.slashbot')
-      realFs.mkdirSync(legacyDir, { recursive: true })
-      realFs.writeFileSync(path.join(legacyDir, 'activity.jsonl'), '{"test":true}\n')
-
-      const result = invoke('slashbot:migrate-check', projectPath)
-
-      expect(result.ok).toBe(true)
-      expect(result.didMigrate).toBe(true)
-      expect(result.storeDir).toBe(computeStoreDir(projectPath))
-      expect(result.migratedFiles).toContain('activity.jsonl')
-      // Verify the file was actually migrated
-      const storeDir = computeStoreDir(projectPath)
-      expect(realFs.existsSync(path.join(storeDir, 'activity.jsonl'))).toBe(true)
-    })
-
-    it('ensures store dirs without migration when no legacy exists', () => {
-      const projectPath = path.join(tmpDir, 'fresh-proj')
-      realFs.mkdirSync(projectPath, { recursive: true })
-
-      const result = invoke('slashbot:migrate-check', projectPath)
-
-      expect(result.ok).toBe(true)
-      expect(result.didMigrate).toBe(false)
-      expect(result.storeDir).toBe(computeStoreDir(projectPath))
-      // Store dirs should be created
-      expect(realFs.existsSync(computeStoreDir(projectPath))).toBe(true)
-    })
-
-    it('returns error on failure', () => {
-      // Use a path that will cause getProjectPaths to work but ensureStoreDirs to fail
-      // We test the error envelope by using a non-writable path
-      const projectPath = '/test/project'
-      const result = invoke('slashbot:migrate-check', projectPath)
-
-      // This will either succeed (if home dir is writable) or return an error envelope
-      expect(result).toHaveProperty('ok')
-    })
-  })
-
-  describe('project:add with migration', () => {
-    it('auto-migrates legacy storage', () => {
-      const projectPath = path.join(tmpDir, 'legacy-proj')
-      const legacyDir = path.join(projectPath, '.slashbot')
-      realFs.mkdirSync(legacyDir, { recursive: true })
-      realFs.writeFileSync(path.join(legacyDir, 'activity.jsonl'), '{"test":true}\n')
-
-      const result = invoke('project:add', projectPath)
-
-      expect(result).toEqual({ ok: true })
-      const storeDir = computeStoreDir(projectPath)
-      expect(realFs.existsSync(path.join(storeDir, 'activity.jsonl'))).toBe(true)
-    })
-
-    it('skips migration when no legacy storage exists', () => {
-      const projectPath = path.join(tmpDir, 'new-proj')
-      realFs.mkdirSync(projectPath, { recursive: true })
-
-      const result = invoke('project:add', projectPath)
-
-      expect(result).toEqual({ ok: true })
-      const storeDir = computeStoreDir(projectPath)
-      expect(realFs.existsSync(path.join(storeDir, 'activity.jsonl'))).toBe(false)
-    })
-  })
 
   describe('update:check', () => {
     it('calls AutoUpdater.check()', async () => {

@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as cp from 'child_process'
 import { ProjectContext, EnableOptions, EnableResult } from '../types'
-import { ProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { ProjectPaths, getProjectPaths, ensureStoreDirs } from './ProjectStore'
 import { buildEnv } from './utils'
 
 const TYPE_MARKERS: [string, string, string, string, string][] = [
@@ -43,32 +43,22 @@ export function detectProjectContext(projectPath: string, beadsRoot?: string): P
   }
 }
 
-const REQUIRED_LEGACY = ['.slashbotrc', '.slashbot', '.slashbot/PROMPT.md', '.slashbot/AGENT.md']
-
 export function checkEnabled(projectPath: string, paths?: ProjectPaths): {
   enabled: boolean; missing: string[]; hasRalphrc: boolean; hasRalphDir: boolean
 } {
-  if (paths) {
-    const configDir = paths.configDir
-    const required: [string, string][] = [
-      ['.slashbotrc', path.join(configDir, '.slashbotrc')],
-      ['PROMPT.md', path.join(configDir, 'PROMPT.md')],
-      ['AGENT.md', path.join(configDir, 'AGENT.md')],
-    ]
-    const missing = required.filter(([, abs]) => !fs.existsSync(abs)).map(([name]) => name)
-    return {
-      enabled: missing.length === 0,
-      missing,
-      hasRalphrc: fs.existsSync(path.join(configDir, '.slashbotrc')),
-      hasRalphDir: fs.existsSync(configDir)
-    }
-  }
-  const missing = REQUIRED_LEGACY.filter(p => !fs.existsSync(path.join(projectPath, p)))
+  const p = paths ?? getProjectPaths(projectPath)
+  const configDir = p.configDir
+  const required: [string, string][] = [
+    ['.slashbotrc', path.join(configDir, '.slashbotrc')],
+    ['PROMPT.md', path.join(configDir, 'PROMPT.md')],
+    ['AGENT.md', path.join(configDir, 'AGENT.md')],
+  ]
+  const missing = required.filter(([, abs]) => !fs.existsSync(abs)).map(([name]) => name)
   return {
     enabled: missing.length === 0,
     missing,
-    hasRalphrc: fs.existsSync(path.join(projectPath, '.slashbotrc')),
-    hasRalphDir: fs.existsSync(path.join(projectPath, '.slashbot'))
+    hasRalphrc: fs.existsSync(path.join(configDir, '.slashbotrc')),
+    hasRalphDir: fs.existsSync(configDir)
   }
 }
 
@@ -103,10 +93,7 @@ function generateRalphrc(ctx: ProjectContext, opts: EnableOptions): string {
   ].join('\n')
 }
 
-function generatePromptMd(ctx: ProjectContext, centralized = false): string {
-  const protectedFiles = centralized
-    ? ''
-    : '- `.slashbot/` directory and all its contents\n- `.slashbotrc`'
+function generatePromptMd(ctx: ProjectContext): string {
   return `# Slashbot Development Instructions
 
 You are an autonomous developer working on **${ctx.name}** (${ctx.type} project).
@@ -129,7 +116,7 @@ bd create "title" -t task -p 2 -d "desc" # Create if you discover new work
 - Commit your work: \`git add -A && git commit -m "feat: description"\`
 - Close the bead via bd when done
 
-${protectedFiles ? `## Protected files (DO NOT modify or delete)\n${protectedFiles}\n\n` : ''}## Status reporting
+## Status reporting
 End every response with:
 \`\`\`
 RALPH_STATUS: { "STATUS": "IN_PROGRESS", "EXIT_SIGNAL": false, "WORK_TYPE": "feature", "FILES_MODIFIED": 0, "ASKING_QUESTIONS": false, "QUESTION_COUNT": 0, "WORK_SUMMARY": "brief description" }
@@ -147,61 +134,37 @@ function generateAgentMd(ctx: ProjectContext): string {
   return sections.join('\n')
 }
 
-function generateGitignoreAdditions(centralized = false): string {
-  if (centralized) {
-    return ''
-  }
-  return '\n# Slashbot\n.slashbot/logs/\n.slashbot/.call_count\n.slashbot/.exit_signals\n.slashbot/.response_analysis\n.slashbot/.circuit_breaker_state\n.slashbot/.claude_session_id\n.slashbot/progress.json\n'
-}
-
 const DEFAULT_ENABLE_OPTIONS: EnableOptions = {
   force: false, maxCallsPerHour: 100, useBeads: false, initialTasks: []
 }
 
 export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_ENABLE_OPTIONS, paths?: ProjectPaths): EnableResult {
-  const status = checkEnabled(projectPath, paths)
+  const p = paths ?? getProjectPaths(projectPath)
+  const status = checkEnabled(projectPath, p)
   if (status.enabled && !opts.force) {
-    return { ok: true, alreadyEnabled: true, filesCreated: [], context: detectProjectContext(projectPath, paths?.beadsRoot) }
+    return { ok: true, alreadyEnabled: true, filesCreated: [], context: detectProjectContext(projectPath, p.beadsRoot) }
   }
-  const ctx = detectProjectContext(projectPath, paths?.beadsRoot)
+  const ctx = detectProjectContext(projectPath, p.beadsRoot)
   const created: string[] = []
   try {
-    if (paths) {
-      ensureStoreDirs(paths)
-      const configDir = paths.configDir
-      const write = (name: string, content: string) => {
-        const full = path.join(configDir, name)
-        if (!fs.existsSync(full) || opts.force) {
-          fs.writeFileSync(full, content, 'utf8')
-          created.push(name)
-        }
+    ensureStoreDirs(p)
+    const configDir = p.configDir
+    const write = (name: string, content: string) => {
+      const full = path.join(configDir, name)
+      if (!fs.existsSync(full) || opts.force) {
+        fs.writeFileSync(full, content, 'utf8')
+        created.push(name)
       }
-      write('.slashbotrc', generateRalphrc(ctx, opts))
-      write('PROMPT.md', generatePromptMd(ctx, true))
-      write('AGENT.md', generateAgentMd(ctx))
-    } else {
-      const slashbotDir = path.join(projectPath, '.slashbot')
-      fs.mkdirSync(slashbotDir, { recursive: true })
-      fs.mkdirSync(path.join(slashbotDir, 'logs'), { recursive: true })
-      const write = (relPath: string, content: string) => {
-        const full = path.join(projectPath, relPath)
-        if (!fs.existsSync(full) || opts.force) {
-          fs.writeFileSync(full, content, 'utf8')
-          created.push(relPath)
-        }
-      }
-      write('.slashbotrc', generateRalphrc(ctx, opts))
-      write('.slashbot/PROMPT.md', generatePromptMd(ctx))
-      write('.slashbot/AGENT.md', generateAgentMd(ctx))
     }
+    write('.slashbotrc', generateRalphrc(ctx, opts))
+    write('PROMPT.md', generatePromptMd(ctx))
+    write('AGENT.md', generateAgentMd(ctx))
+
     // Auto-initialize beads if useBeads is set and .beads doesn't exist
-    const beadsDir = paths ? paths.beadsRoot : path.join(projectPath, '.beads')
-    const beadsCwd = paths ? paths.storeDir : projectPath
-    if (opts.useBeads && !fs.existsSync(beadsDir)) {
+    if (opts.useBeads && !fs.existsSync(p.beadsRoot)) {
       try {
-        if (paths) ensureStoreDirs(paths)
         cp.execFileSync('bd', ['init'], {
-          cwd: beadsCwd,
+          cwd: p.beadsCwd,
           env: buildEnv(),
           timeout: 15_000,
           stdio: ['ignore', 'pipe', 'pipe']
@@ -212,11 +175,21 @@ export function enableRalph(projectPath: string, opts: EnableOptions = DEFAULT_E
       }
     }
 
-    const gitignorePath = path.join(projectPath, '.gitignore')
-    const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : ''
-    if (!existing.includes('# Slashbot')) {
-      fs.writeFileSync(gitignorePath, existing + generateGitignoreAdditions(!!paths))
+    // Symlink projectRoot/.beads → centralized beadsRoot so bd CLI works
+    // from the project root (e.g. PlanLoop Claude processes).
+    if (fs.existsSync(p.beadsRoot)) {
+      const beadsLink = path.join(projectPath, '.beads')
+      try {
+        const stat = fs.lstatSync(beadsLink)
+        if (!stat.isSymbolicLink()) {
+          // Real directory exists — don't overwrite
+        }
+      } catch {
+        // Doesn't exist — create symlink
+        try { fs.symlinkSync(p.beadsRoot, beadsLink, 'dir') } catch { /* ignore */ }
+      }
     }
+
     return { ok: true, alreadyEnabled: false, filesCreated: created, context: ctx }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e), alreadyEnabled: false, filesCreated: created, context: ctx }

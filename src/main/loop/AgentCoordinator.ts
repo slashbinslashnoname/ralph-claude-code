@@ -72,7 +72,7 @@ export class AgentCoordinator {
     this.activityFile = paths.activity
     this.knowledgeFile = paths.knowledge
     fs.mkdirSync(paths.storeDir, { recursive: true })
-    this.bd = new BdClient(paths.storeDir)
+    this.bd = new BdClient(paths.beadsCwd)
     this._loadActivityFromDisk()
     this._loadKnowledgeFromDisk()
   }
@@ -782,8 +782,27 @@ export class AgentCoordinator {
           this.bd.listAllAsync(),
         ])
       } catch (err) {
-        this._log('ERROR', `[${agentId}] claimBestBead: bd list failed: ${err instanceof Error ? err.message : err}`)
-        return null
+        const errMsg = err instanceof Error ? err.message : String(err)
+        this._log('ERROR', `[${agentId}] claimBestBead: bd list failed: ${errMsg}`)
+
+        // Dolt server may have crashed — attempt one restart
+        if (errMsg.includes('circuit breaker') || errMsg.includes('EOF') || errMsg.includes('connection') || errMsg.includes('server')) {
+          this._log('INFO', `[${agentId}] Attempting dolt server restart…`)
+          try {
+            await this.bd.runPublicAsync(['dolt', 'start'])
+            this._log('INFO', `[${agentId}] Dolt server restarted — retrying bd list`)
+            ;[candidates, closedBeads, allBeads] = await Promise.all([
+              this.bd.listByStatusAsync('open'),
+              this.bd.listByStatusAsync('closed'),
+              this.bd.listAllAsync(),
+            ])
+          } catch (retryErr) {
+            this._log('ERROR', `[${agentId}] Dolt restart or retry failed: ${retryErr instanceof Error ? retryErr.message : retryErr}`)
+            return null
+          }
+        } else {
+          return null
+        }
       }
 
       // If bd returned empty for all lists, it's likely a bd CLI failure, not "no beads"

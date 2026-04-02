@@ -31,7 +31,7 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
   const warnings: HealthCheckWarning[] = []
 
   // 1. Check `bd` CLI and .beads directory
-  const bd = new BdClient(getProjectPaths(projectPath).storeDir)
+  const bd = new BdClient(getProjectPaths(projectPath).beadsCwd)
   const bdCheck = bd.check()
   if (!bdCheck.available) {
     const isMissingBinary = bdCheck.reason?.includes('not found')

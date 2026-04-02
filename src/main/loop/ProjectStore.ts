@@ -32,8 +32,10 @@ export interface ProjectPaths {
   slashbotrc: string
   /** <projectRoot>/.worktrees */
   worktreesDir: string
-  /** <projectRoot>/.beads */
+  /** Path to .beads directory — prefers projectRoot/.beads if it exists, else storeDir/.beads */
   beadsRoot: string
+  /** Parent directory of beadsRoot — use as cwd for bd CLI */
+  beadsCwd: string
   /** ~/.slashbot/projects/<id>/config/AGENT.md */
   agentMd: string
 }
@@ -47,6 +49,12 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
   const hash8 = crypto.createHash('sha256').update(absolute).digest('hex').slice(0, 8)
   const id = `${path.basename(absolute)}-${hash8}`
   const storeDir = path.join(slashbotHome(), id)
+
+  // Prefer projectRoot/.beads if it exists (where bd CLI creates it),
+  // fall back to storeDir/.beads for centralized storage.
+  const projectBeads = path.join(absolute, '.beads')
+  const storeBeads = path.join(storeDir, '.beads')
+  const beadsRoot = fs.existsSync(projectBeads) ? projectBeads : storeBeads
 
   return {
     id,
@@ -63,7 +71,8 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     configDir: path.join(storeDir, 'config'),
     slashbotrc: path.join(storeDir, 'config', '.slashbotrc'),
     worktreesDir: path.join(absolute, '.worktrees'),
-    beadsRoot: path.join(storeDir, '.beads'),
+    beadsRoot,
+    beadsCwd: path.dirname(beadsRoot),
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
   }
 }
@@ -74,175 +83,3 @@ export function ensureStoreDirs(paths: ProjectPaths): void {
   fs.mkdirSync(paths.configDir, { recursive: true })
 }
 
-const LEGACY_FILES = [
-  '.circuit_breaker_state',
-  '.call_count',
-  'activity.jsonl',
-  'knowledge.jsonl',
-  'agents.json',
-  'file_locks.json',
-]
-
-export function detectLegacyStorage(projectPath: string): boolean {
-  const legacyDir = path.join(projectPath, '.slashbot')
-  if (!fs.existsSync(legacyDir)) return false
-
-  for (const file of LEGACY_FILES) {
-    if (fs.existsSync(path.join(legacyDir, file))) return true
-  }
-
-  const logsDir = path.join(legacyDir, 'logs')
-  if (fs.existsSync(logsDir) && fs.statSync(logsDir).isDirectory()) {
-    const entries = fs.readdirSync(logsDir)
-    if (entries.length > 0) return true
-  }
-
-  return false
-}
-
-function atomicCopyFile(src: string, dest: string): void {
-  const tmp = dest + '.tmp.' + process.pid
-  try {
-    fs.copyFileSync(src, tmp)
-    fs.renameSync(tmp, dest)
-  } catch (e) {
-    try { fs.unlinkSync(tmp) } catch { /* ignore cleanup failure */ }
-    throw e
-  }
-}
-
-function atomicWriteFile(dest: string, content: string): void {
-  const tmp = dest + '.tmp.' + process.pid
-  try {
-    fs.writeFileSync(tmp, content)
-    fs.renameSync(tmp, dest)
-  } catch (e) {
-    try { fs.unlinkSync(tmp) } catch { /* ignore cleanup failure */ }
-    throw e
-  }
-}
-
-function copyDirRecursive(src: string, dest: string): void {
-  fs.mkdirSync(dest, { recursive: true })
-  for (const entry of fs.readdirSync(src)) {
-    const srcPath = path.join(src, entry)
-    const destPath = path.join(dest, entry)
-    if (fs.statSync(srcPath).isDirectory()) {
-      copyDirRecursive(srcPath, destPath)
-    } else {
-      atomicCopyFile(srcPath, destPath)
-    }
-  }
-}
-
-export function migrateLegacyStorage(projectPath: string): { migrated: string[]; skipped: string[] } {
-  const legacyDir = path.join(projectPath, '.slashbot')
-  const paths = getProjectPaths(projectPath)
-  ensureStoreDirs(paths)
-
-  const migrated: string[] = []
-  const skipped: string[] = []
-
-  for (const file of LEGACY_FILES) {
-    const src = path.join(legacyDir, file)
-    const dest = path.join(paths.storeDir, file)
-    if (!fs.existsSync(src)) continue
-
-    if (fs.existsSync(dest)) {
-      skipped.push(file)
-    } else {
-      atomicCopyFile(src, dest)
-      migrated.push(file)
-    }
-  }
-
-  // Handle logs/ directory
-  const srcLogs = path.join(legacyDir, 'logs')
-  if (fs.existsSync(srcLogs) && fs.statSync(srcLogs).isDirectory()) {
-    const entries = fs.readdirSync(srcLogs)
-    if (entries.length > 0) {
-      copyDirRecursive(srcLogs, paths.logsDir)
-      migrated.push('logs/')
-    }
-  }
-
-  // Migrate config files: .slashbotrc, PROMPT.md, AGENT.md
-  const configFiles: Array<{ src: string; dest: string; label: string }> = [
-    { src: path.join(projectPath, '.slashbotrc'), dest: path.join(paths.configDir, '.slashbotrc'), label: '.slashbotrc' },
-    { src: path.join(legacyDir, 'PROMPT.md'), dest: path.join(paths.configDir, 'PROMPT.md'), label: 'PROMPT.md' },
-    { src: path.join(legacyDir, 'AGENT.md'), dest: path.join(paths.configDir, 'AGENT.md'), label: 'AGENT.md' },
-  ]
-  for (const { src, dest, label } of configFiles) {
-    if (!fs.existsSync(src)) continue
-    if (fs.existsSync(dest)) {
-      skipped.push(label)
-    } else {
-      atomicCopyFile(src, dest)
-      migrated.push(label)
-    }
-  }
-
-  // Migrate .beads directory from project root to centralized store
-  const srcBeads = path.join(projectPath, '.beads')
-  if (fs.existsSync(srcBeads) && fs.statSync(srcBeads).isDirectory()) {
-    if (fs.existsSync(paths.beadsRoot)) {
-      skipped.push('.beads/')
-    } else {
-      copyDirRecursive(srcBeads, paths.beadsRoot)
-      migrated.push('.beads/')
-    }
-  }
-
-  return { migrated, skipped }
-}
-
-const LEGACY_DIRS = ['.slashbot', '.beads', '.worktrees']
-
-export function cleanupLegacyStorage(projectPath: string): { removed: string[]; errors: string[] } {
-  const removed: string[] = []
-  const errors: string[] = []
-
-  // Remove legacy directories
-  for (const dir of LEGACY_DIRS) {
-    const dirPath = path.join(projectPath, dir)
-    if (fs.existsSync(dirPath)) {
-      try {
-        fs.rmSync(dirPath, { recursive: true, force: true })
-        removed.push(dir + '/')
-      } catch (e) {
-        errors.push(`Failed to remove ${dir}/: ${(e as Error).message}`)
-      }
-    }
-  }
-
-  // Remove .slashbotrc from project root
-  const rcPath = path.join(projectPath, '.slashbotrc')
-  if (fs.existsSync(rcPath)) {
-    try {
-      fs.unlinkSync(rcPath)
-      removed.push('.slashbotrc')
-    } catch (e) {
-      errors.push(`Failed to remove .slashbotrc: ${(e as Error).message}`)
-    }
-  }
-
-  // Clean .gitignore entries
-  const gitignorePath = path.join(projectPath, '.gitignore')
-  if (fs.existsSync(gitignorePath)) {
-    try {
-      const content = fs.readFileSync(gitignorePath, 'utf-8')
-      const legacyPatterns = new Set(['.slashbot/', '.slashbot', '.slashbotrc', '.beads/', '.beads', '.worktrees/', '.worktrees'])
-      const lines = content.split('\n')
-      const filtered = lines.filter(line => !legacyPatterns.has(line.trim()))
-      const newContent = filtered.join('\n')
-      if (newContent !== content) {
-        atomicWriteFile(gitignorePath, newContent)
-        removed.push('.gitignore (cleaned)')
-      }
-    } catch (e) {
-      errors.push(`Failed to clean .gitignore: ${(e as Error).message}`)
-    }
-  }
-
-  return { removed, errors }
-}

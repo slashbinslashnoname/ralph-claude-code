@@ -66,6 +66,7 @@ describe('Bead retry helpers', () => {
       slashbotrc: path.join(tmpDir, 'config', '.slashbotrc'),
       worktreesDir: '/tmp/test-project/.worktrees',
       beadsRoot: '/tmp/test-project/.beads',
+      beadsCwd: '/tmp/test-project',
       agentMd: path.join(tmpDir, 'config', 'AGENT.md'),
     }
     worker = new (WorkerLoop as any)(

@@ -205,6 +205,21 @@ export class PlanLoop extends EventEmitter {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const outFile = path.join(this.logDir, `planner_${label}_${ts}.log`)
 
+      // Ensure projectRoot/.beads symlinks to storeDir/.beads so bd CLI
+      // in the Claude process uses the centralized beads database.
+      const beadsLink = path.join(this.paths.projectRoot, '.beads')
+      if (fs.existsSync(this.paths.beadsRoot)) {
+        try {
+          const stat = fs.lstatSync(beadsLink)
+          if (!stat.isSymbolicLink()) {
+            // Real .beads dir in project root — skip (user manages it)
+          }
+        } catch {
+          // .beads doesn't exist in projectRoot — create symlink
+          try { fs.symlinkSync(this.paths.beadsRoot, beadsLink, 'dir') } catch { /* ignore */ }
+        }
+      }
+
       let proc: ChildProcess
       try {
         proc = cp.spawn(this.resolvedCmd, args, {

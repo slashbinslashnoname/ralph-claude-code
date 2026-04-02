@@ -7,19 +7,20 @@ import * as path from 'path'
 import { runHealthCheck, formatHealthErrors, formatHealthWarnings } from './HealthCheck'
 import * as BdClientModule from './BdClient'
 import * as FileGuardModule from './FileGuard'
+import { getProjectPaths, ensureStoreDirs } from './ProjectStore'
 
 let tmpDir: string
 
-function makeProject(opts: { beads?: boolean; slashbot?: boolean; slashbotrc?: boolean } = {}): string {
+function makeProject(opts: { beads?: boolean; configFiles?: boolean } = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'healthcheck-test-'))
   if (opts.beads !== false) fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
-  if (opts.slashbot !== false) {
-    fs.mkdirSync(path.join(dir, '.slashbot'), { recursive: true })
-    fs.writeFileSync(path.join(dir, '.slashbot', 'PROMPT.md'), '# Prompt')
-    fs.writeFileSync(path.join(dir, '.slashbot', 'AGENT.md'), '# Agent')
-  }
-  if (opts.slashbotrc !== false) {
-    fs.writeFileSync(path.join(dir, '.slashbotrc'), 'CLAUDE_CODE_CMD=claude')
+  if (opts.configFiles !== false) {
+    // Create config files in the centralized store location
+    const paths = getProjectPaths(dir)
+    ensureStoreDirs(paths)
+    fs.writeFileSync(path.join(paths.configDir, 'PROMPT.md'), '# Prompt')
+    fs.writeFileSync(path.join(paths.configDir, 'AGENT.md'), '# Agent')
+    fs.writeFileSync(path.join(paths.configDir, '.slashbotrc'), 'CLAUDE_CODE_CMD=claude')
   }
   return dir
 }
@@ -66,27 +67,17 @@ describe('HealthCheck', () => {
     expect(claudeError).toBeDefined()
   })
 
-  it('reports missing slashbot files', () => {
-    tmpDir = makeProject({ slashbot: false })
+  it('reports missing config files', () => {
+    tmpDir = makeProject({ configFiles: false })
     const result = runHealthCheck(tmpDir, 'node')
     expect(result.ok).toBe(false)
     const filesError = result.errors.find(e => e.check === 'slashbot-files')
     expect(filesError).toBeDefined()
-    expect(filesError!.message).toContain('.slashbot')
     expect(filesError!.remediation).toContain('slashbot-enable')
   })
 
-  it('reports missing .slashbotrc', () => {
-    tmpDir = makeProject({ slashbotrc: false })
-    const result = runHealthCheck(tmpDir, 'node')
-    expect(result.ok).toBe(false)
-    const filesError = result.errors.find(e => e.check === 'slashbot-files')
-    expect(filesError).toBeDefined()
-    expect(filesError!.message).toContain('.slashbotrc')
-  })
-
   it('collects multiple errors without short-circuiting', () => {
-    tmpDir = makeProject({ beads: false, slashbot: false, slashbotrc: false })
+    tmpDir = makeProject({ beads: false, configFiles: false })
     const result = runHealthCheck(tmpDir, 'nonexistent-claude-binary-xyz')
     expect(result.ok).toBe(false)
     expect(result.errors.length).toBeGreaterThanOrEqual(3)

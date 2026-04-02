@@ -142,6 +142,7 @@ function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
     slashbotrc: '/home/user/.slashbot/projects/test-id/config/.slashbotrc',
     worktreesDir: '/tmp/test-project/.worktrees',
     beadsRoot: '/tmp/test-project/.beads',
+    beadsCwd: '/tmp/test-project',
     agentMd: '/home/user/.slashbot/projects/test-id/config/AGENT.md',
     ...overrides
   }

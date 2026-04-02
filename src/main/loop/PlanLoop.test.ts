@@ -68,6 +68,7 @@ function makePaths(overrides: Partial<ProjectPaths> = {}): ProjectPaths {
     slashbotrc: '/store/config/.slashbotrc',
     worktreesDir: '/project/.worktrees',
     beadsRoot: '/project/.beads',
+    beadsCwd: '/project',
     agentMd: '/store/config/AGENT.md',
     ...overrides
   }

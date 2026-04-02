@@ -37,6 +37,7 @@ export function makeTmpPaths(projectDir: string): ProjectPaths {
     slashbotrc: path.join(storeDir, 'config', '.slashbotrc'),
     worktreesDir: path.join(projectDir, '.worktrees'),
     beadsRoot: path.join(projectDir, '.beads'),
+    beadsCwd: projectDir,
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
   }
 }
