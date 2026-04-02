@@ -78,23 +78,12 @@ describe('BeadsPage', () => {
     expect(html).toContain('Sort by:')
   })
 
-  test('renders view mode toggle buttons', () => {
+  test('renders sort bar (list view only)', () => {
     const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
-    expect(html).toContain('data-testid="view-mode-list"')
-    expect(html).toContain('data-testid="view-mode-kanban"')
-    expect(html).toContain('data-testid="view-mode-tree"')
-    expect(html).toContain('>List<')
-    expect(html).toContain('>Kanban<')
-    expect(html).toContain('>Tree<')
-    expect(html).not.toContain('data-testid="view-mode-graph"')
-  })
-
-  test('defaults to list view with sort bar visible', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
-    // List mode is default — sort bar should be present
     expect(html).toContain('Sort by:')
-    // List toggle should be active
-    expect(html).toContain('btn-sort-active')
+    // No view toggle buttons should exist
+    expect(html).not.toContain('data-testid="view-mode-kanban"')
+    expect(html).not.toContain('data-testid="view-mode-tree"')
   })
 
   test('shows plan request text when planning is active', () => {
@@ -118,15 +107,9 @@ describe('BeadsPage', () => {
     expect(html).toContain('Plan &amp; Encode Beads')
   })
 
-  test('list toggle button has active class by default', () => {
+  test('does not render kanban or tree view components', () => {
     const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
-    // The list button should have btn-sort-active class
-    const listBtnIdx = html.indexOf('data-testid="view-mode-list"')
-    const treeBtnIdx = html.indexOf('data-testid="view-mode-tree"')
-    // Extract a section around the list button to check its class
-    const listSection = html.slice(Math.max(0, listBtnIdx - 100), listBtnIdx)
-    const treeSection = html.slice(Math.max(0, treeBtnIdx - 100), treeBtnIdx)
-    expect(listSection).toContain('btn-sort-active')
-    expect(treeSection).toContain('btn-ghost')
+    expect(html).not.toContain('kanban')
+    expect(html).not.toContain('tree-browser')
   })
 })
