@@ -221,6 +221,7 @@ Slashbot includes a Telegram bot for remote monitoring and control. Configure th
 Before starting the swarm, Slashbot validates:
 - `bd` CLI is available and `.beads/` directory is initialized
 - `claude` command is on PATH (or the configured `CLAUDE_CODE_CMD` path is valid)
+- `sm` CLI is available (optional — memory features are disabled if missing)
 - Required Slashbot files exist: `.slashbot/`, `.slashbot/PROMPT.md`, `.slashbot/AGENT.md`, `.slashbotrc`
 
 If any check fails, the UI displays the error with remediation instructions.
@@ -239,12 +240,41 @@ After project initialization, the `.slashbot/` directory contains:
 
 The `RalphEnabler` auto-detects project type (Node.js, Python, Rust, Go, Java, Ruby, PHP) and generates appropriate build/test commands.
 
-## System Requirements
+## Prerequisites
+
+Slashbot requires two external CLI tools to be installed before use:
+
+### beads — Task Tracking
+
+[beads](https://github.com/steveyegge/beads) provides the task tracking backend. Slashbot uses the `bd` CLI to create, assign, and close beads (tasks) during orchestration.
+
+```bash
+# Install beads (requires Go)
+go install github.com/steveyegge/beads/cmd/bd@latest
+
+# Initialize in your project
+cd your-project
+bd init
+```
+
+### slashmem — Agent Memory
+
+[slashmem](https://github.com/slashbinslashnoname/slashmem) gives agents persistent memory across sessions. Slashbot uses the `sm` CLI to store and retrieve rules, patterns, and episodic knowledge.
+
+```bash
+# Install slashmem (requires Rust)
+cargo install slashmem
+
+# Initialize in your project
+cd your-project
+sm init
+```
+
+### Other Requirements
 
 - **Node.js** — For Electron runtime
 - **Bun** — Package manager (`bun install`)
 - **Git** — Version control with worktree support
-- **`bd` CLI** — [beads-rust](https://github.com/nicobao/beads-rust) for task tracking
 - **Claude Code CLI** — `claude` command on PATH (or set `CLAUDE_CODE_CMD` in `.slashbotrc`)
 
 ## Tech Stack
@@ -257,7 +287,8 @@ The `RalphEnabler` auto-detects project type (Node.js, Python, Rust, Go, Java, R
 | File watching | chokidar |
 | Terminal | node-pty |
 | Telegram | telegraf |
-| Task tracking | beads-rust (`bd` CLI) |
+| Task tracking | [beads](https://github.com/steveyegge/beads) (`bd` CLI) |
+| Agent memory | [slashmem](https://github.com/slashbinslashnoname/slashmem) (`sm` CLI) |
 | Package manager | Bun |
 | Testing | Vitest |
 
