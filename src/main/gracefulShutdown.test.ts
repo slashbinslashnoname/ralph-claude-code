@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach, expect, vi } from 'vitest'
 
 
 import * as fs from 'fs'
@@ -14,7 +14,18 @@ import { execSync } from 'child_process'
  * SwarmOrchestrator.shutdown() integration which is the core of the handler.
  */
 import { SwarmOrchestrator } from './loop/SwarmOrchestrator'
-import { getProjectPaths, ProjectPaths, ensureStoreDirs } from './loop/ProjectStore'
+import { getProjectPaths, ProjectPaths, ensureStoreDirs, _setStoreRoot } from './loop/ProjectStore'
+
+// Redirect store dirs to temp to avoid polluting ~/.slashbot
+let _storeRoot: string
+beforeAll(() => {
+  _storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slashbot-store-'))
+  _setStoreRoot(_storeRoot)
+})
+afterAll(() => {
+  _setStoreRoot(null)
+  fs.rmSync(_storeRoot, { recursive: true, force: true })
+})
 
 let tmpDir: string
 let tmpPaths: ProjectPaths

@@ -6,7 +6,7 @@ import * as path from 'path'
 import { execSync } from 'child_process'
 import { AgentCoordinator } from './AgentCoordinator'
 import { SwarmOrchestrator } from './SwarmOrchestrator'
-import { ProjectPaths, getProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { ProjectPaths, getProjectPaths, ensureStoreDirs, _setStoreRoot } from './ProjectStore'
 
 // ── AgentCoordinator heartbeat tests ──────────────────────────────────────
 
@@ -88,6 +88,8 @@ describe('AgentCoordinator — heartbeat', () => {
 
 // ── SwarmOrchestrator dead-agent detection tests ──────────────────────────
 
+let _storeRoot: string
+
 function makeTmpProject(): ProjectPaths {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hb-swarm-'))
   const paths = getProjectPaths(dir)
@@ -110,6 +112,8 @@ describe('SwarmOrchestrator — dead-agent detection', () => {
   let orch: SwarmOrchestrator
 
   beforeEach(() => {
+    _storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slashbot-store-'))
+    _setStoreRoot(_storeRoot)
     tmpPaths = makeTmpProject()
     tmpDir = tmpPaths.projectRoot
     orch = new SwarmOrchestrator(tmpPaths)
@@ -117,7 +121,9 @@ describe('SwarmOrchestrator — dead-agent detection', () => {
 
   afterEach(() => {
     try { orch.stopAll() } catch { /* ignore */ }
+    _setStoreRoot(null)
     fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.rmSync(_storeRoot, { recursive: true, force: true })
   })
 
   it('getHeartbeat() returns undefined for unknown agent', () => {

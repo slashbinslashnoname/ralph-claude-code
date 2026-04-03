@@ -1,12 +1,23 @@
-import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach, expect, vi } from 'vitest'
 
 
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { SwarmOrchestrator } from './SwarmOrchestrator'
-import { getProjectPaths, ProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { getProjectPaths, ProjectPaths, ensureStoreDirs, _setStoreRoot } from './ProjectStore'
 import * as HealthCheck from './HealthCheck'
+
+// Redirect all project store dirs into a temp directory to avoid polluting ~/.slashbot
+let _storeRoot: string
+beforeAll(() => {
+  _storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slashbot-store-'))
+  _setStoreRoot(_storeRoot)
+})
+afterAll(() => {
+  _setStoreRoot(null)
+  fs.rmSync(_storeRoot, { recursive: true, force: true })
+})
 
 /**
  * These tests exercise SwarmOrchestrator.shutdown() by creating a real
@@ -151,6 +162,7 @@ describe('SwarmOrchestrator.startWorkers() health check', () => {
     if (tmpDir) {
       try { orch?.stopAll() } catch { /* ignore */ }
       fs.rmSync(tmpDir, { recursive: true, force: true })
+      if (tmpPaths?.storeDir) fs.rmSync(tmpPaths.storeDir, { recursive: true, force: true })
     }
   })
 

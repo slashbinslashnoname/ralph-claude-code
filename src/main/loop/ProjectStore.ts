@@ -42,7 +42,15 @@ export interface ProjectPaths {
   promptMd: string
 }
 
-function slashbotHome(): string {
+let _storeRootOverride: string | null = null
+
+/** Override the store root for testing. Pass null to reset. */
+export function _setStoreRoot(root: string | null): void {
+  _storeRootOverride = root
+}
+
+export function slashbotHome(): string {
+  if (_storeRootOverride) return _storeRootOverride
   return path.join(os.homedir(), '.slashbot', 'projects')
 }
 

@@ -1073,6 +1073,126 @@ export function registerIpc(
     }
   })
 
+  ipcMain.handle('memory:sm-status', async (_e, projectPath: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync('sm status --json', {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-projects', async () => {
+    try {
+      const result = await execAsync('sm projects --json', {
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-rules-list', async (_e, projectPath: string, query?: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const cmd = query
+        ? `sm rules list --query ${JSON.stringify(query)} --json`
+        : 'sm rules list --json'
+      const result = await execAsync(cmd, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-rules-show', async (_e, projectPath: string, ruleId: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync(`sm rules show ${JSON.stringify(ruleId)} --json`, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-rules-add', async (_e, projectPath: string, ruleId: string, text: string, source?: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      let cmd = `sm rules add ${JSON.stringify(ruleId)} ${JSON.stringify(text)}`
+      if (source) cmd += ` --source ${JSON.stringify(source)}`
+      cmd += ' --json'
+      const result = await execAsync(cmd, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-rules-rm', async (_e, projectPath: string, ruleId: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync(`sm rules rm ${JSON.stringify(ruleId)} --json`, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-distill', async (_e, projectPath: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const result = await execAsync('sm distill --json', {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 30_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memory:sm-ingest', async (_e, projectPath: string, task: string, body: string, agent: string, successIds?: string[], harmIds?: string[]) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      let cmd = `sm ingest --task ${JSON.stringify(task)} --body ${JSON.stringify(body)} --agent ${JSON.stringify(agent)}`
+      if (successIds) for (const id of successIds) cmd += ` --success ${JSON.stringify(id)}`
+      if (harmIds) for (const id of harmIds) cmd += ` --harm ${JSON.stringify(id)}`
+      cmd += ' --json'
+      const result = await execAsync(cmd, {
+        cwd: p,
+        env: buildEnv(),
+        timeout: 15_000,
+      })
+      return { ok: true, data: JSON.parse(result.stdout) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // ── Telegram ─────────────────────────────────────────────────────────
 
   function persistTelegramToRc(

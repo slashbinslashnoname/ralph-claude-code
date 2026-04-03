@@ -263,8 +263,48 @@ export interface SmRule {
 export interface SmContextResult {
   relevant_rules: SmRule[]
   anti_patterns: SmRule[]
-  history_snippets: SmRule[]
+  history_snippets: string[]
   rule_ids: string[]
+}
+
+export interface SmRuleDetail {
+  id: string
+  rule: string
+  confidence: number
+  is_proven: boolean
+  is_anti_pattern: boolean
+  // Only present in `sm rules show`, not in `sm rules list`
+  success_count?: number
+  failure_count?: number
+  last_validated?: string | null
+  source?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface SmStatusResult {
+  ok: boolean
+  db_path: string
+  counts: { episodic: number; working: number; procedural: number }
+  schema_version: number
+}
+
+export interface SmProject {
+  name: string
+  path: string
+  db_path: string
+}
+
+export interface SmDistillResult {
+  decayed: number
+  pruned: number
+  transitioned: number
+}
+
+export interface SmIngestResult {
+  episodic_id: number
+  proposed_rules: unknown[]
+  validated_rules: unknown[]
 }
 
 // ---------------------------------------------------------------------------

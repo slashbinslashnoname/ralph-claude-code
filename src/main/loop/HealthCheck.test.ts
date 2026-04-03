@@ -6,15 +6,15 @@ import * as path from 'path'
 import { runHealthCheck, formatHealthErrors, formatHealthWarnings } from './HealthCheck'
 import * as BdClientModule from './BdClient'
 import * as FileGuardModule from './FileGuard'
-import { getProjectPaths, ensureStoreDirs } from './ProjectStore'
+import { getProjectPaths, ensureStoreDirs, _setStoreRoot } from './ProjectStore'
 
 let tmpDir: string
+let storeRoot: string
 
 function makeProject(opts: { beads?: boolean; configFiles?: boolean } = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'healthcheck-test-'))
   if (opts.beads !== false) fs.mkdirSync(path.join(dir, '.beads'), { recursive: true })
   if (opts.configFiles !== false) {
-    // Create config files in the centralized store location
     const paths = getProjectPaths(dir)
     ensureStoreDirs(paths)
     fs.writeFileSync(path.join(paths.configDir, 'PROMPT.md'), '# Prompt')
@@ -25,8 +25,16 @@ function makeProject(opts: { beads?: boolean; configFiles?: boolean } = {}): str
 }
 
 describe('HealthCheck', () => {
-  beforeEach(() => { tmpDir = '' })
-  afterEach(() => { if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true }) })
+  beforeEach(() => {
+    tmpDir = ''
+    storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slashbot-store-'))
+    _setStoreRoot(storeRoot)
+  })
+  afterEach(() => {
+    _setStoreRoot(null)
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.rmSync(storeRoot, { recursive: true, force: true })
+  })
 
   it('returns ok when all tools and files are present', () => {
     tmpDir = makeProject()
