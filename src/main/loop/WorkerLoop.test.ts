@@ -1103,27 +1103,27 @@ describe('WorkerLoop', () => {
       const paths = makePaths()
       vi.mocked(fs.existsSync).mockImplementation((p: any) => p === paths.promptMd || p === paths.agentMd)
       vi.mocked(fs.readFileSync).mockImplementation((p: any) => {
-        if (p === paths.promptMd) return '## sm (slashmem)\nUse `sm` CLI for persistent memory.'
+        if (p === paths.promptMd) return '## Guidelines\nFollow coding standards.'
         if (p === paths.agentMd) return '# Agent instructions'
         return ''
       })
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), paths)
       const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
-      expect(prompt).toContain('sm (slashmem)')
-      expect(prompt).toContain('Use `sm` CLI for persistent memory.')
+      expect(prompt).toContain('Guidelines')
+      expect(prompt).toContain('Follow coding standards.')
     })
 
     it('_buildReviewPrompt includes PROMPT.md content when file exists', () => {
       const paths = makePaths()
       vi.mocked(fs.existsSync).mockImplementation((p: any) => p === paths.promptMd)
       vi.mocked(fs.readFileSync).mockImplementation((p: any) => {
-        if (p === paths.promptMd) return '## sm (slashmem)\nUse `sm` CLI for persistent memory.'
+        if (p === paths.promptMd) return '## Guidelines\nFollow coding standards.'
         return ''
       })
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), paths)
       const prompt = (worker as any)._buildReviewPrompt(makeBead())
-      expect(prompt).toContain('sm (slashmem)')
-      expect(prompt).toContain('Use `sm` CLI for persistent memory.')
+      expect(prompt).toContain('Guidelines')
+      expect(prompt).toContain('Follow coding standards.')
     })
 
     it('_buildExecutePrompt works without PROMPT.md', () => {
@@ -1132,7 +1132,7 @@ describe('WorkerLoop', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
       expect(prompt).toContain('sb-abc')
-      expect(prompt).not.toContain('sm (slashmem)')
+      expect(prompt).not.toContain('Guidelines')
     })
 
     it('_buildReviewPrompt works without PROMPT.md', () => {
@@ -1141,7 +1141,7 @@ describe('WorkerLoop', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildReviewPrompt(makeBead())
       expect(prompt).toContain('Fresh-eyes Review')
-      expect(prompt).not.toContain('sm (slashmem)')
+      expect(prompt).not.toContain('Guidelines')
     })
   })
 

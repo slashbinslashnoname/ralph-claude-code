@@ -26,7 +26,7 @@ Slashbot — an Electron desktop app for autonomous AI development orchestration
     - `ResponseAnalyzer.ts` — Claude output parsing, API limit detection, stuck detection
     - `FileGuard.ts` — Required file integrity checks
     - `RcParser.ts` — `.slashbotrc` configuration parser
-    - `RalphEnabler.ts` — Project setup/enablement (generates PROMPT.md with slashmem/`sm` context management instructions)
+    - `RalphEnabler.ts` — Project setup/enablement (generates PROMPT.md)
     - `TelegramBot.ts` — Telegram API client with command handling
     - `TelegramBridge.ts` — Telegram ↔ Swarm event bridge with batching/throttling
     - `AsyncSemaphore.ts` — FIFO mutex for safe concurrency
@@ -78,4 +78,3 @@ bun run preview      # Preview production build
 - **Package manager**: Bun
 - **Testing**: Vitest
 - **Task tracking**: beads-rust (`bd` CLI)
-- **Agent memory**: slashmem (`sm` CLI)

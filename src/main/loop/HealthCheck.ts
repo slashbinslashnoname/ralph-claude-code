@@ -71,17 +71,6 @@ export function runHealthCheck(projectPath: string, claudeCmd = 'claude'): Healt
     })
   }
 
-  // 4. Check `sm` (slashmem) CLI — optional but recommended
-  try {
-    execFileSync('which', ['sm'], { timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] })
-  } catch {
-    warnings.push({
-      check: 'sm',
-      message: '`sm` (slashmem) CLI not found on PATH. Agents will not be able to manage persistent memory.',
-      remediation: 'Install slashmem: cargo install slashmem (https://github.com/anthropics/slashmem)',
-    })
-  }
-
   return { ok: errors.length === 0, errors, warnings }
 }
 

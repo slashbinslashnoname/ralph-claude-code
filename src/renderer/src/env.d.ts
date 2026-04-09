@@ -4,8 +4,6 @@ import type {
   Bead, BeadType, ActivityEvent, KnowledgeEntry,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
   RalphConfig, UpdateState, UpdateInfo, UpdateProgress,
-  MemoryContextResult, MemorySimilarResult,
-  SmContextResult, SmRuleDetail, SmStatusResult, SmProject, SmDistillResult, SmIngestResult,
 } from './types/ipc'
 
 export {}
@@ -122,23 +120,6 @@ interface SlashbotAPI {
       status: (p: string) => Promise<{ enabled: boolean; running: boolean; lastStatus?: string; error?: string }>
     }
     onBuildStatus: (cb: (proj: string, status: string, detail?: BuildStatusDetail) => void) => () => void
-  }
-  memory: {
-    check: () => Promise<{ installed: boolean }>
-    context: (p: string, query: string) => Promise<{ ok: boolean; data?: MemoryContextResult; error?: string }>
-    similar: (p: string, query: string) => Promise<{ ok: boolean; data?: MemorySimilarResult; error?: string }>
-    stats: (p: string) => Promise<{ ok: boolean; data?: unknown; error?: string }>
-    top: (p: string, count?: number) => Promise<{ ok: boolean; data?: unknown; error?: string }>
-    smCheck: () => Promise<{ installed: boolean }>
-    smContext: (p: string, query: string) => Promise<{ ok: boolean; data?: SmContextResult; error?: string }>
-    smStatus: (p: string) => Promise<{ ok: boolean; data?: SmStatusResult; error?: string }>
-    smProjects: () => Promise<{ ok: boolean; data?: { projects: SmProject[] }; error?: string }>
-    smRulesList: (p: string, query?: string) => Promise<{ ok: boolean; data?: { rules: SmRuleDetail[]; count: number }; error?: string }>
-    smRulesShow: (p: string, ruleId: string) => Promise<{ ok: boolean; data?: SmRuleDetail; error?: string }>
-    smRulesAdd: (p: string, ruleId: string, text: string, source?: string) => Promise<{ ok: boolean; data?: { id: string; created: boolean }; error?: string }>
-    smRulesRm: (p: string, ruleId: string) => Promise<{ ok: boolean; data?: { id: string; deleted: boolean }; error?: string }>
-    smDistill: (p: string) => Promise<{ ok: boolean; data?: SmDistillResult; error?: string }>
-    smIngest: (p: string, task: string, body: string, agent: string, successIds?: string[], harmIds?: string[]) => Promise<{ ok: boolean; data?: SmIngestResult; error?: string }>
   }
   telegram: {
     status: (p: string) => Promise<{

@@ -127,36 +127,6 @@ contextBridge.exposeInMainWorld('slashbot', {
     disconnect: (projectPath: string) => ipcRenderer.invoke('telegram:disconnect', projectPath),
   },
 
-  // ── Memory (cm CLI) ─────────────────────────────────────────────────
-  memory: {
-    check: () => ipcRenderer.invoke('memory:check'),
-    context: (projectPath: string, query: string) =>
-      ipcRenderer.invoke('memory:context', projectPath, query),
-    similar: (projectPath: string, query: string) =>
-      ipcRenderer.invoke('memory:similar', projectPath, query),
-    stats: (projectPath: string) => ipcRenderer.invoke('memory:stats', projectPath),
-    top: (projectPath: string, count?: number) =>
-      ipcRenderer.invoke('memory:top', projectPath, count ?? 10),
-    smCheck: () => ipcRenderer.invoke('memory:sm-check'),
-    smContext: (projectPath: string, query: string) =>
-      ipcRenderer.invoke('memory:sm-context', projectPath, query),
-    smStatus: (projectPath: string) =>
-      ipcRenderer.invoke('memory:sm-status', projectPath),
-    smProjects: () => ipcRenderer.invoke('memory:sm-projects'),
-    smRulesList: (projectPath: string, query?: string) =>
-      ipcRenderer.invoke('memory:sm-rules-list', projectPath, query),
-    smRulesShow: (projectPath: string, ruleId: string) =>
-      ipcRenderer.invoke('memory:sm-rules-show', projectPath, ruleId),
-    smRulesAdd: (projectPath: string, ruleId: string, text: string, source?: string) =>
-      ipcRenderer.invoke('memory:sm-rules-add', projectPath, ruleId, text, source),
-    smRulesRm: (projectPath: string, ruleId: string) =>
-      ipcRenderer.invoke('memory:sm-rules-rm', projectPath, ruleId),
-    smDistill: (projectPath: string) =>
-      ipcRenderer.invoke('memory:sm-distill', projectPath),
-    smIngest: (projectPath: string, task: string, body: string, agent: string, successIds?: string[], harmIds?: string[]) =>
-      ipcRenderer.invoke('memory:sm-ingest', projectPath, task, body, agent, successIds, harmIds),
-  },
-
   // ── Config (structured settings) ────────────────────────────────────
   config: {
     read: (projectPath: string) => ipcRenderer.invoke('config:read', projectPath),

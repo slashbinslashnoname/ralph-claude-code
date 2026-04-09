@@ -274,30 +274,6 @@ describe('RalphEnabler', () => {
       expect(content).not.toContain('Protected files')
     })
 
-    it('generates PROMPT.md with slashmem section', () => {
-      const paths = makePaths()
-      enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] }, paths)
-      const calls = (fs.writeFileSync as any).mock.calls
-      const promptCall = calls.find((c: any) => String(c[0]).endsWith('PROMPT.md'))
-      const content = String(promptCall![1])
-      expect(content).toContain('## Memory — slashmem')
-      expect(content).toContain('sm context')
-      expect(content).toContain('sm ingest')
-      expect(content).toContain('sm rules add')
-      expect(content).toContain('sm distill')
-      expect(content).toContain('sm status')
-      expect(content).toContain('sm projects')
-      expect(content).toContain('--project <name>')
-    })
-
-    it('generates ralphrc with sm allowed tool', () => {
-      const paths = makePaths()
-      enableRalph('/project', { force: true, maxCallsPerHour: 100, useBeads: false, initialTasks: [] }, paths)
-      const calls = (fs.writeFileSync as any).mock.calls
-      const rcCall = calls.find((c: any) => String(c[0]).endsWith('.slashbotrc'))
-      expect(String(rcCall![1])).toContain('Bash(sm *)')
-    })
-
     it('generates AGENT.md with test command', () => {
       ;(fs.existsSync as any).mockImplementation((p: unknown) =>
         String(p).endsWith('Cargo.toml')

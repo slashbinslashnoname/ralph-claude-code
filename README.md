@@ -221,7 +221,6 @@ Slashbot includes a Telegram bot for remote monitoring and control. Configure th
 Before starting the swarm, Slashbot validates:
 - `bd` CLI is available and `.beads/` directory is initialized
 - `claude` command is on PATH (or the configured `CLAUDE_CODE_CMD` path is valid)
-- `sm` CLI is available (optional — memory features are disabled if missing)
 - Required Slashbot files exist: `.slashbot/`, `.slashbot/PROMPT.md`, `.slashbot/AGENT.md`, `.slashbotrc`
 
 If any check fails, the UI displays the error with remediation instructions.
@@ -257,19 +256,6 @@ cd your-project
 bd init
 ```
 
-### slashmem — Agent Memory
-
-[slashmem](https://github.com/slashbinslashnoname/slashmem) gives agents persistent memory across sessions. Slashbot uses the `sm` CLI to store and retrieve rules, patterns, and episodic knowledge.
-
-```bash
-# Install slashmem (requires Rust)
-cargo install slashmem
-
-# Initialize in your project
-cd your-project
-sm init
-```
-
 ### Other Requirements
 
 - **Node.js** — For Electron runtime
@@ -288,7 +274,6 @@ sm init
 | Terminal | node-pty |
 | Telegram | telegraf |
 | Task tracking | [beads](https://github.com/steveyegge/beads) (`bd` CLI) |
-| Agent memory | [slashmem](https://github.com/slashbinslashnoname/slashmem) (`sm` CLI) |
 | Package manager | Bun |
 | Testing | Vitest |
 

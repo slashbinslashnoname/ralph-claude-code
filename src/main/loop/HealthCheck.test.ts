@@ -94,27 +94,11 @@ describe('HealthCheck', () => {
     expect(checks).toContain('slashbot-files')
   })
 
-  it('warns when sm CLI is not on PATH', () => {
-    // sm is unlikely to be installed in CI/test environments,
-    // so by default the warning should be present
+  it('does not warn about sm CLI (removed)', () => {
     tmpDir = makeProject()
     const result = runHealthCheck(tmpDir, 'node')
-    // Whether sm is installed or not, the check should not block
     expect(result.ok).toBe(true)
-    // If sm is not installed, we should see the warning
-    const smWarning = result.warnings.find(w => w.check === 'sm')
-    if (smWarning) {
-      expect(smWarning.message).toContain('slashmem')
-      expect(smWarning.remediation).toContain('cargo install slashmem')
-    }
-  })
-
-  it('sm check does not affect ok status', () => {
-    tmpDir = makeProject()
-    const result = runHealthCheck(tmpDir, 'node')
-    // sm is optional — even if missing, ok should still be true
-    expect(result.ok).toBe(true)
-    expect(result.errors.find(e => e.check === 'sm')).toBeUndefined()
+    expect(result.warnings.find(w => w.check === 'sm')).toBeUndefined()
   })
 })
 
