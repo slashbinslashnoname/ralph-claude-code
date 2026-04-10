@@ -87,4 +87,38 @@ describe('MemoriesPage', () => {
     const html = renderPage()
     expect(html).toContain('memory-list')
   })
+
+  test('cancel button clears form state via DOM', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+    let root: ReturnType<typeof createRoot>
+    await act(async () => {
+      root = createRoot(container)
+      root!.render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+    })
+
+    // Open the add form
+    const addBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => { addBtn.click() })
+
+    // Type into the textarea
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'draft text')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      textarea.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Cancel — reopen and check textarea is empty
+    const cancelBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => { cancelBtn.click() })
+    await act(async () => { cancelBtn.click() })
+
+    const ta2 = container.querySelector('textarea') as HTMLTextAreaElement
+    expect(ta2.value).toBe('')
+
+    document.body.removeChild(container)
+  })
 })

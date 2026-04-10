@@ -85,7 +85,10 @@ export default function MemoriesPage({ projectPath }: Props) {
       <header className="page-header">
         <h2>Memories</h2>
         <div className="header-actions">
-          <button className="btn btn-primary" onClick={() => setShowAdd(!showAdd)}>
+          <button className="btn btn-primary" onClick={() => {
+            if (showAdd) { setNewText(''); setNewKey('') }
+            setShowAdd(!showAdd)
+          }}>
             {showAdd ? 'Cancel' : 'Add Memory'}
           </button>
           <button className="btn btn-ghost" onClick={refresh} disabled={loading}>
