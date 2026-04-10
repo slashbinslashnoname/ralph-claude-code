@@ -2004,6 +2004,8 @@ describe('AgentCoordinator — activity log rotation', () => {
       coord.postActivity(event(i))
     }
     expect(fs.existsSync(datedArchive())).toBe(true)
+    // The archive must contain the original seeded content
+    expect(fs.readFileSync(datedArchive(), 'utf8')).toContain('x'.repeat(2_000_000))
     // The original file is truncated (not deleted)
     expect(fs.existsSync(activityFile())).toBe(true)
     expect(fs.readFileSync(activityFile(), 'utf8')).toBe('')
