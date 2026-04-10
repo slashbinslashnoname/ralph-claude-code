@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'vitest'
+import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
@@ -13,6 +13,11 @@ beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  document.body.removeChild(container)
 })
 
 describe('OperationOverlay — inactive', () => {
