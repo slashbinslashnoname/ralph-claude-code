@@ -171,6 +171,40 @@ describe('useIpcSubscription — real IPC-like pattern', () => {
   })
 })
 
+describe('useIpcSubscription — no stale closure', () => {
+  test('re-subscription after dep change uses fresh callback, not stale closure', async () => {
+    const values: string[] = []
+    const unsub1 = vi.fn()
+    const unsub2 = vi.fn()
+
+    function TestComponent({ filter }: { filter: string }) {
+      useIpcSubscription(() => {
+        // Capture the current filter value to verify no stale closure
+        values.push(filter)
+        return values.length === 1 ? unsub1 : unsub2
+      }, [filter])
+      return <div>{filter}</div>
+    }
+
+    let root: ReturnType<typeof createRoot>
+    await act(async () => {
+      root = createRoot(container)
+      root.render(<TestComponent filter="alpha" />)
+    })
+
+    expect(values).toEqual(['alpha'])
+
+    // Change dep — should re-subscribe with new value, not stale "alpha"
+    await act(async () => {
+      root.render(<TestComponent filter="beta" />)
+    })
+
+    expect(values).toEqual(['alpha', 'beta'])
+    // Old subscription was cleaned up
+    expect(unsub1).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('useIpcSubscription — source analysis', () => {
   test('exports useIpcSubscription as named export', () => {
     expect(src).toContain('export function useIpcSubscription')

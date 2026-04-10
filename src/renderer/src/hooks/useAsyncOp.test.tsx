@@ -176,6 +176,53 @@ describe('useAsyncOp — reset', () => {
   })
 })
 
+describe('useAsyncOp — pending guard', () => {
+  test('calling run while pending starts a new call (old result becomes stale)', async () => {
+    let resolveFirst: (v: string) => void
+    let resolveSecond: (v: string) => void
+    const first = new Promise<string>((r) => { resolveFirst = r })
+    const second = new Promise<string>((r) => { resolveSecond = r })
+
+    let callCount = 0
+    const fn = vi.fn(() => {
+      callCount++
+      return callCount === 1 ? first : second
+    })
+
+    const { ref, TestComponent } = renderHook(fn)
+
+    await act(async () => {
+      createRoot(container).render(<TestComponent />)
+    })
+
+    // First call — enters pending
+    await act(async () => {
+      ref.current!.run()
+    })
+    expect(ref.current!.status).toBe('pending')
+
+    // Second call while still pending — fn is called again
+    await act(async () => {
+      ref.current!.run()
+    })
+    expect(fn).toHaveBeenCalledTimes(2)
+    expect(ref.current!.status).toBe('pending')
+
+    // Resolve second call
+    await act(async () => {
+      resolveSecond!('latest')
+    })
+    expect(ref.current!.status).toBe('success')
+    expect(ref.current!.data).toBe('latest')
+
+    // Resolve first (stale) — should not overwrite
+    await act(async () => {
+      resolveFirst!('stale')
+    })
+    expect(ref.current!.data).toBe('latest')
+  })
+})
+
 describe('useAsyncOp — stale response handling', () => {
   test('ignores result from superseded call', async () => {
     let resolveFirst: (v: string) => void

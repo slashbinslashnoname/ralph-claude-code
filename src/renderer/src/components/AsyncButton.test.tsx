@@ -191,6 +191,68 @@ describe('AsyncButton — error state', () => {
   })
 })
 
+describe('AsyncButton — re-enabled after resolution', () => {
+  test('button is re-enabled after successful resolution', async () => {
+    const onClick = vi.fn().mockResolvedValue('done')
+
+    await act(async () => {
+      root.render(<AsyncButton onClick={onClick}>Save</AsyncButton>)
+    })
+
+    expect(getButton().disabled).toBe(false)
+
+    await act(async () => {
+      getButton().click()
+    })
+
+    // After success, button should not be disabled
+    expect(getButton().disabled).toBe(false)
+    expect(getButton().className).toContain('async-btn-success')
+  })
+
+  test('button is re-enabled after error resolution', async () => {
+    const onClick = vi.fn().mockRejectedValue(new Error('fail'))
+
+    await act(async () => {
+      root.render(<AsyncButton onClick={onClick}>Save</AsyncButton>)
+    })
+
+    await act(async () => {
+      getButton().click()
+    })
+
+    // After error, button should not be disabled (can retry)
+    expect(getButton().disabled).toBe(false)
+    expect(getButton().className).toContain('async-btn-error')
+  })
+
+  test('button returns to fully idle state after auto-reset timeout', async () => {
+    const onClick = vi.fn().mockResolvedValue('done')
+
+    await act(async () => {
+      root.render(
+        <AsyncButton onClick={onClick} successTimeout={1000}>
+          Save
+        </AsyncButton>,
+      )
+    })
+
+    await act(async () => {
+      getButton().click()
+    })
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    expect(getButton().disabled).toBe(false)
+    expect(getButton().className).not.toContain('async-btn-success')
+    expect(getButton().className).not.toContain('async-btn-pending')
+    expect(getButton().className).not.toContain('async-btn-error')
+    expect(getButton().textContent).toBe('Save')
+  })
+})
+
 describe('AsyncButton — disabled prop', () => {
   test('respects external disabled prop', async () => {
     await act(async () => {
