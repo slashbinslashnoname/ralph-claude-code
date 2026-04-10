@@ -920,17 +920,14 @@ export class WorkerLoop extends EventEmitter {
     const promptContext = fs.existsSync(promptMd) ? fs.readFileSync(promptMd, 'utf8') : ''
 
     return [
-      `## Fresh-eyes Review: [${bead.id}] ${bead.title}`,
-      `Agent ${this.agentId} has implemented this bead. Review the changes critically:`,
-      `- Are the tests adequate?`,
-      `- Are there any edge cases missed?`,
-      `- Is the code idiomatic and consistent with the rest of the codebase?`,
-      `\nIf issues are found, fix them now. If good, say so briefly.`,
-      `Commit any fixes. Do NOT re-implement from scratch.`,
+      `## Review: [${bead.id}] ${bead.title}`,
+      `Verify the change is complete and does not introduce obvious regressions.`,
+      `If issues are found, fix them now. Commit any fixes. Do NOT re-implement from scratch.`,
       `\nIf you discover issues outside the scope of this bead, do NOT fix them — create a fix-later bead and link it (see bd CLI reference below).`,
       `Use \`bd show ${bead.id}\` or \`bd comments ${bead.id}\` to review the bead context.`,
       BD_SYSTEM_PROMPT,
       promptContext ? `\n---\n${promptContext}` : '',
+      `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
   }
 
