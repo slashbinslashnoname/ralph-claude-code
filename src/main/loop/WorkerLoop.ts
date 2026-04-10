@@ -782,7 +782,7 @@ export class WorkerLoop extends EventEmitter {
    * Claude Code encodes paths by replacing '/' with '-', so /Users/foo/project → -Users-foo-project.
    * Returns the absolute path to the memory directory.
    */
-  _getClaudeMemoryPath(): string {
+  private _getClaudeMemoryPath(): string {
     const encoded = this.projectPath.replace(/\//g, '-')
     return path.join(os.homedir(), '.claude', 'projects', encoded, 'memory')
   }
