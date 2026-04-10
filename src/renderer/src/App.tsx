@@ -12,6 +12,7 @@ import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
 import { ToastProvider } from './components/Toast'
+import { PendingOperationsProvider, usePendingOperations } from './components/PendingOperations'
 import PlanApprovalModal from './components/PlanApprovalModal'
 
 const sb = window.slashbot
@@ -224,6 +225,7 @@ export default function App() {
   // Empty state — no tabs open
   if (tabs.length === 0) {
     return (
+      <PendingOperationsProvider>
       <ToastProvider>
       <UpdateBanner />
       <div className="landing">
@@ -250,10 +252,12 @@ export default function App() {
         </div>
       </div>
       </ToastProvider>
+      </PendingOperationsProvider>
     )
   }
 
   return (
+    <PendingOperationsProvider>
     <ToastProvider>
     <UpdateBanner />
     <div className="app-layout has-tabs">
@@ -344,6 +348,7 @@ export default function App() {
             if (hasHalfOpen) return <span className="circuit-badge half_open">CB: HALF_OPEN</span>
             return null
           })()}
+          <OperationsIndicator />
           <span className="status-spacer" />
           <span className="status-path">{current.path}</span>
         </footer>
@@ -355,5 +360,18 @@ export default function App() {
       onReject={handlePlanReject}
     />
     </ToastProvider>
+    </PendingOperationsProvider>
+  )
+}
+
+/* ── Status-bar helper ────────────────────────────────────────────────────── */
+
+function OperationsIndicator(): React.JSX.Element | null {
+  const { count } = usePendingOperations()
+  if (count === 0) return null
+  return (
+    <span className="ops-indicator" title={`${count} operation${count === 1 ? '' : 's'} in progress`}>
+      {'\u29BE'} {count} in-flight
+    </span>
   )
 }

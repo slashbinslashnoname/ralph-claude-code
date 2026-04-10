@@ -318,6 +318,8 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .circuit-badge.half_open { color: var(--warning); }
 .circuit-badge.open { color: var(--danger); background: rgba(239,68,68,0.1); }
 
+.ops-indicator { padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; color: var(--info, #3b82f6); background: rgba(59,130,246,0.1); margin-left: 6px; }
+
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 .page { max-width: 1200px; }
 
