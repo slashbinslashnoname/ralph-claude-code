@@ -957,4 +957,64 @@ describe('BdClient', () => {
       expect(args[1]).toBe('$(id)')
     })
   })
+
+  // ── Dolt restart failure propagation ─────────────────────────────────
+
+  describe('Dolt restart failure propagation', () => {
+    it('sync run propagates Dolt restart failure when restart also fails', () => {
+      // First call: command fails with a Dolt server error
+      // Second call: dolt start also fails
+      mockExecFileSync
+        .mockImplementationOnce(() => { throw new Error('bd list failed: connection refused ECONNREFUSED') })
+        .mockImplementationOnce(() => { throw new Error('dolt start: port in use') })
+
+      expect(() => client.list()).toThrow('Dolt restart failed: dolt start: port in use')
+    })
+
+    it('sync run succeeds after Dolt restart recovers', () => {
+      // First call: fails with Dolt error
+      // Second call (dolt start): succeeds
+      // Third call (retry): succeeds
+      mockExecFileSync
+        .mockImplementationOnce(() => { throw new Error('bd list failed: ECONNREFUSED') })
+        .mockImplementationOnce(() => '') // dolt start succeeds
+        .mockReturnValue(JSON.stringify([rawBead()]))
+
+      const result = client.list()
+      expect(result).toHaveLength(1)
+      expect(result[0].id).toBe('abc-123')
+    })
+
+    it('async run propagates Dolt restart failure', async () => {
+      // First async call: fails with Dolt error
+      mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: any, cb: any) => {
+        if (args[0] === 'dolt') {
+          cb(new Error('dolt start: timeout'), '', 'dolt start: timeout')
+        } else {
+          cb(new Error('ECONNREFUSED'), '', 'ECONNREFUSED')
+        }
+        return {} as any
+      })
+
+      await expect(client.runPublicAsync(['list'])).rejects.toThrow('Dolt restart failed')
+    })
+
+    it('async run retries successfully after Dolt restart', async () => {
+      let callCount = 0
+      mockExecFile.mockImplementation((_cmd: string, args: string[], _opts: any, cb: any) => {
+        callCount++
+        if (args[0] === 'dolt') {
+          cb(null, '', '') // dolt start succeeds
+        } else if (callCount === 1) {
+          cb(new Error('ECONNREFUSED'), '', 'ECONNREFUSED') // first call fails
+        } else {
+          cb(null, 'ok', '') // retry succeeds
+        }
+        return {} as any
+      })
+
+      const result = await client.runPublicAsync(['list'])
+      expect(result).toBe('ok')
+    })
+  })
 })

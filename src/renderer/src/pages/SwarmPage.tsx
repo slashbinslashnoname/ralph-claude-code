@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
+import { useToast } from '../components/Toast'
 import type { SwarmStatus, AgentInfo, ActivityEvent, ProgressStats, KnowledgeEntry } from '../types/ipc'
 
 export function knowledgeCategoryColor(cat: string): string {
@@ -91,6 +92,7 @@ interface Props {
 }
 
 export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, activity, setActivity }: Props) {
+  const { showToast } = useToast()
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [stats, setStats] = useState<ProgressStats | null>(null)
@@ -126,7 +128,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
   // Poll Telegram status every 5s
   useEffect(() => {
-    const poll = () => sb.telegram.status(projectPath).then(setTelegramStatus).catch(() => {})
+    const poll = () => sb.telegram.status(projectPath).then(setTelegramStatus).catch((err: unknown) => {
+      showToast(err instanceof Error ? err.message : 'Failed to fetch Telegram status', { variant: 'error' })
+    })
     poll()
     const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
@@ -135,7 +139,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   // Load full activity history once on mount (if not already loaded by App)
   useEffect(() => {
     if (activity.length === 0) {
-      sb.swarm.activity(projectPath, 200).then(setActivity)
+      sb.swarm.activity(projectPath, 200).then(setActivity).catch((err: unknown) => {
+        showToast(err instanceof Error ? err.message : 'Failed to load activity history', { variant: 'error' })
+      })
     }
   }, [projectPath])
 
@@ -146,7 +152,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
         .then((s: { enabled: boolean; running: boolean; error?: string }) => {
           if (s && !s.error) setBuildMonitor(prev => ({ ...prev, enabled: s.enabled, running: s.running }))
         })
-        .catch(() => {})
+        .catch((err: unknown) => {
+          showToast(err instanceof Error ? err.message : 'Failed to fetch build monitor status', { variant: 'error' })
+        })
     poll()
     const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
@@ -172,7 +180,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
   // Poll knowledge entries
   useEffect(() => {
-    const load = () => sb.swarm.knowledge(projectPath, 100).then(setKnowledge).catch(() => {})
+    const load = () => sb.swarm.knowledge(projectPath, 100).then(setKnowledge).catch((err: unknown) => {
+      showToast(err instanceof Error ? err.message : 'Failed to load knowledge entries', { variant: 'error' })
+    })
     load()
     const interval = setInterval(load, 5000)
     return () => clearInterval(interval)
@@ -215,6 +225,8 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
         globalAgentOutputs[activeTab] = output
         setAgentOutputs(prev => ({ ...prev, [activeTab]: output }))
       }
+    }).catch((err: unknown) => {
+      showToast(err instanceof Error ? err.message : `Failed to fetch output for ${activeTab}`, { variant: 'error' })
     })
   }, [activeTab, projectPath])
 
@@ -428,6 +440,8 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                 } else {
                   setHistoryLogs(logs)
                 }
+              }).catch((err: unknown) => {
+                showToast(err instanceof Error ? err.message : 'Failed to load agent logs', { variant: 'error' })
               })
             }}>
             History
@@ -615,7 +629,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   <div key={log.file} className="activity-item" style={{ cursor: 'pointer' }}
                     onClick={() => {
                       setHistoryFile(log.file)
-                      sb.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent)
+                      sb.swarm.agentLogContent(projectPath, log.file).then(setHistoryContent).catch((err: unknown) => {
+                        showToast(err instanceof Error ? err.message : 'Failed to load log content', { variant: 'error' })
+                      })
                     }}>
                     <span className={`agent-dot ${log.phase === 'execute' ? 'executing' : log.phase === 'think' ? 'thinking' : 'reviewing'}`} />
                     <span className="activity-agent">{log.agentId}</span>

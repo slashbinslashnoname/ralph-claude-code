@@ -62,6 +62,22 @@ vi.mock('../components/AgentOutputRenderer', () => ({
 }))
 
 import SwarmPage, { TelegramStatusIndicator, BuildMonitorIndicator, knowledgeCategoryColor } from './SwarmPage'
+import { ToastProvider } from '../components/Toast'
+
+function renderSwarmPage(props: Partial<Parameters<typeof SwarmPage>[0]> = {}) {
+  return renderToStaticMarkup(
+    <ToastProvider>
+      <SwarmPage
+        projectPath="/tmp/test"
+        agentOutputs={{}}
+        setAgentOutputs={vi.fn()}
+        activity={[]}
+        setActivity={vi.fn()}
+        {...props}
+      />
+    </ToastProvider>
+  )
+}
 
 beforeEach(() => {
   mockSwarmStatus.mockReset().mockResolvedValue({ agents: [], stats: { total: 5, done: 2, claimed: 1, ready: 1, pending: 1, failed: 0, pct: 40 } })
@@ -72,26 +88,18 @@ beforeEach(() => {
 })
 
 describe('SwarmPage', () => {
-  const defaultProps = {
-    projectPath: '/tmp/test',
-    agentOutputs: {},
-    setAgentOutputs: vi.fn(),
-    activity: [],
-    setActivity: vi.fn(),
-  }
-
   test('renders page header', () => {
-    const html = renderToStaticMarkup(<SwarmPage {...defaultProps} />)
+    const html = renderSwarmPage()
     expect(html).toContain('Slashbot Swarm')
   })
 
   test('renders start swarm button when not running', () => {
-    const html = renderToStaticMarkup(<SwarmPage {...defaultProps} />)
+    const html = renderSwarmPage()
     expect(html).toContain('Start Swarm')
   })
 
   test('renders overview tab with empty state', () => {
-    const html = renderToStaticMarkup(<SwarmPage {...defaultProps} />)
+    const html = renderSwarmPage()
     expect(html).toContain('overview-grid')
     expect(html).toContain('No agents running')
   })
@@ -166,29 +174,13 @@ describe('Activity tab with activity events', () => {
       { ts: '2026-03-21T10:00:00Z', agentId: 'agent-0', type: 'executing', beadId: 'sb-1', summary: 'Working' },
       { ts: '2026-03-21T10:01:00Z', agentId: 'agent-0', type: 'completed', beadId: 'sb-1', summary: 'Done' },
     ]
-    const html = renderToStaticMarkup(
-      <SwarmPage
-        projectPath="/tmp/test"
-        agentOutputs={{}}
-        setAgentOutputs={vi.fn()}
-        activity={events}
-        setActivity={vi.fn()}
-      />
-    )
+    const html = renderSwarmPage({ activity: events })
     // Knowledge is fetched async (empty during SSR), so merged feed = activity count
     expect(html).toContain('Activity (2)')
   })
 
   test('tab label shows 0 when no activity or knowledge', () => {
-    const html = renderToStaticMarkup(
-      <SwarmPage
-        projectPath="/tmp/test"
-        agentOutputs={{}}
-        setAgentOutputs={vi.fn()}
-        activity={[]}
-        setActivity={vi.fn()}
-      />
-    )
+    const html = renderSwarmPage()
     expect(html).toContain('Activity (0)')
   })
 })
@@ -241,15 +233,27 @@ describe('BuildMonitorIndicator', () => {
 
 describe('SwarmPage build monitor integration', () => {
   test('renders build monitor indicator in stats bar', () => {
-    const html = renderToStaticMarkup(
-      <SwarmPage
-        projectPath="/tmp/test"
-        agentOutputs={{}}
-        setAgentOutputs={vi.fn()}
-        activity={[]}
-        setActivity={vi.fn()}
-      />
-    )
+    const html = renderSwarmPage()
     expect(html).toContain('build-monitor-status')
+  })
+})
+
+describe('SwarmPage error surfacing', () => {
+  test('telegram status failure does not crash the component', () => {
+    mockTelegramStatus.mockRejectedValue(new Error('Network error'))
+    const html = renderSwarmPage()
+    expect(html).toContain('Swarm')
+  })
+
+  test('build monitor status failure does not crash the component', () => {
+    mockBuildMonitorStatus.mockRejectedValue(new Error('IPC error'))
+    const html = renderSwarmPage()
+    expect(html).toContain('Swarm')
+  })
+
+  test('knowledge fetch failure does not crash the component', () => {
+    mockKnowledge.mockRejectedValue(new Error('Fetch failed'))
+    const html = renderSwarmPage()
+    expect(html).toContain('Swarm')
   })
 })

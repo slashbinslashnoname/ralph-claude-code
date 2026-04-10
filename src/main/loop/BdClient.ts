@@ -51,7 +51,10 @@ export class BdClient {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe']
       })
-    } catch { /* ignore */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`Dolt restart failed: ${msg}`)
+    }
   }
 
   private runJson<T>(args: string[]): T {
@@ -101,7 +104,10 @@ export class BdClient {
   private async _restartDolt(): Promise<void> {
     try {
       await this._runAsyncOnce(['dolt', 'start'])
-    } catch { /* ignore */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`Dolt restart failed: ${msg}`)
+    }
   }
 
   /** Public wrappers for arbitrary bd commands (used by AgentCoordinator for unclaim). */

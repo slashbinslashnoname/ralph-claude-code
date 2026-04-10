@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useToast } from '../components/Toast'
 
 const sb = window.slashbot
 
 interface Props { projectPath: string }
 
 export default function LogViewer({ projectPath }: Props) {
+  const { showToast } = useToast()
   const [lines, setLines] = useState<string[]>([])
   const [autoScroll, setAutoScroll] = useState(true)
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    sb.readLogs(projectPath, 500).then(setLines)
+    sb.readLogs(projectPath, 500).then(setLines).catch((err: unknown) => {
+      showToast(err instanceof Error ? err.message : 'Failed to read logs', { variant: 'error' })
+    })
     const unsub = sb.onLogLines((_p: string, newLines: string[]) => {
       setLines(prev => [...prev.slice(-1000), ...newLines])
     })
