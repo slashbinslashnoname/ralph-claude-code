@@ -124,6 +124,13 @@ contextBridge.exposeInMainWorld('slashbot', {
     onBuildStatus: (cb: (...a: unknown[]) => void) => listen('swarm:build-status', cb),
   },
 
+  // ── File locks ──────────────────────────────────────────────────────
+  locks: {
+    list: (projectPath: string) => ipcRenderer.invoke('locks:list', projectPath),
+    forceUnlock: (projectPath: string, beadId: string) =>
+      ipcRenderer.invoke('locks:force-unlock', projectPath, beadId),
+  },
+
   // ── Telegram ─────────────────────────────────────────────────────────
   telegram: {
     status: (projectPath: string) => ipcRenderer.invoke('telegram:status', projectPath),

@@ -359,6 +359,9 @@ export class SwarmOrchestrator extends EventEmitter {
   getActivityForAgent(agentId: string, limit = 100): ActivityEvent[] { return this.coordinator.readActivityForAgent(agentId, limit) }
   getActivityHistory(before: string | undefined, limit: number): ActivityEvent[] { return this.coordinator.readActivityHistory(before, limit) }
   getKnowledge(limit = 50): KnowledgeEntry[] { return this.coordinator.readKnowledge(limit) }
+  getLocks(): import('../types').FileLock[] { return this.coordinator.readLocks() }
+  getLocksForBead(beadId: string): import('../types').FileLock[] { return this.coordinator.getLocksForBead(beadId) }
+  forceUnlockBead(beadId: string): number { return this.coordinator.forceUnlockBead(beadId) }
 
   /** Return the last heartbeat timestamp (epoch ms) for an agent, or undefined if unknown. */
   getHeartbeat(agentId: string): number | undefined { return this._heartbeatMap.get(agentId) }

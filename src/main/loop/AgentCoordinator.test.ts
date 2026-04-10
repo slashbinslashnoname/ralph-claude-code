@@ -487,6 +487,82 @@ describe('AgentCoordinator — file locks and agent registry', () => {
   })
 })
 
+describe('AgentCoordinator — stale lock detection and cleanup', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('cleanStaleLocks removes locks older than 2x heartbeat timeout', () => {
+    const now = Date.now()
+    // Lock from 40 minutes ago (stale with 15-minute timeout → threshold = 30m)
+    const staleLock = { file: 'old.ts', agentId: 'agent-0', beadId: 'b1', reservedAt: new Date(now - 40 * 60_000).toISOString() }
+    // Lock from 5 minutes ago (fresh)
+    const freshLock = { file: 'new.ts', agentId: 'agent-1', beadId: 'b2', reservedAt: new Date(now - 5 * 60_000).toISOString() }
+    coord.writeLocks([staleLock, freshLock])
+
+    const removed = coord.cleanStaleLocks(15)
+    expect(removed).toBe(1)
+    const remaining = coord.readLocks()
+    expect(remaining.length).toBe(1)
+    expect(remaining[0].file).toBe('new.ts')
+  })
+
+  it('cleanStaleLocks returns 0 when no locks are stale', () => {
+    const freshLock = { file: 'a.ts', agentId: 'agent-0', beadId: 'b1', reservedAt: new Date().toISOString() }
+    coord.writeLocks([freshLock])
+
+    const removed = coord.cleanStaleLocks(15)
+    expect(removed).toBe(0)
+    expect(coord.readLocks().length).toBe(1)
+  })
+
+  it('cleanStaleLocks handles empty lock file', () => {
+    const removed = coord.cleanStaleLocks(15)
+    expect(removed).toBe(0)
+  })
+
+  it('getLocksForBead returns only locks for the specified bead', () => {
+    coord.reserveFiles('agent-0', 'b1', ['a.ts', 'b.ts'])
+    coord.reserveFiles('agent-1', 'b2', ['c.ts'])
+
+    const b1Locks = coord.getLocksForBead('b1')
+    expect(b1Locks.length).toBe(2)
+    expect(b1Locks.every(l => l.beadId === 'b1')).toBe(true)
+
+    const b2Locks = coord.getLocksForBead('b2')
+    expect(b2Locks.length).toBe(1)
+    expect(b2Locks[0].file).toBe('c.ts')
+  })
+
+  it('getLocksForBead returns empty array for unknown bead', () => {
+    expect(coord.getLocksForBead('nonexistent')).toEqual([])
+  })
+
+  it('forceUnlockBead removes all locks for the specified bead', () => {
+    coord.reserveFiles('agent-0', 'b1', ['a.ts', 'b.ts'])
+    coord.reserveFiles('agent-1', 'b2', ['c.ts'])
+
+    const removed = coord.forceUnlockBead('b1')
+    expect(removed).toBe(2)
+    const remaining = coord.readLocks()
+    expect(remaining.length).toBe(1)
+    expect(remaining[0].beadId).toBe('b2')
+  })
+
+  it('forceUnlockBead returns 0 for bead with no locks', () => {
+    coord.reserveFiles('agent-0', 'b1', ['a.ts'])
+    const removed = coord.forceUnlockBead('b2')
+    expect(removed).toBe(0)
+    expect(coord.readLocks().length).toBe(1)
+  })
+})
+
 describe('AgentCoordinator — agent registration', () => {
   beforeEach(() => {
     tmpDir = makeTmpGitProject()

@@ -3,9 +3,12 @@ import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../
 import BeadDetailPanel from '../components/BeadDetailPanel'
 import { AsyncButton } from '../components/AsyncButton'
 import { useToast } from '../components/Toast'
-import type { Bead, BeadType, PlanQueueItem } from '../types/ipc'
+import type { Bead, BeadType, FileLock, PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
+
+/** Locks older than 30 minutes are considered stale and eligible for force-unlock. */
+const STALE_LOCK_THRESHOLD_MS = 30 * 60_000
 
 interface Props { projectPath: string }
 
@@ -40,7 +43,20 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planRequest, setPlanRequest] = useState('')
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
+  const [locksByBead, setLocksByBead] = useState<Map<string, FileLock[]>>(new Map())
 
+  const refreshLocks = useCallback(async () => {
+    const r = await sb.locks.list(projectPath)
+    if (r.ok) {
+      const map = new Map<string, FileLock[]>()
+      for (const lock of r.locks) {
+        const list = map.get(lock.beadId) ?? []
+        list.push(lock)
+        map.set(lock.beadId, list)
+      }
+      setLocksByBead(map)
+    }
+  }, [projectPath])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -53,7 +69,7 @@ export default function BeadsPage({ projectPath }: Props) {
     setLoading(false)
   }, [projectPath, filter])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refresh(); refreshLocks() }, [refresh, refreshLocks])
 
   // Plan inject listeners
   useEffect(() => {
@@ -125,6 +141,12 @@ export default function BeadsPage({ projectPath }: Props) {
       showToast(e instanceof Error ? e.message : `Failed to update priority`, { variant: 'error' })
     }
   }, [projectPath, refresh, showToast])
+
+  const forceUnlock = useCallback(async (beadId: string) => {
+    const r = await sb.locks.forceUnlock(projectPath, beadId)
+    if (!r.ok) throw new Error(r.error ?? `Failed to unlock ${beadId}`)
+    refreshLocks()
+  }, [projectPath, refreshLocks])
 
   const startEdit = useCallback((bead: Bead) => {
     setEditing(bead)
@@ -432,7 +454,15 @@ export default function BeadsPage({ projectPath }: Props) {
                 <p>Create a bead or inject a plan via the Swarm page.</p>
               </div>
             )}
-            {sortedBeads.map((bead, idx) => (
+            {sortedBeads.map((bead, idx) => {
+              const beadLocks = locksByBead.get(bead.id) ?? []
+              const isLocked = beadLocks.length > 0
+              const oldestLockAge = isLocked
+                ? Date.now() - Math.min(...beadLocks.map(l => new Date(l.reservedAt).getTime()))
+                : 0
+              const isStale = oldestLockAge > STALE_LOCK_THRESHOLD_MS
+
+              return (
               <div key={bead.id}
                 className={`bead-card${dragIdx === idx ? ' bead-dragging' : ''}${dropIdx === idx ? ' bead-drop-target' : ''}`}
                 draggable
@@ -443,6 +473,14 @@ export default function BeadsPage({ projectPath }: Props) {
                   <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
                   <span className="bead-id">{bead.id}</span>
                   <span className="bead-type-tag">{bead.type}</span>
+                  {isLocked && (
+                    <span className={`badge ${isStale ? 'badge-danger' : 'badge-warning'}`} title={
+                      `Locked by ${beadLocks[0].agentId} — ${beadLocks.length} file(s)` +
+                      (isStale ? ` (stale: ${Math.round(oldestLockAge / 60_000)}m)` : '')
+                    }>
+                      {'\uD83D\uDD12'} {isStale ? 'stale lock' : 'locked'}
+                    </span>
+                  )}
                   <span className="bead-spacer" />
 
                   <select className={`select select-xs priority-select p${bead.priority}`}
@@ -499,8 +537,14 @@ export default function BeadsPage({ projectPath }: Props) {
                       pendingContent="Unblocking\u2026">Unblock</AsyncButton>
                   )}
 
+                  {isStale && (
+                    <AsyncButton className="btn-xs btn-danger" onClick={() => forceUnlock(bead.id)}
+                      pendingContent="Unlocking\u2026">Force Unlock</AsyncButton>
+                  )}
+
                   <span className="bead-action-spacer" />
-                  <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)}>Edit</button>
+                  <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)} disabled={isLocked}
+                    title={isLocked ? 'Cannot edit while locked' : undefined}>Edit</button>
                   <button className="btn btn-xs btn-ghost" onClick={() => toggleDetail(bead.id)}>
                     {expandedBead === bead.id ? 'Hide Detail' : 'Detail'}
                   </button>
@@ -516,7 +560,8 @@ export default function BeadsPage({ projectPath }: Props) {
                   />
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
     </div>
   )

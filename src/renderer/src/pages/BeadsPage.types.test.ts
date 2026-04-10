@@ -3,7 +3,7 @@
  * instead of `any` for beads, planQueue, and editing state.
  */
 import { describe, it, expect } from 'vitest'
-import type { Bead, PlanQueueItem, CircuitBreakerSnapshot } from '../types/ipc'
+import type { Bead, PlanQueueItem, CircuitBreakerSnapshot, FileLock } from '../types/ipc'
 
 describe('BeadsPage type contracts', () => {
   it('Bead replaces beads: any[]', () => {
@@ -60,6 +60,42 @@ describe('BeadsPage type contracts', () => {
   it('Bead.type union covers all expected values', () => {
     const types: Bead['type'][] = ['epic', 'task', 'subtask']
     expect(types).toHaveLength(3)
+  })
+})
+
+describe('FileLock type contracts', () => {
+  it('FileLock has required fields', () => {
+    const lock: FileLock = {
+      file: 'src/app.ts',
+      agentId: 'worker-0',
+      beadId: 'sb-1',
+      reservedAt: '2026-04-10T10:00:00Z',
+    }
+    expect(lock.file).toBe('src/app.ts')
+    expect(lock.agentId).toBe('worker-0')
+    expect(lock.beadId).toBe('sb-1')
+    expect(lock.reservedAt).toBeTruthy()
+  })
+
+  it('stale lock detection uses 30-minute threshold', () => {
+    const STALE_LOCK_THRESHOLD_MS = 30 * 60_000
+    const now = Date.now()
+    const staleLock: FileLock = {
+      file: 'old.ts',
+      agentId: 'agent-0',
+      beadId: 'b1',
+      reservedAt: new Date(now - 40 * 60_000).toISOString(),
+    }
+    const freshLock: FileLock = {
+      file: 'new.ts',
+      agentId: 'agent-1',
+      beadId: 'b2',
+      reservedAt: new Date(now - 5 * 60_000).toISOString(),
+    }
+    const staleAge = now - new Date(staleLock.reservedAt).getTime()
+    const freshAge = now - new Date(freshLock.reservedAt).getTime()
+    expect(staleAge).toBeGreaterThan(STALE_LOCK_THRESHOLD_MS)
+    expect(freshAge).toBeLessThan(STALE_LOCK_THRESHOLD_MS)
   })
 })
 

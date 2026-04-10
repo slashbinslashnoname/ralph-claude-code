@@ -180,6 +180,45 @@ export class AgentCoordinator {
       .map(l => l.file)
   }
 
+  /**
+   * Clean stale file locks on startup — releases locks older than 2× heartbeat timeout.
+   * Called once during initialization to recover from crashed agents.
+   */
+  cleanStaleLocks(heartbeatTimeoutMinutes: number): number {
+    const thresholdMs = 2 * heartbeatTimeoutMinutes * 60_000
+    const now = Date.now()
+    const locks = this.readLocks()
+    const staleLocks = locks.filter(l => {
+      const age = now - new Date(l.reservedAt).getTime()
+      return age > thresholdMs
+    })
+    if (staleLocks.length > 0) {
+      this._log('WARN', `cleanStaleLocks: removing ${staleLocks.length} stale lock(s) older than ${2 * heartbeatTimeoutMinutes}m`)
+      this.writeLocks(locks.filter(l => {
+        const age = now - new Date(l.reservedAt).getTime()
+        return age <= thresholdMs
+      }))
+    }
+    return staleLocks.length
+  }
+
+  /** Get all locks for a specific bead. */
+  getLocksForBead(beadId: string): FileLock[] {
+    return this.readLocks().filter(l => l.beadId === beadId)
+  }
+
+  /** Force-unlock all locks for a specific bead, regardless of owner. */
+  forceUnlockBead(beadId: string): number {
+    const locks = this.readLocks()
+    const before = locks.length
+    const remaining = locks.filter(l => l.beadId !== beadId)
+    if (remaining.length < before) {
+      this.writeLocks(remaining)
+      this._log('WARN', `forceUnlockBead: removed ${before - remaining.length} lock(s) for bead ${beadId}`)
+    }
+    return before - remaining.length
+  }
+
   // ── Agent registry ─────────────────────────────────────────────────────────
 
   readAgents(): AgentInfo[] {

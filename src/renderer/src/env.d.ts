@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
-  Bead, BeadType, ActivityEvent, KnowledgeEntry,
+  Bead, BeadType, ActivityEvent, KnowledgeEntry, FileLock,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
   RalphConfig, UpdateState, UpdateInfo, UpdateProgress,
 } from './types/ipc'
@@ -122,6 +122,10 @@ interface SlashbotAPI {
       status: (p: string) => Promise<{ enabled: boolean; running: boolean; lastStatus?: string; error?: string }>
     }
     onBuildStatus: (cb: (proj: string, status: string, detail?: BuildStatusDetail) => void) => () => void
+  }
+  locks: {
+    list: (p: string) => Promise<{ ok: boolean; locks: FileLock[] }>
+    forceUnlock: (p: string, beadId: string) => Promise<{ ok: boolean; removed?: number; error?: string }>
   }
   telegram: {
     status: (p: string) => Promise<{

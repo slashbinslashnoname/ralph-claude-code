@@ -948,6 +948,32 @@ export function registerIpc(
     }
   })
 
+  // ── File locks ─────────────────────────────────────────────────────────
+
+  ipcMain.handle('locks:list', (_e, projectPath: unknown) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const swarm = swarms.get(p) ?? getOrCreateSwarm(p)
+      return { ok: true, locks: swarm.getLocks() }
+    } catch (e) {
+      return { ok: false, locks: [], error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('locks:force-unlock', (_e, projectPath: unknown, beadId: unknown) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      if (typeof beadId !== 'string' || beadId.length === 0) {
+        return { ok: false, error: 'beadId is required' }
+      }
+      const swarm = swarms.get(p) ?? getOrCreateSwarm(p)
+      const removed = swarm.forceUnlockBead(beadId)
+      return { ok: true, removed }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // ── Agent log history (for closed beads) ───────────────────────────────
 
   ipcMain.handle('swarm:agent-logs', (_e, projectPath: unknown) => {
