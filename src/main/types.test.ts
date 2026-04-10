@@ -8,6 +8,7 @@ import type {
   KnowledgeCategory,
   KnowledgeConfidence,
   MailMessage,
+  BdMemoriesMap,
   BdMemory,
   BdRememberResult,
   BdForgetResult,
@@ -142,6 +143,15 @@ describe('KnowledgeEntry types', () => {
     expect(msg.body).toBe('Can you review the MailMessage interface?')
     expect(msg.threadId).toBe('thread-abc')
     expect(msg.read).toBe(false)
+  })
+
+  it('BdMemoriesMap matches bd memories --json output (flat Record)', () => {
+    const raw: BdMemoriesMap = {
+      'always-run-tests': 'Always run tests with -race flag',
+      'auth-jwt': 'auth module uses JWT not sessions'
+    }
+    expect(raw['always-run-tests']).toBe('Always run tests with -race flag')
+    expect(raw['auth-jwt']).toBe('auth module uses JWT not sessions')
   })
 
   it('BdMemory accepts key-value pair', () => {

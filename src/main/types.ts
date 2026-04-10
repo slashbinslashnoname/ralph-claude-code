@@ -244,7 +244,13 @@ export interface PlanQueueItem {
 // bd memories & comments
 // ---------------------------------------------------------------------------
 
-/** A single memory entry as stored by `bd remember` / returned by `bd memories --json`. */
+/**
+ * Raw output of `bd memories --json`: a flat map of key → text.
+ * Parse into BdMemory[] for typed use.
+ */
+export type BdMemoriesMap = Record<string, string>
+
+/** A single memory entry, normalised from a BdMemoriesMap entry. */
 export interface BdMemory {
   key: string
   text: string

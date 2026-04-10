@@ -21,6 +21,7 @@ import type {
   UpdateInfo,
   UpdateProgress,
   UpdateEvent,
+  BdMemoriesMap,
   BdMemory,
   BdRememberResult,
   BdForgetResult,
@@ -268,6 +269,15 @@ describe('IPC types', () => {
     expect(events).toHaveLength(6)
     expect(events[0].type).toBe('checking')
     expect(events[5].type).toBe('error')
+  })
+
+  it('BdMemoriesMap matches bd memories --json output (flat Record)', () => {
+    const raw: BdMemoriesMap = {
+      'always-run-tests': 'Always run tests with -race flag',
+      'auth-jwt': 'auth module uses JWT not sessions'
+    }
+    expect(raw['always-run-tests']).toBe('Always run tests with -race flag')
+    expect(raw['auth-jwt']).toBe('auth module uses JWT not sessions')
   })
 
   it('BdMemory accepts key-value pair', () => {
