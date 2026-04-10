@@ -360,6 +360,29 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     return `${Math.floor(diff / 86_400_000)}d ago`
   }
 
+  const WORKER_PHASES = ['routing', 'thinking', 'executing', 'reviewing', 'merging', 'closing'] as const
+  const PHASE_LABELS: Record<string, string> = {
+    routing: 'Route',
+    thinking: 'Think',
+    executing: 'Execute',
+    reviewing: 'Review',
+    merging: 'Merge',
+    closing: 'Close',
+  }
+
+  const phaseElapsed = (agent: AgentInfo): string => {
+    if (!agent.lastActivity) return ''
+    const diff = Date.now() - new Date(agent.lastActivity).getTime()
+    if (diff < 60_000) return '<1m'
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
+    return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m`
+  }
+
+  const phaseTimelineIndex = (phase: string): number => {
+    const idx = (WORKER_PHASES as readonly string[]).indexOf(phase)
+    return idx >= 0 ? idx : -1
+  }
+
   type FeedItem =
     | { kind: 'activity'; ts: string; data: ActivityEvent }
     | { kind: 'knowledge'; ts: string; data: KnowledgeEntry }
@@ -630,6 +653,29 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                               : a.currentBeadDescription}
                           </p>
                         )}
+                      </div>
+                    )}
+                    {/* Phase timeline — shows worker lifecycle progression */}
+                    {a.currentBeadId && a.phase !== 'idle' && a.phase !== 'paused' && (
+                      <div className="phase-timeline" data-testid="phase-timeline">
+                        {WORKER_PHASES.map((step, i) => {
+                          const currentIdx = phaseTimelineIndex(a.phase)
+                          const isDone = currentIdx >= 0 && i < currentIdx
+                          const isCurrent = currentIdx >= 0 && i === currentIdx
+                          return (
+                            <React.Fragment key={step}>
+                              {i > 0 && <span className={`phase-timeline-connector ${isDone ? 'done' : ''}`} />}
+                              <span
+                                className={`phase-timeline-step ${isDone ? 'done' : isCurrent ? 'active' : 'pending'}`}
+                                title={isCurrent ? `${PHASE_LABELS[step]} — ${phaseElapsed(a)} elapsed` : PHASE_LABELS[step]}
+                              >
+                                <span className="phase-timeline-dot" />
+                                <span className="phase-timeline-label">{PHASE_LABELS[step]}</span>
+                                {isCurrent && <span className="phase-timeline-elapsed">{phaseElapsed(a)}</span>}
+                              </span>
+                            </React.Fragment>
+                          )
+                        })}
                       </div>
                     )}
                     {/* Thinking summary — shown whenever available, not just during thinking phase */}

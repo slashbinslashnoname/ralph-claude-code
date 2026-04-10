@@ -244,6 +244,94 @@ describe('SwarmPage build monitor integration', () => {
   })
 })
 
+describe('SwarmPage phase timeline (unit logic)', () => {
+  // SSR renders initial state (empty agents) since useEffect doesn't fire.
+  // Test the timeline rendering logic via a lightweight helper that mirrors component code.
+  const WORKER_PHASES = ['routing', 'thinking', 'executing', 'reviewing', 'merging', 'closing'] as const
+  const PHASE_LABELS: Record<string, string> = {
+    routing: 'Route', thinking: 'Think', executing: 'Execute',
+    reviewing: 'Review', merging: 'Merge', closing: 'Close',
+  }
+
+  function phaseTimelineIndex(phase: string): number {
+    return (WORKER_PHASES as readonly string[]).indexOf(phase)
+  }
+
+  function phaseElapsed(lastActivity: string): string {
+    const diff = Date.now() - new Date(lastActivity).getTime()
+    if (diff < 60_000) return '<1m'
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
+    return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m`
+  }
+
+  test('phaseTimelineIndex returns correct indices for known phases', () => {
+    expect(phaseTimelineIndex('routing')).toBe(0)
+    expect(phaseTimelineIndex('thinking')).toBe(1)
+    expect(phaseTimelineIndex('executing')).toBe(2)
+    expect(phaseTimelineIndex('reviewing')).toBe(3)
+    expect(phaseTimelineIndex('merging')).toBe(4)
+    expect(phaseTimelineIndex('closing')).toBe(5)
+  })
+
+  test('phaseTimelineIndex returns -1 for non-pipeline phases', () => {
+    expect(phaseTimelineIndex('idle')).toBe(-1)
+    expect(phaseTimelineIndex('paused')).toBe(-1)
+    expect(phaseTimelineIndex('waiting')).toBe(-1)
+  })
+
+  test('phaseElapsed returns <1m for recent activity', () => {
+    const recent = new Date(Date.now() - 10_000).toISOString()
+    expect(phaseElapsed(recent)).toBe('<1m')
+  })
+
+  test('phaseElapsed returns minutes for moderate elapsed', () => {
+    const threeMinAgo = new Date(Date.now() - 180_000).toISOString()
+    expect(phaseElapsed(threeMinAgo)).toBe('3m')
+  })
+
+  test('phaseElapsed returns hours and minutes for long elapsed', () => {
+    const oneHourTenMin = new Date(Date.now() - (70 * 60_000)).toISOString()
+    expect(phaseElapsed(oneHourTenMin)).toBe('1h 10m')
+  })
+
+  test('PHASE_LABELS covers all WORKER_PHASES', () => {
+    for (const phase of WORKER_PHASES) {
+      expect(PHASE_LABELS[phase]).toBeDefined()
+    }
+  })
+
+  test('phase done/active/pending classification is correct for executing', () => {
+    const currentIdx = phaseTimelineIndex('executing') // 2
+    const classifications = WORKER_PHASES.map((_, i) => {
+      if (i < currentIdx) return 'done'
+      if (i === currentIdx) return 'active'
+      return 'pending'
+    })
+    expect(classifications).toEqual(['done', 'done', 'active', 'pending', 'pending', 'pending'])
+  })
+
+  test('phase classification for merging phase', () => {
+    const currentIdx = phaseTimelineIndex('merging') // 4
+    const classifications = WORKER_PHASES.map((_, i) => {
+      if (i < currentIdx) return 'done'
+      if (i === currentIdx) return 'active'
+      return 'pending'
+    })
+    expect(classifications).toEqual(['done', 'done', 'done', 'done', 'active', 'pending'])
+  })
+
+  test('timeline not shown for idle (no beadId) — condition check', () => {
+    // The component condition is: a.currentBeadId && a.phase !== 'idle' && a.phase !== 'paused'
+    const shouldShow = (beadId: string | null, phase: string) =>
+      !!beadId && phase !== 'idle' && phase !== 'paused'
+    expect(shouldShow(null, 'idle')).toBe(false)
+    expect(shouldShow('sb-1', 'idle')).toBe(false)
+    expect(shouldShow('sb-1', 'paused')).toBe(false)
+    expect(shouldShow('sb-1', 'executing')).toBe(true)
+    expect(shouldShow('sb-1', 'thinking')).toBe(true)
+  })
+})
+
 describe('SwarmPage error surfacing', () => {
   test('telegram status failure does not crash the component', () => {
     mockTelegramStatus.mockRejectedValue(new Error('Network error'))

@@ -218,6 +218,71 @@ describe('Dashboard', () => {
     expect(html).toContain('View Logs')
   })
 
+  test('shows opened_at relative time for OPEN circuit', () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString()
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', opened_at: fiveMinAgo }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('data-testid="circuit-context"')
+    expect(html).toContain('Opened')
+    expect(html).toContain('5m ago')
+  })
+
+  test('shows total_opens count when tripped multiple times', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', total_opens: 3 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('data-testid="circuit-total-opens"')
+    expect(html).toContain('Tripped 3 times')
+  })
+
+  test('does not show total_opens when only tripped once', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', total_opens: 1 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).not.toContain('data-testid="circuit-total-opens"')
+  })
+
+  test('shows cooldown epoch in context for OPEN circuit', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', reopen_epoch: 2 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('Cooldown epoch 2')
+  })
+
+  test('does not show circuit context for CLOSED circuits', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).not.toContain('circuit-context')
+  })
+
+  test('shows opened just now for very recent open', () => {
+    const justNow = new Date(Date.now() - 5_000).toISOString()
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', opened_at: justNow }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('Opened just now')
+  })
+
   test('does not show recovery section for CLOSED circuits', () => {
     const circuits = {
       'worker-0': makeSnapshot({ state: 'CLOSED' }),

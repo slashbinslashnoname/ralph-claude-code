@@ -869,6 +869,67 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
   line-height: 1.4;
 }
 
+/* Phase timeline inside worker panel */
+.phase-timeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 6px 14px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.phase-timeline-connector {
+  flex: 0 0 12px;
+  height: 2px;
+  background: var(--bg-3);
+}
+.phase-timeline-connector.done { background: var(--success); }
+.phase-timeline-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.phase-timeline-step.done { color: var(--success); }
+.phase-timeline-step.active { color: var(--accent); font-weight: 600; }
+.phase-timeline-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  flex-shrink: 0;
+}
+.phase-timeline-step.done .phase-timeline-dot { background: var(--success); }
+.phase-timeline-step.active .phase-timeline-dot {
+  background: var(--accent);
+  animation: phase-pulse 1.2s ease-in-out infinite;
+}
+.phase-timeline-label { font-size: 11px; }
+.phase-timeline-elapsed {
+  font-size: 10px;
+  color: var(--accent);
+  opacity: 0.8;
+  margin-left: 2px;
+}
+
+/* Circuit breaker context details */
+.circuit-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+.circuit-context-item {
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 1px 6px;
+  background: var(--bg-3);
+  border-radius: 3px;
+}
+
 .worker-panel-output {
   max-height: 360px; overflow-y: auto; padding: 10px 14px;
   font-family: var(--font); font-size: 12px; line-height: 1.6;

@@ -266,6 +266,28 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
                               <strong>Reason:</strong> {cb.reason}
                             </p>
                           )}
+                          <div className="circuit-context" data-testid="circuit-context">
+                            {cb.opened_at && (
+                              <span className="circuit-context-item">
+                                Opened {(() => {
+                                  const diff = Date.now() - new Date(cb.opened_at).getTime()
+                                  if (diff < 60_000) return 'just now'
+                                  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+                                  return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m ago`
+                                })()}
+                              </span>
+                            )}
+                            {cb.total_opens > 1 && (
+                              <span className="circuit-context-item" data-testid="circuit-total-opens">
+                                Tripped {cb.total_opens} times
+                              </span>
+                            )}
+                            {cb.reopen_epoch > 0 && (
+                              <span className="circuit-context-item">
+                                Cooldown epoch {cb.reopen_epoch}
+                              </span>
+                            )}
+                          </div>
                           <p className="circuit-suggestion" data-testid="circuit-suggestion">
                             {circuitSuggestion(cb)}
                           </p>
