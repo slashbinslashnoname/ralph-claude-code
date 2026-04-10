@@ -7,6 +7,7 @@ import {
   WorkerCapabilities,
   idle,
   routing,
+  thinking,
   executing,
   reviewing,
   merging,
@@ -82,11 +83,16 @@ function makeFlags(overrides: Partial<WorkerFlags> = {}): WorkerFlags {
 function makeCapabilities(overrides: Partial<WorkerCapabilities> = {}): WorkerCapabilities {
   return {
     runClaude: vi.fn().mockResolvedValue('output'),
+    buildThinkingPrompt: vi.fn().mockReturnValue('think prompt'),
     buildExecutePrompt: vi.fn().mockReturnValue('exec prompt'),
     buildReviewPrompt: vi.fn().mockReturnValue('review prompt'),
     detectApiLimit: vi.fn().mockReturnValue(false),
     stripAnsi: vi.fn().mockImplementation((s: string) => s),
     extractText: vi.fn().mockImplementation((s: string) => s),
+    extractThinkingSummary: vi.fn().mockImplementation((s: string) => s),
+    extractKnowledge: vi.fn(),
+    parseSplitDecision: vi.fn().mockReturnValue(null),
+    splitBead: vi.fn().mockResolvedValue(undefined),
     waitForQuotaReset: vi.fn().mockResolvedValue(undefined),
     extractRetryAfter: vi.fn().mockReturnValue(undefined),
     waitIfPaused: vi.fn().mockResolvedValue(false),
@@ -159,6 +165,7 @@ function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
     currentBead: null,
     worktreePath: null,
     worktreeBranch: null,
+    thinkingSummary: '',
     executeOutput: '',
     flags: makeFlags(),
     capabilities: makeCapabilities(),
@@ -171,8 +178,8 @@ function makeCtx(overrides: Partial<WorkerContext> = {}): WorkerContext {
 
 describe('WorkerStateMachine', () => {
   describe('STATE_TABLE', () => {
-    it('contains all 8 state functions', () => {
-      const expected: StateId[] = ['idle', 'routing', 'executing', 'reviewing', 'merging', 'closing', 'cleanup', 'stopping']
+    it('contains all 9 state functions', () => {
+      const expected: StateId[] = ['idle', 'routing', 'thinking', 'executing', 'reviewing', 'merging', 'closing', 'cleanup', 'stopping']
       expect(Object.keys(STATE_TABLE).sort()).toEqual(expected.sort())
       for (const key of expected) {
         expect(typeof STATE_TABLE[key]).toBe('function')
@@ -252,7 +259,7 @@ describe('WorkerStateMachine', () => {
 
       const next = await routing(ctx)
 
-      expect(next).toBe('executing')
+      expect(next).toBe('thinking')
       expect(ctx.currentBead).toBe(bead)
       expect(ctx.agentId).toBe('worker-sb-1')
       expect(ctx.worktreePath).toBe('/tmp/wt')
@@ -299,9 +306,84 @@ describe('WorkerStateMachine', () => {
 
       const next = await routing(ctx)
 
-      expect(next).toBe('executing')
+      expect(next).toBe('thinking')
       expect(ctx.worktreePath).toBeNull()
       expect(ctx.worktreeBranch).toBeNull()
+    })
+  })
+
+  describe('thinking', () => {
+    it('gathers context and transitions to executing', async () => {
+      const bead = makeBead()
+      const ctx = makeCtx({ currentBead: bead })
+
+      const next = await thinking(ctx)
+
+      expect(next).toBe('executing')
+      expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('think prompt', 'think', ctx.paths.projectRoot, 'sonnet')
+      expect(ctx.thinkingSummary).toBe('output')
+      expect(ctx.coordinator.postActivity).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'thinking', beadId: 'sb-1'
+      }))
+    })
+
+    it('stores thinking summary and updates agent', async () => {
+      const caps = makeCapabilities({
+        runClaude: vi.fn().mockResolvedValue('detailed analysis'),
+        extractText: vi.fn().mockReturnValue('detailed analysis')
+      })
+      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
+
+      await thinking(ctx)
+
+      expect(ctx.thinkingSummary).toBe('detailed analysis')
+      expect(ctx.coordinator.updateAgent).toHaveBeenCalledWith(ctx.agentId, {
+        thinkingSummary: 'detailed analysis'
+      })
+    })
+
+    it('transitions to executing even if thinking fails (non-fatal)', async () => {
+      const caps = makeCapabilities({
+        runClaude: vi.fn().mockRejectedValue(new Error('think boom'))
+      })
+      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
+
+      const next = await thinking(ctx)
+
+      expect(next).toBe('executing')
+      expect(ctx.thinkingSummary).toBe('')
+    })
+
+    it('detects API limit during thinking and transitions to merging', async () => {
+      const caps = makeCapabilities({
+        detectApiLimit: vi.fn().mockReturnValue(true),
+        runClaude: vi.fn().mockResolvedValue('rate limited output')
+      })
+      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
+
+      const next = await thinking(ctx)
+
+      expect(next).toBe('merging')
+      expect(ctx.flags.apiLimited).toBe(true)
+      expect(ctx.executeOutput).toBe('rate limited output')
+    })
+
+    it('transitions to merging when stopped', async () => {
+      const ctx = makeCtx({
+        currentBead: makeBead(),
+        flags: makeFlags({ stopped: true })
+      })
+
+      expect(await thinking(ctx)).toBe('merging')
+    })
+
+    it('transitions to merging when paused then stopped', async () => {
+      const caps = makeCapabilities({
+        waitIfPaused: vi.fn().mockResolvedValue(true)
+      })
+      const ctx = makeCtx({ currentBead: makeBead(), capabilities: caps })
+
+      expect(await thinking(ctx)).toBe('merging')
     })
   })
 

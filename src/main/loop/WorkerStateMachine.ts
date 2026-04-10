@@ -19,6 +19,7 @@ import { ProjectPaths } from './ProjectStore'
 export type StateId =
   | 'idle'
   | 'routing'
+  | 'thinking'
   | 'executing'
   | 'reviewing'
   | 'merging'
@@ -45,6 +46,8 @@ export interface WorkerContext {
   worktreePath: string | null
   /** Branch name for the worktree */
   worktreeBranch: string | null
+  /** Summary from the thinking phase (context + plan) */
+  thinkingSummary: string
   /** Raw output from the execute phase */
   executeOutput: string
   /** Flags set during execution */
@@ -78,8 +81,10 @@ export interface WorkerFlags {
 export interface WorkerCapabilities {
   /** Run a Claude CLI subprocess. Returns raw output. */
   runClaude: (prompt: string, label: string, cwd: string, model?: string) => Promise<string>
+  /** Build the thinking prompt for a bead (context gathering + planning) */
+  buildThinkingPrompt: (bead: Bead) => string
   /** Build the execute prompt for a bead */
-  buildExecutePrompt: (bead: Bead) => string
+  buildExecutePrompt: (bead: Bead, thinkingSummary?: string) => string
   /** Build the review prompt for a bead */
   buildReviewPrompt: (bead: Bead) => string
   /** Detect API rate limiting in output */
@@ -88,6 +93,14 @@ export interface WorkerCapabilities {
   stripAnsi: (s: string) => string
   /** Extract human-readable text from raw Claude output (handles JSON format) */
   extractText: (raw: string) => string
+  /** Extract a thinking summary from raw Claude thinking output */
+  extractThinkingSummary: (raw: string) => string
+  /** Extract knowledge discoveries from thinking output and post them */
+  extractKnowledge: (output: string, beadId: string) => void
+  /** Parse a split decision from thinking output */
+  parseSplitDecision: (output: string, bead: Bead) => import('../types').SplitDecision | null
+  /** Execute a bead split based on a split decision */
+  splitBead: (decision: import('../types').SplitDecision) => Promise<void>
   /** Wait for API quota to reset (optionally polling CB rateLimitLifted) */
   waitForQuotaReset: (cb?: CircuitBreaker) => Promise<void>
   /** Extract retry-after delay from Claude output (returns ms or undefined) */
@@ -140,6 +153,7 @@ export async function idle(ctx: WorkerContext): Promise<StateId> {
   ctx.currentBead = null
   ctx.worktreePath = null
   ctx.worktreeBranch = null
+  ctx.thinkingSummary = ''
   ctx.executeOutput = ''
   ctx.flags.executeFailed = false
   ctx.flags.apiLimited = false
@@ -263,6 +277,59 @@ export async function routing(ctx: WorkerContext): Promise<StateId> {
     ctx.capabilities.emitter.emit('output', `\n── Working in main directory (no worktree) ──\n\n`)
   }
 
+  return 'thinking'
+}
+
+/**
+ * thinking — Gather context (memories, comments, sibling beads) and plan the approach.
+ */
+export async function thinking(ctx: WorkerContext): Promise<StateId> {
+  const bead = ctx.currentBead!
+  const workDir = ctx.worktreePath ?? ctx.paths.projectRoot
+
+  if (ctx.flags.stopped) return 'merging'
+
+  setPhase(ctx, 'thinking', bead.id, bead.title)
+  log(ctx, 'INFO', `[${ctx.agentId}] Thinking: gathering context for [${bead.id}]…`)
+  ctx.coordinator.postActivity({
+    agentId: ctx.agentId, type: 'thinking', beadId: bead.id,
+    beadTitle: bead.title, summary: 'Gathering context and planning…'
+  })
+
+  let thinkingOutput = ''
+  try {
+    thinkingOutput = await ctx.capabilities.runClaude(
+      ctx.capabilities.buildThinkingPrompt(bead),
+      'think', workDir, ctx.config.claudeModelThink
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log(ctx, 'WARN', `[${ctx.agentId}] Thinking phase failed (non-fatal): ${msg}`)
+    // Thinking failure is non-fatal — proceed to execute without context
+  }
+
+  if (ctx.flags.stopped) return 'merging'
+
+  if (ctx.capabilities.detectApiLimit(ctx.capabilities.stripAnsi(thinkingOutput))) {
+    log(ctx, 'WARN', `[${ctx.agentId}] API limit detected during thinking`)
+    ctx.flags.apiLimited = true
+    ctx.executeOutput = thinkingOutput
+    return 'merging'
+  }
+
+  // Extract the thinking summary and store it
+  const rawText = ctx.capabilities.extractText(thinkingOutput)
+  const summary = ctx.capabilities.extractThinkingSummary(rawText)
+  ctx.thinkingSummary = summary
+
+  // Extract knowledge discoveries and post them
+  try { ctx.capabilities.extractKnowledge(rawText, bead.id) } catch { /* non-fatal */ }
+
+  ctx.coordinator.updateAgent(ctx.agentId, { thinkingSummary: summary.slice(0, 2000) })
+
+  // Pause gate between thinking and executing
+  if (await ctx.capabilities.waitIfPaused()) return 'merging'
+
   return 'executing'
 }
 
@@ -283,7 +350,7 @@ export async function executing(ctx: WorkerContext): Promise<StateId> {
   let executeOutput = ''
   try {
     executeOutput = await ctx.capabilities.runClaude(
-      ctx.capabilities.buildExecutePrompt(bead),
+      ctx.capabilities.buildExecutePrompt(bead, ctx.thinkingSummary || undefined),
       'execute', workDir, ctx.config.claudeModelExecute
     )
     ctx.executeOutput = executeOutput
@@ -519,6 +586,7 @@ export async function stopping(ctx: WorkerContext): Promise<StateId> {
 export const STATE_TABLE: Record<StateId, StateFn> = {
   idle,
   routing,
+  thinking,
   executing,
   reviewing,
   merging,
@@ -564,6 +632,7 @@ export function createWorkerContext(
     currentBead: null,
     worktreePath: null,
     worktreeBranch: null,
+    thinkingSummary: '',
     executeOutput: '',
     flags: {
       executeFailed: false,

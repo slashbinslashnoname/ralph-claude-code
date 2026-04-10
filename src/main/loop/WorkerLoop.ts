@@ -205,11 +205,16 @@ export class WorkerLoop extends EventEmitter {
   private _buildCapabilities(): WorkerCapabilities {
     return {
       runClaude: (prompt, label, cwd, model) => this._runClaude(prompt, label, cwd, model),
-      buildExecutePrompt: (bead) => this._buildExecutePrompt(bead),
+      buildThinkingPrompt: (bead) => this._buildThinkingPrompt(bead),
+      buildExecutePrompt: (bead, thinkingSummary) => this._buildExecutePrompt(bead, thinkingSummary),
       buildReviewPrompt: (bead) => this._buildReviewPrompt(bead),
       detectApiLimit: (output) => detectApiLimit(output),
       stripAnsi: (s) => stripAnsi(s),
       extractText: (raw) => this._extractText(raw),
+      extractThinkingSummary: (raw) => this._extractThinkingSummary(raw),
+      extractKnowledge: (output, beadId) => this._extractKnowledge(output, beadId),
+      parseSplitDecision: (output, bead) => this._parseSplitDecision(output, bead),
+      splitBead: async (_decision) => { /* split logic handled by orchestrator */ },
       waitForQuotaReset: (cb?: CircuitBreaker) => this._waitForQuotaReset(cb),
       extractRetryAfter: (output: string) => extractRetryAfter(output),
       waitIfPaused: () => this._waitIfPaused(),
@@ -406,13 +411,14 @@ export class WorkerLoop extends EventEmitter {
       this.emit('output', `\n── Worktree: ${wt.branch} ──\n   ${wt.worktreePath}\n\n`)
       this.coordinator.updateAgent(this.agentId, { worktreeBranch: branch })
 
-      // ── Phases 1-3: Think, Execute, Review ─────────────────────
+      // ── Phases 0-3: Think, Execute, Review ─────────────────────
       // Wrap in try/finally to ensure worktree is always merged back
       let executeFailed = false
       let apiLimited = false
       let mergeFailed = false
       let filesChanged: string[] = []
       let executeOutput = ''
+      let thinkingSummary = ''
 
       try {
         // Skip execute if stopped or paused
@@ -424,6 +430,37 @@ export class WorkerLoop extends EventEmitter {
         // ── Ensure Dolt server is alive before Claude shells out to bd ──
         await this.coordinator.bd.ensureDolt()
 
+        // ── Phase 0: Think — gather context, plan approach ──────────
+        this._setPhase('thinking', bead.id, bead.title)
+        this._log('INFO', `[${this.agentId}] Thinking: gathering context…`)
+        this.coordinator.postActivity({
+          agentId: this.agentId, type: 'thinking', beadId: bead.id,
+          beadTitle: bead.title, summary: 'Gathering context and planning…'
+        })
+        try {
+          const thinkingOutput = await this._runClaude(this._buildThinkingPrompt(bead), 'think', workDir, this.config.claudeModelThink)
+          if (detectApiLimit(stripAnsi(thinkingOutput))) {
+            this._log('WARN', `[${this.agentId}] API limit detected during thinking`)
+            apiLimited = true
+            executeOutput = thinkingOutput
+          } else {
+            const rawText = this._extractText(thinkingOutput)
+            thinkingSummary = this._extractThinkingSummary(rawText)
+            try { this._extractKnowledge(rawText, bead.id) } catch { /* non-fatal */ }
+            this.coordinator.updateAgent(this.agentId, { thinkingSummary: thinkingSummary.slice(0, 2000) })
+          }
+        } catch (err) {
+          this._log('WARN', `[${this.agentId}] Thinking phase failed (non-fatal): ${err instanceof Error ? err.message : err}`)
+        }
+
+        if (apiLimited) {
+          // Fall through to finally → merge, then Phase 5 handles rate limit
+        } else if (this.stopped) {
+          // Fall through
+        } else if (await this._waitIfPaused()) {
+          // Paused and then stopped — fall through
+        } else {
+
         // ── Phase 1: Execute — implement the bead ───────────────────
         this._setPhase('executing', bead.id, bead.title)
         this._log('INFO', `[${this.agentId}] Executing bead…`)
@@ -433,7 +470,7 @@ export class WorkerLoop extends EventEmitter {
         })
         executeOutput = ''
         try {
-          executeOutput = await this._runClaude(this._buildExecutePrompt(bead), 'execute', workDir, this.config.claudeModelExecute)
+          executeOutput = await this._runClaude(this._buildExecutePrompt(bead, thinkingSummary || undefined), 'execute', workDir, this.config.claudeModelExecute)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           this._log('ERROR', `[${this.agentId}] Execute failed: ${msg}`)
@@ -462,6 +499,7 @@ export class WorkerLoop extends EventEmitter {
             }
           }
         }
+        } // close else block from apiLimited/stopped/paused guard
         } // close else block from stopped/paused guard
       } finally {
         this._currentBeadId = null
@@ -706,7 +744,131 @@ export class WorkerLoop extends EventEmitter {
     return raw
   }
 
-  private _buildExecutePrompt(bead: Bead): string {
+  private _buildThinkingPrompt(bead: Bead): string {
+    const agentMd = this.paths.agentMd
+    const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
+
+    // Gather context: memories, comments, sibling beads
+    let memoriesCtx = ''
+    try {
+      const memories = this.coordinator.bd.memories()
+      if (memories.length > 0) {
+        memoriesCtx = `\n### Project Memories\n${memories.map(m => `- **${m.key}**: ${m.text}`).join('\n')}`
+      }
+    } catch { /* ignore — memories are optional context */ }
+
+    let commentsCtx = ''
+    try {
+      const comments = this.coordinator.bd.comments(bead.id)
+      if (comments.length > 0) {
+        commentsCtx = `\n### Bead Comments\n${comments.map(c => `- [${c.author}] ${c.text}`).join('\n')}`
+      }
+    } catch { /* ignore */ }
+
+    let siblingBeadsCtx = ''
+    try {
+      const readyBeads = this.coordinator.bd.ready()
+      const otherBeads = readyBeads.filter(b => b.id !== bead.id).slice(0, 10)
+      if (otherBeads.length > 0) {
+        siblingBeadsCtx = `\n### Upcoming Beads (for coordination)\n${otherBeads.map(b => `- [${b.id}] ${b.title} (P${b.priority})`).join('\n')}`
+      }
+    } catch { /* ignore */ }
+
+    // Parent epic context
+    let parentCtx = ''
+    if (bead.epicId) {
+      try {
+        const parent = this.coordinator.bd.show(bead.epicId)
+        if (parent) {
+          parentCtx = `\n### Parent epic: [${parent.id}] ${parent.title}`
+          if (parent.description) parentCtx += `\n${parent.description}`
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Dependencies context
+    let depsCtx = ''
+    if (bead.deps.length > 0) {
+      const depDetails: string[] = []
+      for (const depId of bead.deps) {
+        try {
+          const dep = this.coordinator.bd.show(depId)
+          if (dep) depDetails.push(`- [${dep.id}] ${dep.title} (${dep.status})`)
+        } catch { /* ignore */ }
+      }
+      if (depDetails.length > 0) {
+        depsCtx = `\n### Dependencies\n${depDetails.join('\n')}`
+      }
+    }
+
+    // Collective knowledge from other agents
+    let knowledgeCtx = ''
+    try {
+      const entries = this.coordinator.readKnowledge()
+      // Filter out own entries for the current bead
+      const relevant = entries.filter(e => !(e.agentId === this.agentId && e.beadId === bead.id))
+      if (relevant.length > 0) {
+        const lines = relevant.map(e => {
+          const conf = e.confidence === 'high' ? '' : ` [${e.confidence}]`
+          return `- **${e.category}**${conf}: ${e.summary}`
+        })
+        knowledgeCtx = `\n## Collective Knowledge\n${lines.join('\n')}`
+      }
+    } catch { /* ignore */ }
+
+    return [
+      `## ULTRATHINK: [${bead.id}] ${bead.title}`,
+      `Agent: ${this.agentId} | Type: ${bead.type} | Priority: ${bead.priority}/4`,
+      bead.description ? `\n### Description\n${bead.description}` : '',
+      bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
+      parentCtx,
+      depsCtx,
+      memoriesCtx,
+      commentsCtx,
+      siblingBeadsCtx,
+      knowledgeCtx,
+      agentContext ? `\n---\n${agentContext}` : '',
+      `\n### Your Task`,
+      `You are in the **thinking phase** — do NOT implement anything yet. Instead:`,
+      `1. Run \`bd show ${bead.id}\` to read the full bead details`,
+      `2. Read relevant source files to understand the current state`,
+      `3. Analyze what needs to be done and identify any risks or edge cases`,
+      `4. Consider how this bead relates to the upcoming beads listed above`,
+      `\n**Output a structured thinking summary** with these sections:`,
+      `- ### Understanding — what this bead should accomplish`,
+      `- ### Approach — step-by-step implementation plan`,
+      `- ### Files — which files to create or modify`,
+      `- ### Risks — edge cases, breaking changes, or coordination concerns`,
+      `- ### Test strategy — what tests to write or update`,
+      `- ### Discoveries`,
+      `Record any reusable findings as bullet points in this format:`,
+      `\`- **category** (confidence): summary\``,
+      `Valid categories: pattern, gotcha, dependency, convention, environment, risk`,
+      `Valid confidence: high, medium, low`,
+      `If no discoveries, write "None."`,
+      `- ### Split Analysis`,
+      `If this bead is too large for a single implementation pass, recommend splitting.`,
+      `Output a JSON block:`,
+      '```json',
+      `{`,
+      `  "shouldSplit": false,`,
+      `  "reason": "why or why not",`,
+      `  "children": [`,
+      `    {`,
+      `      "title": "Child bead title",`,
+      `      "description": "What this child covers",`,
+      `      "files": ["src/file.ts"],`,
+      `      "dependsOn": []`,
+      `    }`,
+      `  ]`,
+      `}`,
+      '```',
+      `\nDo NOT write any code or make any changes. This is analysis only.`,
+      BD_SYSTEM_PROMPT
+    ].filter(Boolean).join('\n')
+  }
+
+  private _buildExecutePrompt(bead: Bead, thinkingSummary?: string): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
     const promptMd = this.paths.promptMd
@@ -729,6 +891,7 @@ export class WorkerLoop extends EventEmitter {
       `1. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
       bead.epicId ? `2. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
       bead.deps.length > 0 ? `${bead.epicId ? '3' : '2'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
+      thinkingSummary ? `\n### Thinking Phase Summary\nThe following analysis was produced during the thinking phase. Use it to guide your implementation:\n\n${thinkingSummary}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
       promptContext ? `\n---\n${promptContext}` : '',
@@ -759,6 +922,101 @@ export class WorkerLoop extends EventEmitter {
     ].filter(Boolean).join('\n')
   }
 
+
+  /**
+   * Extract a thinking summary from raw Claude thinking output.
+   * Preserves all ### sections and their content.
+   */
+  _extractThinkingSummary(raw: string): string {
+    // Keep all lines from the first ### heading onwards
+    const lines = raw.split('\n')
+    let startIdx = lines.findIndex(l => l.startsWith('### '))
+    if (startIdx === -1) return raw.trim()
+
+    // Collapse runs of 3+ blank lines into 2, but preserve blank lines inside fenced code blocks
+    const result: string[] = []
+    let blankRun = 0
+    let inFence = false
+    for (let i = startIdx; i < lines.length; i++) {
+      const line = lines[i]
+      if (line.startsWith('```')) inFence = !inFence
+      if (!inFence && line.trim() === '') {
+        blankRun++
+        if (blankRun <= 2) result.push(line)
+      } else {
+        blankRun = 0
+        result.push(line)
+      }
+    }
+    return result.join('\n').trim()
+  }
+
+  /**
+   * Extract knowledge discoveries from thinking output and post them to the coordinator.
+   */
+  _extractKnowledge(output: string, beadId: string): void {
+    const discIdx = output.indexOf('### Discoveries')
+    if (discIdx === -1) return
+
+    // Extract the section between ### Discoveries and the next ### heading
+    const section = output.slice(discIdx)
+    const nextHeading = section.indexOf('\n### ', 1)
+    const discSection = nextHeading > 0 ? section.slice(0, nextHeading) : section
+
+    if (discSection.includes('None.')) return
+
+    const validCategories = ['pattern', 'gotcha', 'dependency', 'convention', 'environment', 'risk']
+    const validConfidence = ['high', 'medium', 'low']
+
+    const entryRegex = /^- \*\*(\w+)\*\* \((\w+)\): (.+)$/gm
+    let match: RegExpExecArray | null
+    while ((match = entryRegex.exec(discSection)) !== null) {
+      const [, category, confidence, summary] = match
+      if (!validCategories.includes(category)) continue
+      if (!validConfidence.includes(confidence)) continue
+      this.coordinator.postKnowledge({
+        agentId: this.agentId,
+        beadId,
+        category: category as import('../types').KnowledgeCategory,
+        summary,
+        detail: '',
+        confidence: confidence as import('../types').KnowledgeConfidence
+      })
+    }
+  }
+
+  /**
+   * Parse a split decision from thinking output.
+   * Returns null if no split is recommended.
+   */
+  _parseSplitDecision(output: string, bead: Bead): import('../types').SplitDecision | null {
+    const splitIdx = output.indexOf('### Split Analysis')
+    if (splitIdx === -1) return null
+
+    const section = output.slice(splitIdx)
+    // Extract JSON from fenced code block
+    const jsonStart = section.indexOf('```json')
+    const jsonEnd = section.indexOf('```', jsonStart + 7)
+    if (jsonStart === -1 || jsonEnd === -1) return null
+
+    const jsonStr = section.slice(jsonStart + 7, jsonEnd).trim()
+    try {
+      const parsed = JSON.parse(jsonStr)
+      if (!parsed.shouldSplit) return null
+      return {
+        beadId: bead.id,
+        reason: parsed.reason || 'Split recommended by analysis',
+        children: (parsed.children || []).map((c: any) => ({
+          title: c.title || '',
+          description: c.description || '',
+          files: c.files || [],
+          deps: c.dependsOn || []
+        }))
+      }
+    } catch {
+      return null
+    }
+  }
 
   /**
    * Wait for API quota to reset by polling the circuit breaker's rateLimitLifted().
