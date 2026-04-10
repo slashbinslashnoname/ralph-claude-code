@@ -11,6 +11,7 @@ import PlanPage from './pages/PlanPage'
 import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
+import { ToastProvider } from './components/Toast'
 
 const sb = window.slashbot
 
@@ -212,7 +213,7 @@ export default function App() {
   // Empty state — no tabs open
   if (tabs.length === 0) {
     return (
-      <>
+      <ToastProvider>
       <UpdateBanner />
       <div className="landing">
         <div className="landing-content">
@@ -237,12 +238,12 @@ export default function App() {
           )}
         </div>
       </div>
-      </>
+      </ToastProvider>
     )
   }
 
   return (
-    <>
+    <ToastProvider>
     <UpdateBanner />
     <div className="app-layout has-tabs">
       {/* Project tab bar */}
@@ -339,6 +340,6 @@ export default function App() {
         </footer>
       )}
     </div>
-    </>
+    </ToastProvider>
   )
 }

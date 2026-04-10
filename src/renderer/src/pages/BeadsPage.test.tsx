@@ -1,5 +1,6 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest'
-import React from 'react'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import React, { act } from 'react'
+import ReactDOM from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 const mocks = vi.hoisted(() => {
@@ -13,28 +14,31 @@ const mocks = vi.hoisted(() => {
   const mockStatus = vi.fn().mockResolvedValue({ planning: false })
   const mockQueue = vi.fn().mockResolvedValue([])
 
-  ;(globalThis as any).window = {
-    slashbot: {
-      beads: {
-        check: mockCheck,
-        list: mockList,
-        rollback: mockRollback,
-        reopen: mockReopen,
-        close: mockClose,
-        update: mockUpdate,
-        create: mockCreate,
-      },
-      swarm: {
-        status: mockStatus,
-        queue: mockQueue,
-        onPlanPhase: vi.fn().mockReturnValue(() => {}),
-        onPlanQueue: vi.fn().mockReturnValue(() => {}),
-        onStopped: vi.fn().mockReturnValue(() => {}),
-        activity: vi.fn().mockResolvedValue([]),
-        agentLogs: vi.fn().mockResolvedValue([]),
-        inject: vi.fn().mockResolvedValue(undefined),
-        queueRemove: vi.fn().mockResolvedValue(undefined),
-      },
+  // Preserve jsdom window (needed for ReactDOM.createRoot); only inject slashbot namespace.
+  if (typeof (globalThis as any).window === 'undefined') {
+    ;(globalThis as any).window = {}
+  }
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  ;(globalThis as any).window.slashbot = {
+    beads: {
+      check: mockCheck,
+      list: mockList,
+      rollback: mockRollback,
+      reopen: mockReopen,
+      close: mockClose,
+      update: mockUpdate,
+      create: mockCreate,
+    },
+    swarm: {
+      status: mockStatus,
+      queue: mockQueue,
+      onPlanPhase: vi.fn().mockReturnValue(() => {}),
+      onPlanQueue: vi.fn().mockReturnValue(() => {}),
+      onStopped: vi.fn().mockReturnValue(() => {}),
+      activity: vi.fn().mockResolvedValue([]),
+      agentLogs: vi.fn().mockResolvedValue([]),
+      inject: vi.fn().mockResolvedValue(undefined),
+      queueRemove: vi.fn().mockResolvedValue(undefined),
     },
   }
 
@@ -42,6 +46,7 @@ const mocks = vi.hoisted(() => {
 })
 
 import BeadsPage from './BeadsPage'
+import { ToastProvider } from '../components/Toast'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -51,22 +56,27 @@ beforeEach(() => {
   mocks.mockQueue.mockResolvedValue([])
 })
 
+/** Helper to render BeadsPage with required providers */
+function renderBeadsPage(props: { projectPath: string } = { projectPath: '/tmp/test' }) {
+  return renderToStaticMarkup(<ToastProvider><BeadsPage {...props} /></ToastProvider>)
+}
+
 describe('BeadsPage', () => {
   test('renders without error', () => {
     expect(() => {
-      renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+      renderBeadsPage()
     }).not.toThrow()
   })
 
   test('renders page header with Beads title', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     expect(html).toContain('Beads')
     expect(html).toContain('Create Bead')
     expect(html).toContain('Refresh')
   })
 
   test('renders tab filters without All tab', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     expect(html).toContain('Open')
     expect(html).toContain('In Progress')
     expect(html).toContain('Closed')
@@ -76,12 +86,12 @@ describe('BeadsPage', () => {
   })
 
   test('renders sort options', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     expect(html).toContain('Sort by:')
   })
 
   test('renders sort bar (list view only)', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     expect(html).toContain('Sort by:')
     // No view toggle buttons should exist
     expect(html).not.toContain('data-testid="view-mode-kanban"')
@@ -90,14 +100,14 @@ describe('BeadsPage', () => {
 
   test('shows plan request text when planning is active', () => {
     mocks.mockStatus.mockResolvedValue({ planning: true, planRequest: 'Build a login page' })
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     // The queue-item-active section should NOT show "Running..." when there is a request
     // SSR won't have the async status loaded, but the component should render the initial state
     expect(html).toContain('Plan &amp; Encode Beads')
   })
 
   test('shows Running... fallback when planRequest is empty', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     // Initial state: not planning, so queue-item-active shouldn't render at all
     expect(html).not.toContain('queue-item-active')
   })
@@ -105,13 +115,120 @@ describe('BeadsPage', () => {
   test('truncates long plan request to 80 chars', () => {
     // This tests the rendering logic: when isPlanning is true and planRequest is long
     // We test this by verifying the component structure renders properly
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     expect(html).toContain('Plan &amp; Encode Beads')
   })
 
   test('does not render kanban or tree view components', () => {
-    const html = renderToStaticMarkup(<BeadsPage projectPath="/tmp/test" />)
+    const html = renderBeadsPage()
     expect(html).not.toContain('kanban')
     expect(html).not.toContain('tree-browser')
+  })
+
+  test('uses AsyncButton for Create button', () => {
+    const html = renderBeadsPage()
+    // AsyncButton renders with aria-busy attribute
+    expect(html).toContain('aria-busy')
+    expect(html).toContain('Create')
+  })
+
+  test('uses AsyncButton for Inject Plan button', () => {
+    const html = renderBeadsPage()
+    expect(html).toContain('Inject Plan')
+    // Inject Plan button should have aria-busy from AsyncButton
+    expect(html).toContain('aria-busy="false"')
+  })
+})
+
+describe('BeadsPage — async operations (DOM)', () => {
+  let container: HTMLElement
+  let root: ReturnType<typeof ReactDOM.createRoot>
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = ReactDOM.createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => { root.unmount() })
+    document.body.removeChild(container)
+  })
+
+  test('Create button shows spinner and disables during create operation', async () => {
+    let resolveCreate!: (v: { ok: boolean }) => void
+    mocks.mockCreate.mockImplementation(() => new Promise(r => { resolveCreate = r }))
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    // Open create form
+    const createToggle = container.querySelector('.btn-primary') as HTMLButtonElement
+    await act(async () => { createToggle.click() })
+
+    // Fill title
+    const titleInput = container.querySelector('.card-create input') as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(titleInput, 'Test bead')
+      titleInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Click create
+    const createBtn = container.querySelector('.card-create .btn-primary') as HTMLButtonElement
+    await act(async () => { createBtn.click() })
+
+    // Button should be disabled while pending
+    expect(createBtn.disabled).toBe(true)
+    expect(createBtn.getAttribute('aria-busy')).toBe('true')
+
+    // Resolve the create call
+    await act(async () => { resolveCreate({ ok: true }) })
+  })
+
+  test('Close bead shows error state on button when operation fails', async () => {
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      tasks: [{
+        id: 'test-1', title: 'Test', status: 'ready', type: 'task',
+        priority: 2, tags: [], description: null, claimedBy: null,
+      }],
+    })
+    mocks.mockClose.mockRejectedValue(new Error('Network error'))
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    // Find and click Close button within bead actions (second aria-busy button after Claim)
+    const actionBtns = container.querySelectorAll('.bead-actions button[aria-busy]')
+    const closeBtn = Array.from(actionBtns).find(b => b.textContent?.includes('Close')) as HTMLButtonElement
+    expect(closeBtn).not.toBeNull()
+    await act(async () => { closeBtn.click() })
+    await act(async () => {})
+    // AsyncButton enters error state
+    expect(closeBtn.className).toContain('async-btn-error')
+  })
+
+  test('bead action buttons use AsyncButton with aria-busy', async () => {
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      tasks: [{
+        id: 'test-1', title: 'Test', status: 'ready', type: 'task',
+        priority: 2, tags: [], description: null, claimedBy: null,
+      }],
+    })
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    // All bead action buttons should have aria-busy attribute (from AsyncButton)
+    const actionBtns = container.querySelectorAll('.bead-actions button[aria-busy]')
+    expect(actionBtns.length).toBeGreaterThan(0)
   })
 })

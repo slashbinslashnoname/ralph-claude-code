@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { AsyncButton } from '../components/AsyncButton'
+import { useToast } from '../components/Toast'
 import type { UpdateState, UpdateInfo, UpdateProgress, RalphConfig } from '../types/ipc'
 
 const sb = window.slashbot
@@ -132,11 +134,10 @@ function CheckboxField({ label, configKey, checked, onChange }: CheckboxFieldPro
 // ---------------------------------------------------------------------------
 
 function SettingsSection({ projectPath }: { projectPath: string }) {
+  const { showToast } = useToast()
   const [config, setConfig] = useState<RalphConfig | null>(null)
   const [errors, setErrors] = useState<Record<string, string | null>>({})
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   // Load config on mount
@@ -158,29 +159,20 @@ function SettingsSection({ projectPath }: { projectPath: string }) {
     const err = validateField(key, value)
     setErrors(prev => ({ ...prev, [key]: err }))
     setConfig(prev => prev ? { ...prev, [key]: value } : prev)
-    setFeedback(null)
   }, [config])
 
   const hasErrors = Object.values(errors).some(e => e != null)
 
   const handleSave = useCallback(async () => {
     if (!config || hasErrors) return
-    setSaving(true)
-    setFeedback(null)
-    try {
-      // Send only non-telegram fields
-      const { telegram: _tg, ...updates } = config
-      const r = await sb.config.write(projectPath, updates)
-      if (r.ok) {
-        setFeedback({ ok: true, message: 'Configuration saved.' })
-      } else {
-        setFeedback({ ok: false, message: r.error ?? 'Save failed' })
-      }
-    } catch (e) {
-      setFeedback({ ok: false, message: e instanceof Error ? e.message : String(e) })
+    const { telegram: _tg, ...updates } = config
+    const r = await sb.config.write(projectPath, updates)
+    if (r.ok) {
+      showToast('Configuration saved.', { variant: 'success' })
+    } else {
+      throw new Error(r.error ?? 'Save failed')
     }
-    setSaving(false)
-  }, [config, hasErrors, projectPath])
+  }, [config, hasErrors, projectPath, showToast])
 
   if (loading) return <div className="settings-loading">Loading configuration...</div>
   if (loadError) return <div className="alert alert-danger">{loadError}</div>
@@ -260,20 +252,9 @@ function SettingsSection({ projectPath }: { projectPath: string }) {
 
       {/* Save */}
       <div className="form-actions" style={{ marginTop: 16 }}>
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving || hasErrors}
-        >
-          {saving ? 'Saving...' : 'Save Settings'}
-        </button>
+        <AsyncButton className="btn-primary" onClick={handleSave} disabled={hasErrors}
+          pendingContent="Saving\u2026">Save Settings</AsyncButton>
       </div>
-
-      {feedback && (
-        <div className={`alert ${feedback.ok ? 'alert-success' : 'alert-danger'}`} style={{ marginTop: 10 }}>
-          {feedback.message}
-        </div>
-      )}
     </div>
   )
 }
@@ -446,15 +427,12 @@ interface TelegramStatus {
 }
 
 function TelegramSection({ projectPath }: { projectPath: string }) {
+  const { showToast } = useToast()
   const [botToken, setBotToken] = useState('')
   const [chatId, setChatId] = useState('')
   const [notifyLevel, setNotifyLevel] = useState('errors')
   const [enabled, setEnabled] = useState(false)
   const [status, setStatus] = useState<TelegramStatus | null>(null)
-  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [saveResult, setSaveResult] = useState<{ ok: boolean; error?: string } | null>(null)
 
   const loadStatus = useCallback(async () => {
     const s = await sb.telegram.status(projectPath)
@@ -475,46 +453,30 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
   }, [projectPath, loadStatus])
 
   const handleSave = useCallback(async () => {
-    setSaving(true)
-    setSaveResult(null)
-    setTestResult(null)
-    try {
-      if (enabled && botToken && chatId) {
-        const r = await sb.telegram.configure(projectPath, { botToken, chatId, notifyLevel })
-        setSaveResult(r)
-        if (r.ok) await loadStatus()
-      } else if (!enabled && status?.connected) {
-        await sb.telegram.disconnect(projectPath)
-        await loadStatus()
-        setSaveResult({ ok: true })
-      } else {
-        setSaveResult({ ok: true })
-      }
-    } catch (e) {
-      setSaveResult({ ok: false, error: e instanceof Error ? e.message : String(e) })
+    if (enabled && botToken && chatId) {
+      const r = await sb.telegram.configure(projectPath, { botToken, chatId, notifyLevel })
+      if (!r.ok) throw new Error(r.error ?? 'Save failed')
+      await loadStatus()
+      showToast('Telegram configuration saved.', { variant: 'success' })
+    } else if (!enabled && status?.connected) {
+      await sb.telegram.disconnect(projectPath)
+      await loadStatus()
+      showToast('Telegram disconnected.', { variant: 'success' })
     }
-    setSaving(false)
-  }, [projectPath, botToken, chatId, notifyLevel, enabled, status, loadStatus])
+  }, [projectPath, botToken, chatId, notifyLevel, enabled, status, loadStatus, showToast])
 
   const handleTest = useCallback(async () => {
-    setTesting(true)
-    setTestResult(null)
-    try {
-      const r = await sb.telegram.test(projectPath)
-      setTestResult(r)
-    } catch (e) {
-      setTestResult({ ok: false, error: e instanceof Error ? e.message : String(e) })
-    }
-    setTesting(false)
-  }, [projectPath])
+    const r = await sb.telegram.test(projectPath)
+    if (!r.ok) throw new Error(r.error ?? 'Test failed')
+    showToast('Test message sent successfully!', { variant: 'success' })
+  }, [projectPath, showToast])
 
   const handleDisconnect = useCallback(async () => {
     await sb.telegram.disconnect(projectPath)
     setEnabled(false)
-    setTestResult(null)
-    setSaveResult(null)
     await loadStatus()
-  }, [projectPath, loadStatus])
+    showToast('Telegram disconnected.', { variant: 'info' })
+  }, [projectPath, loadStatus, showToast])
 
   const connected = status?.connected ?? false
 
@@ -585,37 +547,17 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
       </div>
 
       <div className="form-actions" style={{ marginTop: 12 }}>
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving || (!botToken && enabled) || (!chatId && enabled)}
-        >
-          {saving ? 'Saving...' : 'Save'}
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={handleTest}
-          disabled={testing || !connected}
-        >
-          {testing ? 'Testing...' : 'Test Connection'}
-        </button>
+        <AsyncButton className="btn-primary" onClick={handleSave}
+          disabled={(!botToken && enabled) || (!chatId && enabled)}
+          pendingContent="Saving\u2026">Save</AsyncButton>
+        <AsyncButton className="btn-ghost" onClick={handleTest}
+          disabled={!connected}
+          pendingContent="Testing\u2026">Test Connection</AsyncButton>
         {connected && (
-          <button className="btn btn-danger" onClick={handleDisconnect}>
-            Disconnect
-          </button>
+          <AsyncButton className="btn-danger" onClick={handleDisconnect}
+            pendingContent="Disconnecting\u2026">Disconnect</AsyncButton>
         )}
       </div>
-
-      {testResult && (
-        <div className={`alert ${testResult.ok ? 'alert-success' : 'alert-danger'}`} style={{ marginTop: 10 }}>
-          {testResult.ok ? 'Test message sent successfully!' : `Test failed: ${testResult.error}`}
-        </div>
-      )}
-      {saveResult && (
-        <div className={`alert ${saveResult.ok ? 'alert-success' : 'alert-danger'}`} style={{ marginTop: 10 }}>
-          {saveResult.ok ? 'Configuration saved.' : `Save failed: ${saveResult.error}`}
-        </div>
-      )}
     </div>
   )
 }
@@ -625,6 +567,7 @@ function TelegramSection({ projectPath }: { projectPath: string }) {
 // ---------------------------------------------------------------------------
 
 export default function ConfigEditor({ projectPath }: Props) {
+  const { showToast } = useToast()
   const [activeTab, setActiveTab] = useState<ActiveTab>('settings')
   const [activeFile, setActiveFile] = useState('PROMPT.md')
   const [content, setContent] = useState('')
@@ -641,9 +584,9 @@ export default function ConfigEditor({ projectPath }: Props) {
 
   const save = useCallback(async () => {
     const r = await sb.writeFile(projectPath, activeFile, content)
-    if (r.ok) { setSaved(true); setError('') }
-    else setError(r.error ?? 'Failed to save')
-  }, [projectPath, activeFile, content])
+    if (r.ok) { setSaved(true); setError(''); showToast('File saved.', { variant: 'success' }) }
+    else throw new Error(r.error ?? 'Failed to save')
+  }, [projectPath, activeFile, content, showToast])
 
   return (
     <div className="page">
@@ -651,9 +594,10 @@ export default function ConfigEditor({ projectPath }: Props) {
         <h2>Configuration</h2>
         {activeTab === 'prompts' && (
           <div className="header-actions">
-            <button className="btn btn-primary" onClick={save} disabled={saved}>
+            <AsyncButton className="btn-primary" onClick={save} disabled={saved}
+              pendingContent="Saving\u2026">
               {saved ? 'Saved' : 'Save'}
-            </button>
+            </AsyncButton>
           </div>
         )}
       </header>

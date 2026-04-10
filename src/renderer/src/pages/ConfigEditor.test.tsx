@@ -112,6 +112,7 @@ const mocks = vi.hoisted(() => {
 
 import ConfigEditor from './ConfigEditor'
 import { SettingsSection, validateField, NUMERIC_RANGES } from './ConfigEditor'
+import { ToastProvider } from '../components/Toast'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -129,7 +130,7 @@ beforeEach(() => {
 
 describe('ConfigEditor', () => {
   test('renders Settings, Prompts, Telegram, and Updates outer tabs', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    const html = renderToStaticMarkup(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     expect(html).toContain('>Settings</button>')
     expect(html).toContain('>Prompts</button>')
     expect(html).toContain('>Telegram</button>')
@@ -137,17 +138,17 @@ describe('ConfigEditor', () => {
   })
 
   test('Settings tab is active by default', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    const html = renderToStaticMarkup(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     expect(html).toMatch(/tab active[^"]*">Settings/)
   })
 
   test('renders Configuration header', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    const html = renderToStaticMarkup(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     expect(html).toContain('Configuration')
   })
 
   test('renders Settings section with loading state on initial render', () => {
-    const html = renderToStaticMarkup(<ConfigEditor projectPath="/test" />)
+    const html = renderToStaticMarkup(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     expect(html).toContain('Loading configuration')
   })
 })
@@ -169,7 +170,7 @@ describe('SettingsSection — structured form', () => {
 
   test('renders all section headings after config load', async () => {
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     const html = container.innerHTML
@@ -182,7 +183,7 @@ describe('SettingsSection — structured form', () => {
 
   test('renders number inputs for numeric fields', async () => {
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     const numberInputs = container.querySelectorAll('input[type="number"]')
@@ -191,7 +192,7 @@ describe('SettingsSection — structured form', () => {
 
   test('renders text inputs for text fields', async () => {
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     const textInputs = container.querySelectorAll('input[type="text"]')
@@ -200,7 +201,7 @@ describe('SettingsSection — structured form', () => {
 
   test('renders checkbox inputs for boolean fields', async () => {
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     const checkboxInputs = container.querySelectorAll('input[type="checkbox"]')
@@ -209,7 +210,7 @@ describe('SettingsSection — structured form', () => {
 
   test('Save button calls sb.config.write with shape excluding telegram', async () => {
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
@@ -224,24 +225,25 @@ describe('SettingsSection — structured form', () => {
     expect(payload).toHaveProperty('maxCallsPerHour')
   })
 
-  test('error from config.write is displayed inline', async () => {
+  test('error from config.write surfaces via AsyncButton error state', async () => {
     mocks.mockConfigWrite.mockResolvedValueOnce({ ok: false, error: 'validation failed' })
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
     await act(async () => {
       saveBtn.click()
     })
-    expect(container.innerHTML).toContain('validation failed')
-    expect(container.querySelector('.alert-danger')).not.toBeNull()
+    await act(async () => {})
+    // AsyncButton enters error state (css class async-btn-error)
+    expect(saveBtn.className).toContain('async-btn-error')
   })
 
   test('shows alert-danger when config.read fails', async () => {
     mocks.mockConfigRead.mockResolvedValueOnce({ ok: false, error: 'permission denied' })
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     expect(container.querySelector('.alert-danger')).not.toBeNull()
@@ -250,7 +252,7 @@ describe('SettingsSection — structured form', () => {
 
   test('Save button is disabled and config.write not called when a field has a validation error', async () => {
     await act(async () => {
-      root.render(<SettingsSection projectPath="/test" />)
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
     })
     await act(async () => {})
     // Set maxCallsPerHour to 0 (below min of 1) to trigger a validation error.
@@ -351,7 +353,7 @@ describe('Prompts tab', () => {
   test('renders textarea for PROMPT.md editing', async () => {
     mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# My Prompt' })
     await act(async () => {
-      root.render(<ConfigEditor projectPath="/test" />)
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     })
     // Click Prompts tab
     const tabs = container.querySelectorAll('.tab')
@@ -367,7 +369,7 @@ describe('Prompts tab', () => {
 
   test('has sub-tab toggle for PROMPT.md and AGENT.md', async () => {
     await act(async () => {
-      root.render(<ConfigEditor projectPath="/test" />)
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     })
     const tabs = container.querySelectorAll('.tab')
     const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
@@ -400,7 +402,7 @@ describe('Updates tab', () => {
 
   test('renders Check for Updates button', async () => {
     await act(async () => {
-      root.render(<ConfigEditor projectPath="/test" />)
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
     })
     // Click Updates tab
     const tabs = container.querySelectorAll('.tab')
@@ -541,5 +543,78 @@ describe('UpdatesSection — update namespace mock bridge', () => {
   test('event listener mocks return unsubscribe functions', () => {
     const unsub = window.slashbot.update.onChecking(() => {})
     expect(typeof unsub).toBe('function')
+  })
+})
+
+describe('ConfigEditor — AsyncButton integration', () => {
+  let container: HTMLElement
+  let root: ReturnType<typeof ReactDOM.createRoot>
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = ReactDOM.createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => { root.unmount() })
+    document.body.removeChild(container)
+  })
+
+  test('Settings Save button uses AsyncButton with aria-busy', async () => {
+    await act(async () => {
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    expect(saveBtn).not.toBeNull()
+    expect(saveBtn.getAttribute('aria-busy')).toBe('false')
+  })
+
+  test('Settings Save button disables during save operation', async () => {
+    let resolveWrite!: (v: { ok: boolean }) => void
+    mocks.mockConfigWrite.mockImplementation(() => new Promise(r => { resolveWrite = r }))
+
+    await act(async () => {
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => { saveBtn.click() })
+
+    expect(saveBtn.disabled).toBe(true)
+    expect(saveBtn.getAttribute('aria-busy')).toBe('true')
+
+    await act(async () => { resolveWrite({ ok: true }) })
+  })
+
+  test('Prompts Save button uses AsyncButton', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# test' })
+    await act(async () => {
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
+    })
+    // Click Prompts tab
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => { promptsTab.click() })
+    await act(async () => {})
+
+    const saveBtn = container.querySelector('.header-actions button') as HTMLButtonElement
+    expect(saveBtn).not.toBeNull()
+    expect(saveBtn.getAttribute('aria-busy')).toBe('false')
+  })
+
+  test('Settings save success shows toast', async () => {
+    mocks.mockConfigWrite.mockResolvedValueOnce({ ok: true })
+    await act(async () => {
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => { saveBtn.click() })
+    await act(async () => {})
+    const toast = document.querySelector('.toast-success')
+    expect(toast).not.toBeNull()
+    expect(toast?.textContent).toContain('Configuration saved')
   })
 })

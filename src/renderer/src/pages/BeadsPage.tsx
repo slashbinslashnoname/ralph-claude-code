@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import BeadDetailPanel from '../components/BeadDetailPanel'
+import { AsyncButton } from '../components/AsyncButton'
+import { useToast } from '../components/Toast'
 import type { Bead, BeadType, PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
@@ -16,6 +18,7 @@ const TABS: { id: BeadFilter; label: string }[] = [
 ]
 
 export default function BeadsPage({ projectPath }: Props) {
+  const { showToast } = useToast()
   const [beads, setBeads] = useState<Bead[]>([])
   const [filter, setFilter] = useState<BeadFilter>('open')
   const [bdAvailable, setBdAvailable] = useState(true)
@@ -37,7 +40,6 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planRequest, setPlanRequest] = useState('')
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
-  const [rollingBack, setRollingBack] = useState<string | null>(null)
 
 
   const refresh = useCallback(async () => {
@@ -77,7 +79,6 @@ export default function BeadsPage({ projectPath }: Props) {
     if (!planPrompt.trim()) return
     await sb.swarm.inject(projectPath, planPrompt)
     setPlanPrompt('')
-    // Status updates come via onPlanPhase/onPlanQueue listeners
   }, [projectPath, planPrompt])
 
   const createBead = useCallback(async () => {
@@ -87,41 +88,42 @@ export default function BeadsPage({ projectPath }: Props) {
       description: newDesc || undefined,
       deps: newDeps.length > 0 ? newDeps : undefined,
     })
-    if (r.ok) {
-      setNewTitle(''); setNewDesc(''); setNewDeps([]); setShowCreate(false)
-      refresh()
-    }
+    if (!r.ok) throw new Error(r.error ?? 'Failed to create bead')
+    setNewTitle(''); setNewDesc(''); setNewDeps([]); setShowCreate(false)
+    refresh()
   }, [projectPath, newTitle, newDesc, newType, newPriority, newDeps, refresh])
 
   const claimBead = useCallback(async (id: string) => {
-    await sb.beads.update(projectPath, id, { claim: true })
+    const r = await sb.beads.update(projectPath, id, { claim: true })
+    if (!r.ok) throw new Error(r.error ?? `Failed to claim ${id}`)
     refresh()
   }, [projectPath, refresh])
 
   const closeBead = useCallback(async (id: string) => {
-    await sb.beads.close(projectPath, id, 'Done')
+    const r = await sb.beads.close(projectPath, id, 'Done')
+    if (!r.ok) throw new Error(r.error ?? `Failed to close ${id}`)
     refresh()
   }, [projectPath, refresh])
 
   const reopenBead = useCallback(async (id: string) => {
-    await sb.beads.reopen(projectPath, id, 'Back to open')
+    const r = await sb.beads.reopen(projectPath, id, 'Back to open')
+    if (!r.ok) throw new Error(r.error ?? `Failed to reopen ${id}`)
     refresh()
   }, [projectPath, refresh])
 
   const rollbackBead = useCallback(async (id: string) => {
-    setRollingBack(id)
-    try {
-      await sb.beads.rollback(projectPath, id)
-    } finally {
-      setRollingBack(null)
-      refresh()
-    }
+    await sb.beads.rollback(projectPath, id)
+    refresh()
   }, [projectPath, refresh])
 
   const changePriority = useCallback(async (id: string, priority: number) => {
-    await sb.beads.update(projectPath, id, { priority })
-    refresh()
-  }, [projectPath, refresh])
+    try {
+      await sb.beads.update(projectPath, id, { priority })
+      refresh()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : `Failed to update priority`, { variant: 'error' })
+    }
+  }, [projectPath, refresh, showToast])
 
   const startEdit = useCallback((bead: Bead) => {
     setEditing(bead)
@@ -135,7 +137,8 @@ export default function BeadsPage({ projectPath }: Props) {
     if (editTitle !== editing.title) updates.title = editTitle
     if (editDesc !== (editing.description ?? '')) updates.description = editDesc
     if (Object.keys(updates).length > 0) {
-      await sb.beads.update(projectPath, editing.id, updates)
+      const r = await sb.beads.update(projectPath, editing.id, updates)
+      if (!r.ok) throw new Error(r.error ?? 'Failed to save changes')
     }
     setEditing(null)
     refresh()
@@ -200,10 +203,14 @@ export default function BeadsPage({ projectPath }: Props) {
       }
     }
     if (updates.length > 0) {
-      await Promise.all(updates)
+      try {
+        await Promise.all(updates)
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : 'Failed to reorder beads', { variant: 'error' })
+      }
       refresh()
     }
-  }, [sortedBeads, projectPath, refresh])
+  }, [sortedBeads, projectPath, refresh, showToast])
 
   if (!bdAvailable) {
     return (
@@ -264,9 +271,10 @@ export default function BeadsPage({ projectPath }: Props) {
             onChange={e => setPlanPrompt(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) injectPlan() }}
           />
-          <button className="btn btn-primary" onClick={injectPlan} disabled={!planPrompt.trim()}>
+          <AsyncButton className="btn-primary" onClick={injectPlan} disabled={!planPrompt.trim()}
+            pendingContent="Injecting\u2026">
             {isPlanning ? `+ Queue Plan (${planQueue.length + 1})` : 'Inject Plan'}
-          </button>
+          </AsyncButton>
         </div>
         {(isPlanning || planQueue.length > 0) && (
           <div className="queue-list">
@@ -369,7 +377,8 @@ export default function BeadsPage({ projectPath }: Props) {
               </div>
             )}
             <div className="form-actions">
-              <button className="btn btn-primary" onClick={createBead} disabled={!newTitle.trim()}>Create</button>
+              <AsyncButton className="btn-primary" onClick={createBead} disabled={!newTitle.trim()}
+                pendingContent="Creating\u2026">Create</AsyncButton>
               <button className="btn btn-ghost" onClick={() => setShowCreate(false)}>Cancel</button>
             </div>
           </div>
@@ -382,7 +391,8 @@ export default function BeadsPage({ projectPath }: Props) {
           <div className="card-header-bar">
             <h3>Edit: {editing.id}</h3>
             <div className="header-actions">
-              <button className="btn btn-sm btn-primary" onClick={saveEdit}>Save</button>
+              <AsyncButton className="btn-sm btn-primary" onClick={saveEdit}
+                pendingContent="Saving\u2026">Save</AsyncButton>
               <button className="btn btn-sm btn-ghost" onClick={cancelEdit}>Cancel</button>
             </div>
           </div>
@@ -457,33 +467,35 @@ export default function BeadsPage({ projectPath }: Props) {
                 <div className="bead-actions">
                   {bead.status === 'ready' && (
                     <>
-                      <button className="btn btn-xs btn-info" onClick={() => claimBead(bead.id)}>Claim</button>
-                      <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
+                      <AsyncButton className="btn-xs btn-info" onClick={() => claimBead(bead.id)}
+                        pendingContent="Claiming\u2026">Claim</AsyncButton>
+                      <AsyncButton className="btn-xs btn-success" onClick={() => closeBead(bead.id)}
+                        pendingContent="Closing\u2026">Close</AsyncButton>
                     </>
                   )}
                   {bead.status === 'claimed' && (
                     <>
-                      <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Back to Open</button>
-                      <button className="btn btn-xs btn-success" onClick={() => closeBead(bead.id)}>Close</button>
+                      <AsyncButton className="btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}
+                        pendingContent="Reopening\u2026">Back to Open</AsyncButton>
+                      <AsyncButton className="btn-xs btn-success" onClick={() => closeBead(bead.id)}
+                        pendingContent="Closing\u2026">Close</AsyncButton>
                     </>
                   )}
                   {bead.status === 'done' && (
                     <>
-                      <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Reopen</button>
-                      <button
-                        className="btn btn-xs btn-danger"
-                        onClick={() => rollbackBead(bead.id)}
-                        disabled={rollingBack === bead.id}
-                      >
-                        {rollingBack === bead.id ? 'Rolling back\u2026' : 'Rollback'}
-                      </button>
+                      <AsyncButton className="btn-xs btn-warning" onClick={() => reopenBead(bead.id)}
+                        pendingContent="Reopening\u2026">Reopen</AsyncButton>
+                      <AsyncButton className="btn-xs btn-danger" onClick={() => rollbackBead(bead.id)}
+                        pendingContent="Rolling back\u2026">Rollback</AsyncButton>
                     </>
                   )}
                   {bead.status === 'failed' && (
-                    <button className="btn btn-xs btn-warning" onClick={() => reopenBead(bead.id)}>Retry</button>
+                    <AsyncButton className="btn-xs btn-warning" onClick={() => reopenBead(bead.id)}
+                      pendingContent="Retrying\u2026">Retry</AsyncButton>
                   )}
                   {bead.status === 'pending' && (
-                    <button className="btn btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}>Unblock</button>
+                    <AsyncButton className="btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}
+                      pendingContent="Unblocking\u2026">Unblock</AsyncButton>
                   )}
 
                   <span className="bead-action-spacer" />
