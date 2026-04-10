@@ -162,6 +162,12 @@ export class SwarmOrchestrator extends EventEmitter {
     // Reopen any beads left claimed/in_progress from a previous session
     await this.coordinator.reopenStaleBeadsAsync()
 
+    // Clean stale file locks left by crashed agents (older than 2× heartbeat timeout)
+    const staleLockCount = this.coordinator.cleanStaleLocks(config.claudeTimeoutMinutes)
+    if (staleLockCount > 0) {
+      this._log('WARN', `Startup: cleaned ${staleLockCount} stale file lock(s) from crashed agents`)
+    }
+
     // Start missing workers up to n (keyed by slot index, agentId is dynamic per bead)
     this._setSwarmPhase('spawning-workers')
     for (let i = 0; i < n; i++) {
