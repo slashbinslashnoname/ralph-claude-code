@@ -1,8 +1,20 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 
 type EnableResult = Awaited<ReturnType<typeof window.slashbot.enable>>
 
 const sb = window.slashbot
+const BD_CHECK_TIMEOUT_MS = 10_000
+const ENABLE_TIMEOUT_MS = 30_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms)
+    promise.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) },
+    )
+  })
+}
 
 interface Props {
   projectPath: string
@@ -17,29 +29,57 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
   const [result, setResult] = useState<EnableResult | null>(null)
   const [bdInstalled, setBdInstalled] = useState<boolean | null>(null)
   const [bdChecking, setBdChecking] = useState(false)
+  const [bdCheckError, setBdCheckError] = useState<string | null>(null)
+  const [enableError, setEnableError] = useState<string | null>(null)
+  const cancelRef = useRef(false)
+
+  const checkBd = useCallback(() => {
+    cancelRef.current = false
+    setBdChecking(true)
+    setBdCheckError(null)
+    setBdInstalled(null)
+    withTimeout(sb.beads.installCheck(), BD_CHECK_TIMEOUT_MS, 'bd CLI check')
+      .then(r => {
+        if (!cancelRef.current) { setBdInstalled(r.installed); setBdChecking(false) }
+      })
+      .catch(err => {
+        if (!cancelRef.current) {
+          setBdCheckError(err instanceof Error ? err.message : String(err))
+          setBdChecking(false)
+        }
+      })
+  }, [])
 
   // Check bd installation status when useBeads is toggled on
   useEffect(() => {
-    if (!useBeads) { setBdInstalled(null); return }
-    let cancelled = false
-    setBdChecking(true)
-    sb.beads.installCheck().then(r => {
-      if (!cancelled) { setBdInstalled(r.installed); setBdChecking(false) }
-    })
-    return () => { cancelled = true }
-  }, [useBeads])
+    if (!useBeads) { setBdInstalled(null); setBdCheckError(null); return }
+    checkBd()
+    return () => { cancelRef.current = true }
+  }, [useBeads, checkBd])
 
   const run = useCallback(async () => {
     setRunning(true)
-    const r = await sb.enable(projectPath, {
-      force: true,
-      maxCallsPerHour: maxCalls,
-      useBeads,
-      initialTasks: []
-    })
-    setResult(r)
-    setRunning(false)
-    if (r.ok) setTimeout(onComplete, 1500)
+    setEnableError(null)
+    setResult(null)
+    try {
+      const r = await withTimeout(
+        sb.enable(projectPath, {
+          force: true,
+          maxCallsPerHour: maxCalls,
+          useBeads,
+          initialTasks: []
+        }),
+        ENABLE_TIMEOUT_MS,
+        'Project setup',
+      )
+      setResult(r)
+      setRunning(false)
+      if (r.ok) setTimeout(onComplete, 1500)
+      else setEnableError(r.error ?? 'Unknown error')
+    } catch (err) {
+      setEnableError(err instanceof Error ? err.message : String(err))
+      setRunning(false)
+    }
   }, [projectPath, maxCalls, useBeads, onComplete])
 
   const canContinue = !useBeads || bdInstalled === true
@@ -74,7 +114,21 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
               </div>
             )}
 
-            {useBeads && bdInstalled === false && (
+            {useBeads && bdCheckError && (
+              <div className="alert alert-danger animate-fade-in mt-1">
+                <p><strong>Failed to check bd CLI:</strong> {bdCheckError}</p>
+                <div className="setup-actions mt-1">
+                  <button className="btn btn-ghost btn-sm" onClick={checkBd}>
+                    Retry
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setUseBeads(false) }}>
+                    Skip beads
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {useBeads && !bdChecking && !bdCheckError && bdInstalled === false && (
               <div className="alert alert-warning animate-fade-in mt-1">
                 <p><strong>bd CLI not found.</strong> Install it first:</p>
                 <div className="install-options">
@@ -85,12 +139,14 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
                 <p className="mt-1" style={{ fontSize: '0.85em', opacity: 0.8 }}>
                   After installing, click "Re-check" below.
                 </p>
-                <button className="btn btn-ghost btn-sm mt-1" onClick={() => {
-                  setBdChecking(true)
-                  sb.beads.installCheck().then(r => { setBdInstalled(r.installed); setBdChecking(false) })
-                }}>
-                  Re-check
-                </button>
+                <div className="setup-actions mt-1">
+                  <button className="btn btn-ghost btn-sm" onClick={checkBd}>
+                    Re-check
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setUseBeads(false) }}>
+                    Skip beads
+                  </button>
+                </div>
               </div>
             )}
 
@@ -133,9 +189,17 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
                 )}
               </div>
             )}
-            {result && !result.ok && (
+            {(enableError || (result && !result.ok)) && (
               <div className="alert alert-danger animate-fade-in mt-2">
-                Error: {result.error}
+                <p><strong>Setup failed:</strong> {enableError ?? result?.error}</p>
+                <div className="setup-actions mt-1">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setStep(0)}>
+                    Back
+                  </button>
+                  <button className="btn btn-primary btn-sm" onClick={run} disabled={running}>
+                    Retry
+                  </button>
+                </div>
               </div>
             )}
           </div>

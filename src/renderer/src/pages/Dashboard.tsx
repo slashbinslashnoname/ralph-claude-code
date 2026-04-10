@@ -9,6 +9,15 @@ interface Props {
   onNavigate: (page: string) => void
 }
 
+function circuitSuggestion(cb: CircuitBreakerSnapshot): string {
+  if (cb.rate_limit_until) return 'API rate limit hit. Wait for the limit to reset or reduce worker count.'
+  if (cb.consecutive_no_progress > 0) return 'Agent made no progress over multiple loops. Check if the task is too complex or the bead needs splitting.'
+  if (cb.consecutive_same_error > 0) return 'Agent hit the same error repeatedly. Check logs for the recurring error and fix the underlying issue.'
+  if (cb.consecutive_permission_denials > 0) return 'Agent was denied permissions repeatedly. Check Claude Code permission settings.'
+  if (cb.error_window_count > 0) return 'Too many errors in a short window. Check logs for details and reset when the issue is resolved.'
+  return 'Circuit tripped due to repeated failures. Check logs and reset when ready.'
+}
+
 export default function Dashboard({ projectPath, circuits, onNavigate }: Props) {
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null)
   const [beadStats, setBeadStats] = useState<ProgressStats | null>(null)
@@ -200,10 +209,26 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
                         {cb.rate_limit_until && <span>Rate-limit: {cb.rate_limit_until}</span>}
                       </div>
                       {cb.state === 'OPEN' && (
-                        <button className="btn btn-xs btn-warning"
-                          onClick={() => sb.resetCircuit(projectPath, agentId)}>
-                          Reset
-                        </button>
+                        <div className="circuit-recovery">
+                          {cb.reason && (
+                            <p className="circuit-reason" data-testid="circuit-reason">
+                              <strong>Reason:</strong> {cb.reason}
+                            </p>
+                          )}
+                          <p className="circuit-suggestion" data-testid="circuit-suggestion">
+                            {circuitSuggestion(cb)}
+                          </p>
+                          <div className="circuit-actions">
+                            <button className="btn btn-xs btn-warning"
+                              onClick={() => sb.resetCircuit(projectPath, agentId)}>
+                              Reset
+                            </button>
+                            <button className="btn btn-xs btn-ghost"
+                              onClick={() => onNavigate('logs')}>
+                              View Logs
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   ))}

@@ -134,6 +134,100 @@ describe('Dashboard', () => {
     expect(resetCount).toBe(1)
   })
 
+  test('shows reason for OPEN circuit breaker', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', reason: 'too many errors in window' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('data-testid="circuit-reason"')
+    expect(html).toContain('too many errors in window')
+  })
+
+  test('does not show reason block when reason is empty', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', reason: '' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).not.toContain('data-testid="circuit-reason"')
+  })
+
+  test('shows rate limit suggestion when rate_limit_until is set', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', rate_limit_until: '2026-04-10T12:00:00Z' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('data-testid="circuit-suggestion"')
+    expect(html).toContain('API rate limit hit')
+  })
+
+  test('shows no-progress suggestion when consecutive_no_progress > 0', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', consecutive_no_progress: 3 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('no progress')
+    expect(html).toContain('bead needs splitting')
+  })
+
+  test('shows same-error suggestion when consecutive_same_error > 0', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', consecutive_same_error: 2 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('same error repeatedly')
+  })
+
+  test('shows permission denial suggestion when consecutive_permission_denials > 0', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', consecutive_permission_denials: 5 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('denied permissions')
+  })
+
+  test('shows generic error-window suggestion as fallback', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN', error_window_count: 8 }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('Too many errors in a short window')
+  })
+
+  test('shows View Logs button for OPEN circuits', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'OPEN' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).toContain('View Logs')
+  })
+
+  test('does not show recovery section for CLOSED circuits', () => {
+    const circuits = {
+      'worker-0': makeSnapshot({ state: 'CLOSED' }),
+    }
+    const html = renderToStaticMarkup(
+      <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
+    )
+    expect(html).not.toContain('circuit-recovery')
+    expect(html).not.toContain('circuit-suggestion')
+  })
+
   test('collapses circuit list when more than 3 agents', () => {
     const circuits: Record<string, CircuitBreakerSnapshot> = {}
     for (let i = 0; i < 5; i++) {
