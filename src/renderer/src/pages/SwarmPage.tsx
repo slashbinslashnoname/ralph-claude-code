@@ -584,6 +584,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                         <span className={`badge badge-${phaseColor(a.phase)}`}>
                           {a.phase}
                         </span>
+                        {a.lastActivity && (Date.now() - new Date(a.lastActivity).getTime()) > 15 * 60_000 && (
+                          <span className="badge badge-warning" data-testid="stuck-badge" title="No activity for over 15 minutes">
+                            stuck
+                          </span>
+                        )}
                         {a.currentBeadType && (
                           <span className="worker-panel-type" title={a.currentBeadType}>
                             {beadTypeIcon(a.currentBeadType)} {a.currentBeadType}
