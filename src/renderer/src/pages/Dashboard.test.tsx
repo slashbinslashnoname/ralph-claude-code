@@ -368,17 +368,13 @@ describe('Dashboard', () => {
     expect(html).not.toContain('clear-stale-circuits')
   })
 
-  test('does not show clear stale circuits button when all circuits have registered agents', () => {
-    // Mock agents are set via onAgents callback which runs async, so in SSR they default to [].
-    // For this test we verify the button appears since agents=[] means all circuits are stale.
-    // The real scenario where agents match circuits requires a mounted component with state updates.
+  test('clear stale circuits button label reflects count', () => {
     const circuits = {
       'worker-0': makeSnapshot({ state: 'CLOSED' }),
     }
     const html = renderToStaticMarkup(
       <Dashboard projectPath="/test" circuits={circuits} onNavigate={() => {}} />
     )
-    // With no agents registered (SSR default), the circuit is stale
-    expect(html).toContain('clear-stale-circuits')
+    expect(html).toContain('Clear 1 stale')
   })
 })
