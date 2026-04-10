@@ -1,6 +1,7 @@
 import React, { useCallback, useRef } from 'react'
 import BeadDetailPanel from './BeadDetailPanel'
 import CommentThread from './CommentThread'
+import UnifiedTimeline from './UnifiedTimeline'
 import { AsyncButton } from './AsyncButton'
 import type { Bead, FileLock } from '../types/ipc'
 
@@ -183,20 +184,13 @@ export default function BeadCard({
         {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
       </div>
 
-      {/* Expandable detail + comments section */}
+      {/* Expandable detail section — unified timeline merges activity, comments, and lifecycle */}
       {expanded && (
-        <div className="bead-card-detail-section">
-          <BeadDetailPanel
-            beadId={bead.id}
-            beadStatus={bead.status}
+        <div className="bead-card-detail-section" ref={commentRef}>
+          <UnifiedTimeline
+            bead={bead}
             projectPath={projectPath}
           />
-          <div ref={commentRef}>
-            <CommentThread
-              beadId={bead.id}
-              projectPath={projectPath}
-            />
-          </div>
         </div>
       )}
     </div>

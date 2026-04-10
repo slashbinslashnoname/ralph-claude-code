@@ -108,17 +108,16 @@ describe('BeadCard', () => {
     expect(html).not.toContain('bead-comment-badge')
   })
 
-  test('renders BeadDetailPanel and CommentThread when expanded', () => {
+  test('renders UnifiedTimeline when expanded', () => {
     const html = renderToStaticMarkup(<BeadCard {...makeProps({ expanded: true })} />)
-    expect(html).toContain('bead-detail-panel')
-    expect(html).toContain('comment-thread')
+    expect(html).toContain('unified-timeline')
     expect(html).toContain('bead-card-detail-section')
   })
 
   test('does not render detail section when collapsed', () => {
     const html = renderToStaticMarkup(<BeadCard {...makeProps({ expanded: false })} />)
     expect(html).not.toContain('bead-card-detail-section')
-    expect(html).not.toContain('comment-thread')
+    expect(html).not.toContain('unified-timeline')
   })
 
   test('shows Expand button when collapsed, Collapse when expanded', () => {

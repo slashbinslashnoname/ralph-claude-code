@@ -1,20 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { AsyncButton } from './AsyncButton'
+import { formatTime } from '../utils/formatTime'
 import type { BdComment } from '../types/ipc'
 
 interface Props {
   beadId: string
   projectPath: string
-}
-
-function formatTime(ts: string): string {
-  try {
-    const d = new Date(ts)
-    return d.toLocaleString(undefined, {
-      month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    })
-  } catch { return ts }
 }
 
 export default function CommentThread({ beadId, projectPath }: Props) {

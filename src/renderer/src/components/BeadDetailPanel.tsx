@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import AgentOutputRenderer from './AgentOutputRenderer'
+import { formatTimePrecise } from '../utils/formatTime'
 
 interface ActivityEvent {
   ts: string
@@ -55,15 +56,7 @@ const EVENT_BADGE: Record<string, string> = {
   rollback: 'danger',
 }
 
-function formatTime(ts: string): string {
-  try {
-    const d = new Date(ts)
-    return d.toLocaleString(undefined, {
-      month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    })
-  } catch { return ts }
-}
+const formatTime = formatTimePrecise
 
 const EVENTS_PAGE_SIZE = 50
 
