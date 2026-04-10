@@ -991,6 +991,19 @@ describe('BdClient', () => {
       mockExecFileSync.mockReturnValue('null')
       expect(client.memories()).toEqual([])
     })
+
+    it('coerces non-string values to strings', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify({
+        'num-key': 42,
+        'bool-key': true,
+      }))
+
+      const result = client.memories()
+      expect(result).toEqual([
+        { key: 'num-key', text: '42' },
+        { key: 'bool-key', text: 'true' },
+      ])
+    })
   })
 
   describe('memoriesAsync', () => {
@@ -1084,6 +1097,46 @@ describe('BdClient', () => {
     })
   })
 
+  // ── remember/forget error propagation ──────────────────────────────
+
+  describe('remember error propagation', () => {
+    it('throws when bd remember fails (non-zero exit)', () => {
+      const err = new Error('command failed') as Error & { stderr: string }
+      err.stderr = 'bd: invalid memory text'
+      mockExecFileSync.mockImplementation(() => { throw err })
+
+      expect(() => client.remember('bad input')).toThrow('bd remember failed: bd: invalid memory text')
+    })
+
+    it('rememberAsync rejects when bd remember fails', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('spawn failed'), '', 'bd remember failed')
+        return {} as any
+      })
+
+      await expect(client.rememberAsync('bad')).rejects.toThrow('bd remember failed')
+    })
+  })
+
+  describe('forget error propagation', () => {
+    it('throws when bd forget fails (non-zero exit)', () => {
+      const err = new Error('command failed') as Error & { stderr: string }
+      err.stderr = 'bd: key not found'
+      mockExecFileSync.mockImplementation(() => { throw err })
+
+      expect(() => client.forget('missing-key')).toThrow('bd forget failed: bd: key not found')
+    })
+
+    it('forgetAsync rejects when bd forget fails', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('fail'), '', 'bd forget failed')
+        return {} as any
+      })
+
+      await expect(client.forgetAsync('missing')).rejects.toThrow('bd forget failed')
+    })
+  })
+
   // ── comments ────────────────────────────────────────────────────────
 
   describe('comments', () => {
@@ -1122,6 +1175,53 @@ describe('BdClient', () => {
     it('returns empty array on error', () => {
       mockExecFileSync.mockImplementation(() => { throw new Error('fail') })
       expect(client.comments('bead-1')).toEqual([])
+    })
+
+    it('returns empty array for non-array response', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify({ not: 'an array' }))
+      expect(client.comments('bead-1')).toEqual([])
+    })
+
+    it('normalizes missing fields to empty strings', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([{}]))
+
+      const result = client.comments('bead-1')
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        id: '',
+        issueId: '',
+        author: '',
+        text: '',
+        createdAt: '',
+      })
+    })
+
+    it('uses camelCase fallbacks (issueId, createdAt) when snake_case missing', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([{
+        id: 'c1',
+        issueId: 'bead-2',
+        author: 'bot',
+        text: 'hello',
+        createdAt: '2026-04-10',
+      }]))
+
+      const result = client.comments('bead-2')
+      expect(result[0].issueId).toBe('bead-2')
+      expect(result[0].createdAt).toBe('2026-04-10')
+    })
+
+    it('unwraps array-wrapped single comment from bd', () => {
+      // addComment returns a single object, but normalizeComment handles arrays too
+      mockExecFileSync.mockReturnValue(JSON.stringify({
+        id: 'c-wrap',
+        issue_id: 'b1',
+        author: 'a',
+        text: 't',
+        created_at: '2026-01-01',
+      }))
+
+      const result = client.addComment('b1', 't')
+      expect(result.id).toBe('c-wrap')
     })
   })
 
