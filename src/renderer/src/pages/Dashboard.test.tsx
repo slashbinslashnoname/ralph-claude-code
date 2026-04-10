@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
         start: vi.fn().mockResolvedValue({ ok: true }),
         stop: vi.fn().mockResolvedValue({ ok: true }),
         onAgents: mockOnAgents,
+        onSwarmPhase: vi.fn().mockReturnValue(() => {}),
       },
       beads: { stats: mockBeadStats },
       resetCircuit: mockResetCircuit,

@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('slashbot', {
     onPlanThinking: (cb: (...a: unknown[]) => void) => listen('swarm:planThinking', cb),
     onPlanQueue: (cb: (...a: unknown[]) => void) => listen('swarm:planQueue', cb),
     onStopped: (cb: (...a: unknown[]) => void) => listen('swarm:stopped', cb),
+    onSwarmPhase: (cb: (...a: unknown[]) => void) => listen('swarm:swarmPhase', cb),
     buildMonitor: {
       toggle: (projectPath: string, enabled: boolean) =>
         ipcRenderer.invoke('swarm:build-monitor-toggle', projectPath, enabled),

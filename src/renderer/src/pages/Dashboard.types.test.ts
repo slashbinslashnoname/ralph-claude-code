@@ -16,9 +16,11 @@ describe('Dashboard type contracts', () => {
       stats: null,
       sessionStartedAt: '2026-03-21T10:00:00Z',
       stoppingGracefully: false,
+      swarmPhase: 'ready',
     }
     expect(status.running).toBe(true)
     expect(status.workerCount).toBe(2)
+    expect(status.swarmPhase).toBe('ready')
   })
 
   it('ProgressStats replaces beadStats: any', () => {
@@ -101,15 +103,23 @@ describe('Multi-agent circuit rendering', () => {
     const React = (await import('react')).default
 
     // Mock window.slashbot to prevent errors during render
+    const noop = () => () => {}
     const mockSb = {
-      swarm: { status: async () => ({ status: null, progress: null, circuit: null, circuits: {}, analysis: null }) },
-      onSwarmStatus: () => () => {},
-      onCircuitUpdate: () => () => {},
-      onBeadStats: () => () => {},
-      onAgentsUpdate: () => () => {},
+      swarm: {
+        status: async () => ({ status: null, progress: null, circuit: null, circuits: {}, analysis: null }),
+        start: async () => ({ ok: true }),
+        stop: async () => ({ ok: true }),
+        onAgents: noop,
+        onSwarmPhase: noop,
+      },
+      onSwarmStatus: noop,
+      onCircuitUpdate: noop,
+      onBeadStats: noop,
+      onAgentsUpdate: noop,
       startSwarm: async () => {},
       stopSwarm: async () => {},
       resetCircuit: async () => ({ ok: true }),
+      beads: { stats: async () => ({ ok: true, stats: null }) },
     }
     ;(globalThis as any).window = { slashbot: mockSb }
 

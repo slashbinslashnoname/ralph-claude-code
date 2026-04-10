@@ -1166,3 +1166,92 @@ describe('SwarmOrchestrator — broadcast debouncing', () => {
     expect((orch as any)._graphBroadcastTimer).toBeNull()
   })
 })
+
+describe('SwarmOrchestrator swarm phase events', () => {
+  beforeEach(() => {
+    tmpPaths = makeTmpProject()
+    tmpDir = tmpPaths.projectRoot
+    orch = new SwarmOrchestrator(tmpPaths)
+  })
+
+  afterEach(() => {
+    try { orch.stopAll() } catch { /* ignore */ }
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('getSwarmPhase() returns idle initially', () => {
+    expect(orch.getSwarmPhase()).toBe('idle')
+  })
+
+  it('emits swarmPhase events during startWorkers lifecycle', async () => {
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({
+      ok: true, errors: [], warnings: [],
+    })
+    vi.spyOn(orch.coordinator, 'reopenStaleBeadsAsync').mockResolvedValue()
+    vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+
+    const phases: string[] = []
+    orch.on('swarmPhase', (phase: string) => phases.push(phase))
+
+    await orch.startWorkers(1)
+
+    expect(phases).toContain('starting')
+    expect(phases).toContain('health-check')
+    expect(phases).toContain('spawning-workers')
+    expect(phases).toContain('ready')
+    // Phases should be in order
+    expect(phases.indexOf('starting')).toBeLessThan(phases.indexOf('health-check'))
+    expect(phases.indexOf('health-check')).toBeLessThan(phases.indexOf('spawning-workers'))
+    expect(phases.indexOf('spawning-workers')).toBeLessThan(phases.indexOf('ready'))
+    expect(orch.getSwarmPhase()).toBe('ready')
+  })
+
+  it('resets to idle when health check fails during startWorkers', async () => {
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({
+      ok: false,
+      errors: [{ check: 'test', message: 'fail' }],
+      warnings: [],
+    })
+
+    const phases: string[] = []
+    orch.on('swarmPhase', (phase: string) => phases.push(phase))
+
+    await expect(orch.startWorkers(1)).rejects.toThrow('Health check failed')
+
+    expect(phases).toContain('starting')
+    expect(phases).toContain('health-check')
+    expect(phases).toContain('idle')
+    expect(orch.getSwarmPhase()).toBe('idle')
+  })
+
+  it('emits stopping and stopped phases during stopWorkers', async () => {
+    vi.spyOn(HealthCheck, 'runHealthCheck').mockReturnValue({
+      ok: true, errors: [], warnings: [],
+    })
+    vi.spyOn(orch.coordinator, 'reopenStaleBeadsAsync').mockResolvedValue()
+    vi.spyOn(orch as any, '_broadcastGraph').mockImplementation(() => {})
+
+    await orch.startWorkers(1)
+
+    const phases: string[] = []
+    orch.on('swarmPhase', (phase: string) => phases.push(phase))
+
+    orch.stopWorkers()
+
+    expect(phases).toContain('stopping')
+    expect(phases).toContain('stopped')
+    expect(phases.indexOf('stopping')).toBeLessThan(phases.indexOf('stopped'))
+    expect(orch.getSwarmPhase()).toBe('stopped')
+  })
+
+  it('emits stopping and stopped phases during shutdown', async () => {
+    const phases: string[] = []
+    orch.on('swarmPhase', (phase: string) => phases.push(phase))
+
+    await orch.shutdown()
+
+    expect(phases).toContain('stopping')
+    expect(phases).toContain('stopped')
+    expect(orch.getSwarmPhase()).toBe('stopped')
+  })
+})

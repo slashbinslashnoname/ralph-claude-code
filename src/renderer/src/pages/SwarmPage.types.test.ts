@@ -3,7 +3,7 @@
  * instead of `any` for its props and internal state.
  */
 import { describe, it, expect } from 'vitest'
-import type { ActivityEvent, AgentInfo, ProgressStats, SwarmStatus } from '../types/ipc'
+import type { ActivityEvent, AgentInfo, ProgressStats, SwarmStatus, SwarmPhase } from '../types/ipc'
 
 describe('SwarmPage type contracts', () => {
   it('ActivityEvent props are typed (not any)', () => {
@@ -32,11 +32,13 @@ describe('SwarmPage type contracts', () => {
       stats: null,
       sessionStartedAt: '2026-03-21T08:00:00Z',
       stoppingGracefully: false,
+      swarmPhase: 'ready',
     }
     // Previously accessed as status?.workerCount with any — now typed
     expect(status.workerCount).toBe(2)
     expect(status.stoppingGracefully).toBe(false)
     expect(status.sessionStartedAt).toBe('2026-03-21T08:00:00Z')
+    expect(status.swarmPhase).toBe('ready')
   })
 
   it('AgentInfo replaces agents: any[]', () => {
@@ -105,9 +107,24 @@ describe('SwarmPage type contracts', () => {
       stats: null,
       sessionStartedAt: null,
       stoppingGracefully: false,
+      swarmPhase: 'idle',
     }
     // stats bar check: stats && stats.total > 0 — safe with null
     expect(status.stats).toBeNull()
+  })
+
+  it('SwarmPhase covers all lifecycle states', () => {
+    const phases: SwarmPhase[] = ['idle', 'starting', 'health-check', 'spawning-workers', 'ready', 'stopping', 'stopped']
+    expect(phases).toHaveLength(7)
+    // Verify a SwarmStatus can carry each phase
+    for (const phase of phases) {
+      const status: SwarmStatus = {
+        running: false, planning: false, planRequest: null, workerCount: 0,
+        agents: [], stats: null, sessionStartedAt: null, stoppingGracefully: false,
+        swarmPhase: phase,
+      }
+      expect(status.swarmPhase).toBe(phase)
+    }
   })
 
   it('ActivityEvent.type union does not include bead-created', () => {

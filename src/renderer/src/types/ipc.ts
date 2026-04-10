@@ -48,6 +48,15 @@ export type AgentPhase =
   | 'closing'
   | 'paused'
 
+export type SwarmPhase =
+  | 'idle'
+  | 'starting'
+  | 'health-check'
+  | 'spawning-workers'
+  | 'ready'
+  | 'stopping'
+  | 'stopped'
+
 export interface AgentInfo {
   id: string
   index: number
@@ -154,6 +163,7 @@ export interface SwarmStatus {
   stats: ProgressStats | null
   sessionStartedAt: string | null
   stoppingGracefully: boolean
+  swarmPhase: SwarmPhase
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ const { mockSwarmStatus, mockTelegramStatus, mockKnowledge, mockBuildMonitorStat
         onPlanPhase: noop,
         onPlanQueue: noop,
         onStopped: noop,
+        onSwarmPhase: noop,
         buildMonitor: {
           status: mockBuildMonitorStatus,
           toggle: mockBuildMonitorToggle,

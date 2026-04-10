@@ -645,6 +645,9 @@ export function registerIpc(
       if (bot) { bot.disconnect().catch(() => {}); telegramBots.delete(projectPath) }
       broadcast('swarm:stopped', projectPath)
     })
+    swarm.on('swarmPhase', (phase: string) => {
+      broadcast('swarm:swarmPhase', projectPath, phase)
+    })
     swarm.on('build-status', (status: string, detail?: unknown) => {
       broadcast('swarm:build-status', projectPath, status, detail ?? null)
     })
@@ -829,7 +832,7 @@ export function registerIpc(
     try {
       const v = validateSwarmStatus(projectPath)
       const swarm = swarms.get(v.projectPath)
-      if (!swarm) return { running: false, planning: false, planRequest: null, workerCount: 0, agents: [], stats: null, sessionStartedAt: null, stoppingGracefully: false }
+      if (!swarm) return { running: false, planning: false, planRequest: null, workerCount: 0, agents: [], stats: null, sessionStartedAt: null, stoppingGracefully: false, swarmPhase: 'idle' }
       return {
         running: swarm.workerCount() > 0,
         planning: swarm.isPlanning(),
@@ -838,7 +841,8 @@ export function registerIpc(
         agents: swarm.getAgents(),
         stats: await swarm.getStatsAsync(),
         sessionStartedAt: swarm.sessionStartedAt,
-        stoppingGracefully: swarm.stoppingGracefully
+        stoppingGracefully: swarm.stoppingGracefully,
+        swarmPhase: swarm.getSwarmPhase()
       }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

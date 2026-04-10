@@ -118,6 +118,8 @@ export interface FileLock {
 
 export type AgentPhase = 'idle' | 'routing' | 'waiting' | 'claiming' | 'thinking' | 'executing' | 'reviewing' | 'merging' | 'closing' | 'paused'
 
+export type SwarmPhase = 'idle' | 'starting' | 'health-check' | 'spawning-workers' | 'ready' | 'stopping' | 'stopped'
+
 export interface AgentInfo {
   id: string
   index: number

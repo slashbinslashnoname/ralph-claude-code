@@ -77,6 +77,7 @@ vi.mock('./loop/SwarmOrchestrator', () => ({
     getStats: () => null,
     sessionStartedAt: null,
     stoppingGracefully: false,
+    getSwarmPhase: () => 'idle',
     coordinator: { rollbackBead: vi.fn() },
     shutdown: vi.fn().mockResolvedValue(undefined),
   })),

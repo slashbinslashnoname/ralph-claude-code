@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { SwarmStatus, ProgressStats, AgentInfo, CircuitBreakerSnapshot } from '../types/ipc'
+import type { SwarmStatus, SwarmPhase, ProgressStats, AgentInfo, CircuitBreakerSnapshot } from '../types/ipc'
 
 const sb = window.slashbot
 
@@ -24,6 +24,8 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [workerCount, setWorkerCount] = useState(2)
   const [circuitsExpanded, setCircuitsExpanded] = useState(false)
+  const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('idle')
+  const [stopElapsed, setStopElapsed] = useState(0)
 
   // Sync local count from actual running count
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
       const s = await sb.swarm.status(projectPath)
       setSwarmStatus(s)
       setAgents(s.agents ?? [])
+      if (s.swarmPhase) setSwarmPhase(s.swarmPhase)
       sb.beads.stats(projectPath).then(r => { if (r.ok) setBeadStats(r.stats ?? null) }).catch(() => {})
     }
     load()
@@ -42,24 +45,43 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
     return () => clearInterval(interval)
   }, [projectPath])
 
-  // Live agent updates
+  // Live agent + phase updates
   useEffect(() => {
-    const unsub = sb.swarm.onAgents((_p: string, a: AgentInfo[]) => setAgents(a))
-    return unsub
+    const unsubs = [
+      sb.swarm.onAgents((_p: string, a: AgentInfo[]) => setAgents(a)),
+      sb.swarm.onSwarmPhase((_p: string, phase: SwarmPhase) => setSwarmPhase(phase)),
+    ]
+    return () => unsubs.forEach(u => u())
   }, [])
 
-  const [starting, setStarting] = useState(false)
-  const [stopping, setStopping] = useState(false)
   const isRunning = (swarmStatus?.workerCount ?? 0) > 0 || swarmStatus?.planning
+  const isStartingPhase = swarmPhase === 'starting' || swarmPhase === 'health-check' || swarmPhase === 'spawning-workers'
+  const isStoppingPhase = swarmPhase === 'stopping'
+
+  // Track stop elapsed time for force-stop timeout
+  useEffect(() => {
+    if (swarmPhase === 'stopping') {
+      setStopElapsed(0)
+      const timer = setInterval(() => setStopElapsed(prev => prev + 1), 1000)
+      return () => clearInterval(timer)
+    } else {
+      setStopElapsed(0)
+    }
+  }, [swarmPhase])
+
+  // Auto-force-stop after 30s
+  useEffect(() => {
+    if (swarmPhase === 'stopping' && stopElapsed >= 30) {
+      sb.swarm.stop(projectPath).catch(() => {})
+    }
+  }, [swarmPhase, stopElapsed, projectPath])
 
   const startSwarm = useCallback(async () => {
-    setStarting(true)
-    try { await sb.swarm.start(projectPath, workerCount) } finally { setStarting(false) }
+    try { await sb.swarm.start(projectPath, workerCount) } catch { /* handled by phase */ }
   }, [projectPath, workerCount])
 
   const stopSwarm = useCallback(async () => {
-    setStopping(true)
-    try { await sb.swarm.stop(projectPath) } finally { setStopping(false) }
+    try { await sb.swarm.stop(projectPath) } catch { /* handled by phase */ }
   }, [projectPath])
 
   const pct = beadStats?.pct ?? 0
@@ -72,17 +94,17 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
           <div className="worker-controls">
             {isRunning ? (
               <>
-                <button className="btn btn-sm" disabled={workerCount <= 1}
+                <button className="btn btn-sm" disabled={workerCount <= 1 || isStoppingPhase}
                   onClick={() => { const n = workerCount - 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   {'\u2212'}
                 </button>
                 <span className="worker-count">{workerCount} agent{workerCount > 1 ? 's' : ''}</span>
-                <button className="btn btn-sm btn-primary"
+                <button className="btn btn-sm btn-primary" disabled={isStoppingPhase}
                   onClick={() => { const n = workerCount + 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   +
                 </button>
-                <button className="btn btn-danger" onClick={stopSwarm} disabled={stopping}>
-                  {stopping ? 'Stopping\u2026' : 'Stop'}
+                <button className="btn btn-danger" onClick={stopSwarm} disabled={isStoppingPhase}>
+                  {isStoppingPhase ? `Stopping\u2026 (${30 - stopElapsed}s)` : 'Stop'}
                 </button>
               </>
             ) : (
@@ -91,8 +113,8 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
                   onChange={e => setWorkerCount(Number(e.target.value))}>
                   {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} agent{n > 1 ? 's' : ''}</option>)}
                 </select>
-                <button className="btn btn-primary" onClick={startSwarm} disabled={starting}>
-                  {starting ? 'Starting\u2026' : 'Start Swarm'}
+                <button className="btn btn-primary" onClick={startSwarm} disabled={isStartingPhase}>
+                  {isStartingPhase ? 'Starting\u2026' : 'Start Swarm'}
                 </button>
               </>
             )}
@@ -128,8 +150,37 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
           <div className="card-body">
             <div className="kv-row">
               <span>Status</span>
-              <span className={`badge badge-${isRunning ? 'success' : 'idle'}`}>{isRunning ? 'Running' : 'Stopped'}</span>
+              <span className={`badge badge-${isRunning ? 'success' : isStartingPhase ? 'warning' : 'idle'}`}>
+                {isStartingPhase ? 'Starting' : isStoppingPhase ? 'Stopping' : isRunning ? 'Running' : 'Stopped'}
+              </span>
             </div>
+            {isStartingPhase && (
+              <div className="swarm-phase-card" data-testid="dashboard-phase-card">
+                <div className="swarm-phase-steps">
+                  {(['starting', 'health-check', 'spawning-workers'] as const).map((step, i) => {
+                    const stepLabels = { 'starting': 'Initialize', 'health-check': 'Health Check', 'spawning-workers': 'Spawn Workers' }
+                    const phases: SwarmPhase[] = ['starting', 'health-check', 'spawning-workers']
+                    const currentIdx = phases.indexOf(swarmPhase)
+                    const isDone = i < currentIdx
+                    const isCurrent = i === currentIdx
+                    return (
+                      <span key={step} className={`swarm-phase-step ${isDone ? 'done' : isCurrent ? 'active' : 'pending'}`}>
+                        <span className="swarm-phase-dot" />
+                        {stepLabels[step]}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+            {isStoppingPhase && (
+              <div className="swarm-phase-card swarm-phase-stopping" data-testid="dashboard-stop-card">
+                <span>Stopping\u2026 ({30 - stopElapsed}s until force stop)</span>
+                {stopElapsed >= 10 && (
+                  <button className="btn btn-xs btn-danger" onClick={stopSwarm}>Force stop</button>
+                )}
+              </div>
+            )}
             <div className="kv-row">
               <span>Workers</span>
               <span>{swarmStatus?.workerCount ?? 0}</span>

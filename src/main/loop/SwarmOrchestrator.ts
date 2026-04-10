@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
 import * as path from 'path'
-import { RalphConfig, PlanQueueItem, Bead, BeadStats, AgentInfo, ActivityEvent, KnowledgeEntry } from '../types'
+import { RalphConfig, PlanQueueItem, Bead, BeadStats, AgentInfo, ActivityEvent, KnowledgeEntry, SwarmPhase } from '../types'
 import { loadConfig } from './RcParser'
 import { AgentCoordinator } from './AgentCoordinator'
 import { PlanLoop } from './PlanLoop'
@@ -32,6 +32,7 @@ export class SwarmOrchestrator extends EventEmitter {
   private shuttingDown = false
   stoppingGracefully = false
   private buildMonitor: BuildMonitor | null = null
+  private _swarmPhase: SwarmPhase = 'idle'
 
   readonly paths: ProjectPaths
   get projectPath(): string { return this.paths.projectRoot }
@@ -127,13 +128,16 @@ export class SwarmOrchestrator extends EventEmitter {
     }
     this.stoppingGracefully = false
     this._stoppedEmitted = false
+    this._setSwarmPhase('starting')
     const config = loadConfig(this.projectPath, this.paths.slashbotrc)
 
     // Pre-flight health check
+    this._setSwarmPhase('health-check')
     const health = runHealthCheck(this.projectPath, config.claudeCodeCmd)
     if (!health.ok) {
       const report = formatHealthErrors(health.errors)
       this._log('ERROR', `Health check failed:\n${report}`)
+      this._setSwarmPhase('idle')
       throw new Error(`Health check failed:\n${report}`)
     }
     if (health.warnings.length > 0) {
@@ -159,6 +163,7 @@ export class SwarmOrchestrator extends EventEmitter {
     await this.coordinator.reopenStaleBeadsAsync()
 
     // Start missing workers up to n (keyed by slot index, agentId is dynamic per bead)
+    this._setSwarmPhase('spawning-workers')
     for (let i = 0; i < n; i++) {
       const slotKey = `slot-${i}`
       if (this.workers.has(slotKey)) continue
@@ -182,6 +187,7 @@ export class SwarmOrchestrator extends EventEmitter {
         if (this.workers.size === 0 && !this._stoppedEmitted) {
           this._stoppedEmitted = true
           this._stopActivityPoll()
+          this._setSwarmPhase('stopped')
           this.emit('stopped')
         }
       })
@@ -207,10 +213,12 @@ export class SwarmOrchestrator extends EventEmitter {
       this._startBuildMonitor(config)
     }
 
+    this._setSwarmPhase('ready')
     this._log('INFO', `Workers adjusted to ${n} (${this.workers.size} running)`)
   }
 
   stopWorkers(): void {
+    this._setSwarmPhase('stopping')
     for (const worker of this.workers.values()) worker.stop()
     this.workers.clear()
     this._heartbeatMap.clear()
@@ -221,6 +229,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this._log('INFO', 'All workers stopped')
     if (!this._stoppedEmitted) {
       this._stoppedEmitted = true
+      this._setSwarmPhase('stopped')
       this.emit('stopped')
     }
   }
@@ -289,6 +298,7 @@ export class SwarmOrchestrator extends EventEmitter {
   async shutdown(timeoutMs = 30_000): Promise<void> {
     if (this.shuttingDown) return
     this.shuttingDown = true
+    this._setSwarmPhase('stopping')
     this._log('INFO', 'Shutdown initiated — stopping planner and workers…')
 
     // Stop planner and clear queue
@@ -327,6 +337,7 @@ export class SwarmOrchestrator extends EventEmitter {
     this._stopActivityPoll()
     this.coordinator.stopClaimTimeoutSweep()
     this.coordinator.getAgents().forEach(a => this.coordinator.deregisterAgent(a.id))
+    this._setSwarmPhase('stopped')
     this._log('INFO', 'Shutdown complete')
     this.shuttingDown = false
     this.emit('shutdown-complete')
@@ -336,6 +347,12 @@ export class SwarmOrchestrator extends EventEmitter {
   workerCount(): number { return this.workers.size }
   isPlanning(): boolean { return this.planning }
   getPlanRequest(): string | null { return this.currentPlanRequest }
+  getSwarmPhase(): SwarmPhase { return this._swarmPhase }
+
+  private _setSwarmPhase(phase: SwarmPhase): void {
+    this._swarmPhase = phase
+    this.emit('swarmPhase', phase)
+  }
   getAgents(): AgentInfo[] { return this.coordinator.getAgents() }
   getActivity(limit = 50): ActivityEvent[] { return this.coordinator.readActivity(limit) }
   getActivityForBead(beadId: string, limit = 100): ActivityEvent[] { return this.coordinator.readActivityForBead(beadId, limit) }

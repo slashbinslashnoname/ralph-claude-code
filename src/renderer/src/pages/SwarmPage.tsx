@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 import { useToast } from '../components/Toast'
-import type { SwarmStatus, AgentInfo, ActivityEvent, ProgressStats, KnowledgeEntry } from '../types/ipc'
+import type { SwarmStatus, SwarmPhase, AgentInfo, ActivityEvent, ProgressStats, KnowledgeEntry } from '../types/ipc'
 
 export function knowledgeCategoryColor(cat: string): string {
   switch (cat) {
@@ -122,6 +122,9 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null)
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([])
   const [buildMonitor, setBuildMonitor] = useState<BuildMonitorStatus>({ enabled: false, running: false })
+  const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('idle')
+  const [stopStartedAt, setStopStartedAt] = useState<number | null>(null)
+  const [stopElapsed, setStopElapsed] = useState(0)
 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
@@ -130,6 +133,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       setSwarmStatus(s)
       setAgents(s.agents ?? [])
       if (s.stats) setStats(s.stats)
+      if (s.swarmPhase) setSwarmPhase(s.swarmPhase)
       await sb.swarm.queue(projectPath)
     }
     load()
@@ -211,9 +215,32 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
       sb.swarm.onGraph((_p: string, s: ProgressStats) => setStats(s)),
       sb.swarm.onPlanPhase((_p: string, phase: string) => setPlanPhase(phase)),
       sb.swarm.onPlanQueue(() => {}),
+      sb.swarm.onSwarmPhase((_p: string, phase: SwarmPhase) => setSwarmPhase(phase)),
     ]
     return () => unsubs.forEach(u => u())
   }, [])
+
+  // Track stop elapsed time for force-stop timeout
+  useEffect(() => {
+    if (swarmPhase === 'stopping') {
+      setStopStartedAt(Date.now())
+      setStopElapsed(0)
+      const timer = setInterval(() => {
+        setStopElapsed(prev => prev + 1)
+      }, 1000)
+      return () => clearInterval(timer)
+    } else {
+      setStopStartedAt(null)
+      setStopElapsed(0)
+    }
+  }, [swarmPhase])
+
+  // Auto-force-stop after 30s in stopping phase
+  useEffect(() => {
+    if (swarmPhase === 'stopping' && stopElapsed >= 30) {
+      sb.swarm.stop(projectPath).catch(() => {})
+    }
+  }, [swarmPhase, stopElapsed, projectPath])
 
   // Auto-scroll agent outputs
   useEffect(() => {
@@ -246,23 +273,36 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     })
   }, [activeTab, projectPath])
 
-  const [starting, setStarting] = useState(false)
-  const [stopping, setStopping] = useState(false)
+  const isStartingPhase = swarmPhase === 'starting' || swarmPhase === 'health-check' || swarmPhase === 'spawning-workers'
+  const isStoppingPhase = swarmPhase === 'stopping'
 
   const startSwarm = useCallback(async () => {
-    setStarting(true)
-    try { await sb.swarm.start(projectPath, workerCount) } finally { setStarting(false) }
-  }, [projectPath, workerCount])
+    try { await sb.swarm.start(projectPath, workerCount) } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to start swarm', { variant: 'error' })
+    }
+  }, [projectPath, workerCount, showToast])
 
   const stopSwarm = useCallback(async () => {
-    setStopping(true)
-    try { await sb.swarm.stop(projectPath) } finally { setStopping(false) }
-  }, [projectPath])
+    try { await sb.swarm.stop(projectPath) } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to stop swarm', { variant: 'error' })
+    }
+  }, [projectPath, showToast])
 
   const gracefulStopSwarm = useCallback(async () => {
-    setStopping(true)
-    try { await sb.swarm.gracefulStop(projectPath) } finally { setStopping(false) }
-  }, [projectPath])
+    try { await sb.swarm.gracefulStop(projectPath) } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to graceful-stop swarm', { variant: 'error' })
+    }
+  }, [projectPath, showToast])
+
+  const swarmPhaseLabel = (phase: SwarmPhase): string => {
+    switch (phase) {
+      case 'starting': return 'Initializing\u2026'
+      case 'health-check': return 'Running health check\u2026'
+      case 'spawning-workers': return 'Spawning workers\u2026'
+      case 'stopping': return `Stopping\u2026 (${30 - stopElapsed}s)`
+      default: return phase
+    }
+  }
 
   const pauseAgent = useCallback(async (agentId: string) => {
     await sb.swarm.pauseAgent(projectPath, agentId)
@@ -364,33 +404,35 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
           <div className="worker-controls">
             {isRunning ? (
               <>
-                <button className="btn btn-sm" disabled={workerCount <= 1}
+                <button className="btn btn-sm" disabled={workerCount <= 1 || isStoppingPhase}
                   onClick={() => { const n = workerCount - 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   {'\u2212'}
                 </button>
                 <span className="worker-count">{workerCount} agent{workerCount > 1 ? 's' : ''}</span>
-                <button className="btn btn-sm btn-primary"
+                <button className="btn btn-sm btn-primary" disabled={isStoppingPhase}
                   onClick={() => { const n = workerCount + 1; setWorkerCount(n); sb.swarm.start(projectPath, n) }}>
                   +
                 </button>
                 {allPaused ? (
                   <button className="btn btn-accent" onClick={resumeAllAgents}
+                    disabled={isStoppingPhase}
                     title="Resume all paused agents">
                     Resume All
                   </button>
                 ) : (
                   <button className="btn btn-outline" onClick={pauseAllAgents}
+                    disabled={isStoppingPhase}
                     title="Pause all agents after current phase">
                     {anyPaused ? 'Pause Rest' : 'Pause All'}
                   </button>
                 )}
                 <button className="btn btn-warning" onClick={gracefulStopSwarm}
-                  disabled={swarmStatus?.stoppingGracefully}
+                  disabled={swarmStatus?.stoppingGracefully || isStoppingPhase}
                   title="Finish current beads then stop">
-                  {swarmStatus?.stoppingGracefully ? 'Stopping…' : 'Stop after bead'}
+                  {swarmStatus?.stoppingGracefully ? 'Stopping\u2026' : 'Stop after bead'}
                 </button>
-                <button className="btn btn-danger" onClick={stopSwarm} disabled={stopping}>
-                  {stopping ? 'Stopping\u2026' : 'Stop now'}
+                <button className="btn btn-danger" onClick={stopSwarm} disabled={isStoppingPhase}>
+                  {isStoppingPhase ? swarmPhaseLabel('stopping') : 'Stop now'}
                 </button>
               </>
             ) : (
@@ -399,14 +441,51 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   onChange={e => setWorkerCount(Number(e.target.value))}>
                   {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} agent{n > 1 ? 's' : ''}</option>)}
                 </select>
-                <button className="btn btn-primary" onClick={startSwarm} disabled={starting}>
-                  {starting ? 'Starting\u2026' : 'Start Swarm'}
+                <button className="btn btn-primary" onClick={startSwarm} disabled={isStartingPhase}>
+                  {isStartingPhase ? swarmPhaseLabel(swarmPhase) : 'Start Swarm'}
                 </button>
               </>
             )}
           </div>
         </div>
       </header>
+
+      {/* Startup status card */}
+      {isStartingPhase && (
+        <div className="swarm-phase-card" data-testid="swarm-phase-card">
+          <div className="swarm-phase-steps">
+            {(['starting', 'health-check', 'spawning-workers'] as const).map((step, i) => {
+              const stepLabels = { 'starting': 'Initialize', 'health-check': 'Health Check', 'spawning-workers': 'Spawn Workers' }
+              const phases: SwarmPhase[] = ['starting', 'health-check', 'spawning-workers']
+              const currentIdx = phases.indexOf(swarmPhase)
+              const stepIdx = i
+              const isDone = stepIdx < currentIdx
+              const isCurrent = stepIdx === currentIdx
+              return (
+                <span key={step} className={`swarm-phase-step ${isDone ? 'done' : isCurrent ? 'active' : 'pending'}`}>
+                  <span className="swarm-phase-dot" />
+                  {stepLabels[step]}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Stop progress card */}
+      {isStoppingPhase && (
+        <div className="swarm-phase-card swarm-phase-stopping" data-testid="swarm-stop-card">
+          <span className="swarm-phase-step active">
+            <span className="swarm-phase-dot" />
+            {swarmPhaseLabel('stopping')}
+          </span>
+          {stopElapsed >= 10 && (
+            <button className="btn btn-sm btn-danger" onClick={stopSwarm}>
+              Force stop
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Stats bar */}
       {stats && stats.total > 0 && (

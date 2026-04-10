@@ -171,7 +171,8 @@ describe('IPC types', () => {
       agents: [],
       stats: { total: 10, pending: 3, ready: 2, claimed: 1, done: 3, failed: 1, pct: 30 },
       sessionStartedAt: '2026-03-21T08:00:00Z',
-      stoppingGracefully: false
+      stoppingGracefully: false,
+      swarmPhase: 'ready'
     }
     expect(status.running).toBe(true)
     expect(status.stats?.pct).toBe(30)
@@ -186,7 +187,8 @@ describe('IPC types', () => {
       agents: [],
       stats: null,
       sessionStartedAt: null,
-      stoppingGracefully: false
+      stoppingGracefully: false,
+      swarmPhase: 'idle'
     }
     expect(status.stats).toBeNull()
   })
