@@ -296,13 +296,9 @@ ${context ? `## Project brief\n${context}\n\n` : ''}## User request
 ${request}
 
 ## Plan requirements
-Write ONE detailed, actionable development plan. Think about second-order effects:
+Write ONE detailed, actionable development plan. Think about second-order effects.
 
-1. **Architecture overview** — key components, data flows, interfaces
-2. **Workflow breakdown** — ordered phases with clear milestones and deliverables
-3. **Testing strategy** — unit, integration, e2e
-4. **Dependencies** — external libs needed, internal module order
-5. **Risk areas** — things that could go wrong, mitigations
+Cover architecture, workflow phases, dependencies, and risks — but let the structure reflect what you discovered about this project. Do not impose a fixed template; organize around the work that actually needs to happen.
 
 Be specific. Reference actual file names from the codebase. No implementation code — architecture and decisions only.
 Output ONLY the plan as clean Markdown.`
@@ -372,7 +368,7 @@ ${sectionMd}
 - Create epics before their children so parent IDs are available.
 - Read the JSON output of each \`bd create --json\` to get the actual bead ID before using it in \`--parent\` or \`bd dep add\`.
 - If a \`bd\` command fails, log the error and continue with the next bead — do not stop.
-- If you encounter a test failure or issue outside the scope of the current plan, create a bead for it (type: task, label: "fix-later") so it gets tracked and addressed separately.
+- If you encounter an unexpected issue or defect outside the scope of the current plan, create a bead for it (type: task, label: "fix-later") so it gets tracked and addressed separately.
 - Do NOT output raw JSON yourself — use the \`bd\` CLI to create everything directly.
 - Do NOT create markdown TODO lists — use \`bd\` for all task tracking.`
   }
