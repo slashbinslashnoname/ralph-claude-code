@@ -62,7 +62,7 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
   useEffect(() => {
     if (swarmPhase === 'stopping') {
       setStopElapsed(0)
-      const timer = setInterval(() => setStopElapsed(prev => prev + 1), 1000)
+      const timer = setInterval(() => setStopElapsed(prev => Math.min(prev + 1, 30)), 1000)
       return () => clearInterval(timer)
     } else {
       setStopElapsed(0)

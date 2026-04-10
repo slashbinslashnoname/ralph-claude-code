@@ -123,7 +123,6 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([])
   const [buildMonitor, setBuildMonitor] = useState<BuildMonitorStatus>({ enabled: false, running: false })
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('idle')
-  const [stopStartedAt, setStopStartedAt] = useState<number | null>(null)
   const [stopElapsed, setStopElapsed] = useState(0)
 
   // Initial load + polling (status/agents/stats only — not activity)
@@ -223,14 +222,12 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   // Track stop elapsed time for force-stop timeout
   useEffect(() => {
     if (swarmPhase === 'stopping') {
-      setStopStartedAt(Date.now())
       setStopElapsed(0)
       const timer = setInterval(() => {
-        setStopElapsed(prev => prev + 1)
+        setStopElapsed(prev => Math.min(prev + 1, 30))
       }, 1000)
       return () => clearInterval(timer)
     } else {
-      setStopStartedAt(null)
       setStopElapsed(0)
     }
   }, [swarmPhase])
@@ -458,9 +455,8 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
               const stepLabels = { 'starting': 'Initialize', 'health-check': 'Health Check', 'spawning-workers': 'Spawn Workers' }
               const phases: SwarmPhase[] = ['starting', 'health-check', 'spawning-workers']
               const currentIdx = phases.indexOf(swarmPhase)
-              const stepIdx = i
-              const isDone = stepIdx < currentIdx
-              const isCurrent = stepIdx === currentIdx
+              const isDone = i < currentIdx
+              const isCurrent = i === currentIdx
               return (
                 <span key={step} className={`swarm-phase-step ${isDone ? 'done' : isCurrent ? 'active' : 'pending'}`}>
                   <span className="swarm-phase-dot" />
