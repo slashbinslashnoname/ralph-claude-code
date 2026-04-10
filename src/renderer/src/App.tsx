@@ -12,6 +12,7 @@ import SetupWizard from './pages/SetupWizard'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
 import { ToastProvider } from './components/Toast'
+import PlanApprovalModal from './components/PlanApprovalModal'
 
 const sb = window.slashbot
 
@@ -104,6 +105,16 @@ export default function App() {
 
   // Plan approval state (persists across navigation)
   const [pendingPlan, setPendingPlan] = useState<{ planMd: string; request: string; projectPath: string } | null>(null)
+
+  const handlePlanApprove = useCallback(async (projectPath: string, modified?: string) => {
+    await sb.swarm.planApprove(projectPath, modified)
+    setPendingPlan(null)
+  }, [])
+
+  const handlePlanReject = useCallback(async (projectPath: string) => {
+    await sb.swarm.planReject(projectPath)
+    setPendingPlan(null)
+  }, [])
 
   // Swarm output + activity state (lifted from SwarmPage so it persists across navigation)
   const [agentOutputs, setAgentOutputs] = useState<Record<string, string>>(globalAgentOutputs)
@@ -313,8 +324,6 @@ export default function App() {
           {current.page === 'plan' && current.isEnabled && (
             <PlanPage
               projectPath={current.path}
-              pendingPlan={pendingPlan?.projectPath === current.path ? pendingPlan : null}
-              setPendingPlan={setPendingPlan}
               agentOutputs={agentOutputs}
               setAgentOutputs={setAgentOutputs}
             />
@@ -340,6 +349,11 @@ export default function App() {
         </footer>
       )}
     </div>
+    <PlanApprovalModal
+      pendingPlan={pendingPlan}
+      onApprove={handlePlanApprove}
+      onReject={handlePlanReject}
+    />
     </ToastProvider>
   )
 }

@@ -5,8 +5,6 @@ import type { PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
 
-interface PendingPlan { planMd: string; request: string; projectPath?: string }
-
 interface PlanLogEntry {
   file: string
   agentId: string
@@ -17,27 +15,20 @@ interface PlanLogEntry {
 
 interface Props {
   projectPath: string
-  pendingPlan: PendingPlan | null
-  setPendingPlan: React.Dispatch<React.SetStateAction<PendingPlan | null>>
   agentOutputs: Record<string, string>
   setAgentOutputs: React.Dispatch<React.SetStateAction<Record<string, string>>>
 }
 
-export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, agentOutputs, setAgentOutputs }: Props) {
+export default function PlanPage({ projectPath, agentOutputs, setAgentOutputs }: Props) {
   const [planPrompt, setPlanPrompt] = useState('')
   const [isPlanning, setIsPlanning] = useState(false)
   const [planPhase, setPlanPhase] = useState('')
   const [planRequest, setPlanRequest] = useState('')
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
-  const [editedPlan, setEditedPlan] = useState(pendingPlan?.planMd ?? '')
   const [activeTab, setActiveTab] = useState<'current' | 'history'>('current')
   const [historyLogs, setHistoryLogs] = useState<PlanLogEntry[]>([])
   const [historyContent, setHistoryContent] = useState<string | null>(null)
   const [historyFile, setHistoryFile] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (pendingPlan) setEditedPlan(pendingPlan.planMd)
-  }, [pendingPlan])
 
   // Load initial state + listeners
   useEffect(() => {
@@ -136,44 +127,6 @@ export default function PlanPage({ projectPath, pendingPlan, setPendingPlan, age
               </button>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Plan approval */}
-      {pendingPlan && (
-        <div className="plan-review">
-          <div className="plan-review-header">
-            <h3>Plan awaiting approval</h3>
-            <span className="plan-review-request">{pendingPlan.request}</span>
-          </div>
-          <textarea
-            className="plan-review-editor"
-            value={editedPlan}
-            onChange={e => setEditedPlan(e.target.value)}
-            rows={Math.min(25, editedPlan.split('\n').length + 2)}
-          />
-          <div className="plan-review-actions">
-            <button
-              className="btn btn-primary"
-              onClick={async () => {
-                const modified = editedPlan !== pendingPlan.planMd ? editedPlan : undefined
-                await sb.swarm.planApprove(projectPath, modified)
-                setPendingPlan(null)
-                loadHistory()
-              }}
-            >
-              Approve Plan
-            </button>
-            <button
-              className="btn btn-danger"
-              onClick={async () => {
-                await sb.swarm.planReject(projectPath)
-                setPendingPlan(null)
-              }}
-            >
-              Reject
-            </button>
-          </div>
         </div>
       )}
 

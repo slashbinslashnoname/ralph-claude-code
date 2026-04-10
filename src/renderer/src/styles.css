@@ -1652,6 +1652,23 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .plan-review-editor:focus { border-color: var(--accent); outline: none; }
 .plan-review-actions { display: flex; gap: 8px; }
 
+/* Plan approval modal */
+.plan-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.plan-modal {
+  background: var(--bg-1); border: 1px solid var(--accent); border-radius: 12px;
+  padding: 20px; display: flex; flex-direction: column; gap: 12px;
+  width: 100%; max-width: 720px; max-height: 80vh;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.plan-modal-header { display: flex; flex-direction: column; gap: 4px; }
+.plan-modal-header h3 { font-size: 15px; font-weight: 700; color: var(--accent); margin: 0; }
+.plan-modal .plan-review-editor { flex: 1; overflow-y: auto; }
+
 .plan-output { display: flex; flex-direction: column; gap: 8px; }
 .plan-output-title { font-size: 14px; font-weight: 600; color: var(--fg-1); }
 .plan-output .agent-output {
