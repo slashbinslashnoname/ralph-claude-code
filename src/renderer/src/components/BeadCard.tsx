@@ -1,5 +1,4 @@
 import React, { useCallback, useRef } from 'react'
-import BeadDetailPanel from './BeadDetailPanel'
 import CommentThread from './CommentThread'
 import UnifiedTimeline from './UnifiedTimeline'
 import { AsyncButton } from './AsyncButton'
