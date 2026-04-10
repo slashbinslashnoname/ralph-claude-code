@@ -131,4 +131,51 @@ describe('PlanApprovalModal — visible with pending plan', () => {
     })
     expect((container.querySelector('.plan-review-editor') as HTMLTextAreaElement).value).toBe('Plan B')
   })
+
+  test('modal closes when pendingPlan transitions from plan to null', async () => {
+    const plan = makePlan()
+    await act(async () => {
+      root.render(
+        <PlanApprovalModal pendingPlan={plan} onApprove={vi.fn()} onReject={vi.fn()} />,
+      )
+    })
+    expect(container.querySelector('.plan-modal-backdrop')).not.toBeNull()
+
+    // Simulate parent clearing pendingPlan after approve/reject
+    await act(async () => {
+      root.render(
+        <PlanApprovalModal pendingPlan={null} onApprove={vi.fn()} onReject={vi.fn()} />,
+      )
+    })
+    expect(container.querySelector('.plan-modal-backdrop')).toBeNull()
+    expect(container.querySelector('.plan-modal')).toBeNull()
+  })
+
+  test('unmodified plan passes undefined to onApprove (not the original text)', async () => {
+    const onApprove = vi.fn()
+    const plan = makePlan()
+    await act(async () => {
+      root.render(
+        <PlanApprovalModal pendingPlan={plan} onApprove={onApprove} onReject={vi.fn()} />,
+      )
+    })
+
+    // Click approve without editing
+    const approveBtn = container.querySelector('.btn-primary') as HTMLButtonElement
+    await act(async () => { approveBtn.click() })
+    expect(onApprove).toHaveBeenCalledWith('/tmp/project', undefined)
+  })
+
+  test('modal has correct ARIA role and label for accessibility', async () => {
+    const plan = makePlan()
+    await act(async () => {
+      root.render(
+        <PlanApprovalModal pendingPlan={plan} onApprove={vi.fn()} onReject={vi.fn()} />,
+      )
+    })
+
+    const modal = container.querySelector('.plan-modal')
+    expect(modal!.getAttribute('role')).toBe('dialog')
+    expect(modal!.getAttribute('aria-label')).toBe('Plan approval')
+  })
 })

@@ -617,4 +617,143 @@ describe('ConfigEditor — AsyncButton integration', () => {
     expect(toast).not.toBeNull()
     expect(toast?.textContent).toContain('Configuration saved')
   })
+
+  test('Settings save error preserves form values', async () => {
+    mocks.mockConfigWrite.mockRejectedValueOnce(new Error('Disk full'))
+    await act(async () => {
+      root.render(<ToastProvider><SettingsSection projectPath="/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    // Change maxCallsPerHour to 42
+    const numberInputs = container.querySelectorAll('input[type="number"]')
+    const maxCallsInput = Array.from(numberInputs).find(
+      inp => (inp as HTMLInputElement).value === '100',
+    ) as HTMLInputElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(maxCallsInput, '42')
+      maxCallsInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Click save (will fail)
+    const saveBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => { saveBtn.click() })
+    await act(async () => {})
+
+    // Button enters error state but form value is preserved
+    expect(saveBtn.className).toContain('async-btn-error')
+    expect(maxCallsInput.value).toBe('42')
+  })
+})
+
+describe('ConfigEditor — Prompts Save label', () => {
+  let container: HTMLElement
+  let root: ReturnType<typeof ReactDOM.createRoot>
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = ReactDOM.createRoot(container)
+  })
+
+  afterEach(async () => {
+    await act(async () => { root.unmount() })
+    document.body.removeChild(container)
+  })
+
+  test('Prompts Save button shows Saved when content is unchanged', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# My Prompt' })
+    await act(async () => {
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => { promptsTab.click() })
+    await act(async () => {})
+
+    const saveBtn = container.querySelector('.header-actions button') as HTMLButtonElement
+    expect(saveBtn.textContent).toBe('Saved')
+    expect(saveBtn.disabled).toBe(true)
+  })
+
+  test('Prompts Save button shows Save after editing content', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# Original' })
+    await act(async () => {
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => { promptsTab.click() })
+    await act(async () => {})
+
+    // Edit the textarea
+    const textarea = container.querySelector('textarea.code-editor') as HTMLTextAreaElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(textarea, '# Modified')
+      textarea.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const saveBtn = container.querySelector('.header-actions button') as HTMLButtonElement
+    expect(saveBtn.textContent).toBe('Save')
+    expect(saveBtn.disabled).toBe(false)
+  })
+
+  test('Prompts Save returns to Saved after successful save', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# Original' })
+    mocks.mockWriteFile.mockResolvedValue({ ok: true })
+    await act(async () => {
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => { promptsTab.click() })
+    await act(async () => {})
+
+    // Edit
+    const textarea = container.querySelector('textarea.code-editor') as HTMLTextAreaElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(textarea, '# Modified')
+      textarea.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Save
+    const saveBtn = container.querySelector('.header-actions button') as HTMLButtonElement
+    await act(async () => { saveBtn.click() })
+    await act(async () => {})
+
+    // Should revert to Saved and be disabled
+    expect(saveBtn.textContent).toContain('Saved')
+  })
+
+  test('Prompts Save error preserves content in editor', async () => {
+    mocks.mockReadFile.mockResolvedValue({ ok: true, content: '# Original' })
+    mocks.mockWriteFile.mockResolvedValue({ ok: false, error: 'Permission denied' })
+    await act(async () => {
+      root.render(<ToastProvider><ConfigEditor projectPath="/test" /></ToastProvider>)
+    })
+    const tabs = container.querySelectorAll('.tab')
+    const promptsTab = Array.from(tabs).find(t => t.textContent === 'Prompts') as HTMLButtonElement
+    await act(async () => { promptsTab.click() })
+    await act(async () => {})
+
+    // Edit
+    const textarea = container.querySelector('textarea.code-editor') as HTMLTextAreaElement
+    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    await act(async () => {
+      nativeSetter.call(textarea, '# Do not lose this')
+      textarea.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Save (will fail)
+    const saveBtn = container.querySelector('.header-actions button') as HTMLButtonElement
+    await act(async () => { saveBtn.click() })
+    await act(async () => {})
+
+    // Button enters error state but editor content is preserved
+    expect(saveBtn.className).toContain('async-btn-error')
+    expect(textarea.value).toBe('# Do not lose this')
+  })
 })

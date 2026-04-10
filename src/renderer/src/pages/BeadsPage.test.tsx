@@ -231,4 +231,87 @@ describe('BeadsPage — async operations (DOM)', () => {
     const actionBtns = container.querySelectorAll('.bead-actions button[aria-busy]')
     expect(actionBtns.length).toBeGreaterThan(0)
   })
+
+  test('Close button disables with spinner while operation is pending', async () => {
+    let resolveClose!: (v: { ok: boolean }) => void
+    mocks.mockClose.mockImplementation(() => new Promise(r => { resolveClose = r }))
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      tasks: [{
+        id: 'test-1', title: 'Test', status: 'ready', type: 'task',
+        priority: 2, tags: [], description: null, claimedBy: null,
+      }],
+    })
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    const actionBtns = container.querySelectorAll('.bead-actions button[aria-busy]')
+    const closeBtn = Array.from(actionBtns).find(b => b.textContent?.includes('Close')) as HTMLButtonElement
+    expect(closeBtn).not.toBeNull()
+
+    await act(async () => { closeBtn.click() })
+
+    // Button should be disabled with spinner while pending
+    expect(closeBtn.disabled).toBe(true)
+    expect(closeBtn.getAttribute('aria-busy')).toBe('true')
+    expect(closeBtn.querySelector('.async-btn-spinner')).not.toBeNull()
+    expect(closeBtn.className).toContain('async-btn-pending')
+
+    // Resolve to clean up
+    await act(async () => { resolveClose({ ok: true }) })
+  })
+
+  test('Close bead failure shows error toast', async () => {
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      tasks: [{
+        id: 'test-1', title: 'Test', status: 'ready', type: 'task',
+        priority: 2, tags: [], description: null, claimedBy: null,
+      }],
+    })
+    mocks.mockClose.mockResolvedValue({ ok: false, error: 'Permission denied' })
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    const actionBtns = container.querySelectorAll('.bead-actions button[aria-busy]')
+    const closeBtn = Array.from(actionBtns).find(b => b.textContent?.includes('Close')) as HTMLButtonElement
+    await act(async () => { closeBtn.click() })
+    await act(async () => {})
+
+    // AsyncButton enters error state (thrown error from closeBead callback)
+    expect(closeBtn.className).toContain('async-btn-error')
+  })
+
+  test('Claim button disables with spinner while pending', async () => {
+    let resolveClaim!: (v: { ok: boolean }) => void
+    mocks.mockUpdate.mockImplementation(() => new Promise(r => { resolveClaim = r }))
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      tasks: [{
+        id: 'test-1', title: 'Test', status: 'ready', type: 'task',
+        priority: 2, tags: [], description: null, claimedBy: null,
+      }],
+    })
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    const actionBtns = container.querySelectorAll('.bead-actions button[aria-busy]')
+    const claimBtn = Array.from(actionBtns).find(b => b.textContent?.includes('Claim')) as HTMLButtonElement
+
+    await act(async () => { claimBtn.click() })
+
+    expect(claimBtn.disabled).toBe(true)
+    expect(claimBtn.getAttribute('aria-busy')).toBe('true')
+
+    await act(async () => { resolveClaim({ ok: true }) })
+  })
 })
