@@ -131,21 +131,17 @@ describe('CommentThread', () => {
     const textarea = domContainer!.querySelector('.comment-textarea') as HTMLTextAreaElement
     const btn = domContainer!.querySelector('.comment-input-area .btn') as HTMLButtonElement
 
-    // Type into the textarea
+    // Type into the textarea — use native setter + input event (React 18 listens to input)
     await act(async () => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLTextAreaElement.prototype, 'value'
       )!.set!
       nativeInputValueSetter.call(textarea, 'Test comment')
       textarea.dispatchEvent(new Event('input', { bubbles: true }))
-      textarea.dispatchEvent(new Event('change', { bubbles: true }))
     })
 
-    // Re-check — React controlled input may need a different approach
-    // The button's disabled state depends on React state, which is driven by onChange
-    // In jsdom, we verify the structure is correct
-    expect(textarea).not.toBeNull()
-    expect(btn).not.toBeNull()
+    // Button should now be enabled since text is non-empty
+    expect(btn.disabled).toBe(false)
   })
 
   test('handles API error gracefully', async () => {
