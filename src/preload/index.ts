@@ -43,6 +43,15 @@ contextBridge.exposeInMainWorld('slashbot', {
   onCircuitRemove: (cb: (...a: unknown[]) => void) => listen('circuit:remove', cb),
   resetSession: (projectPath: string) => ipcRenderer.invoke('session:reset', projectPath),
 
+  // ── Memories (via bd CLI) ─────────────────────────────────────────────
+  memories: {
+    list: (projectPath: string) => ipcRenderer.invoke('memories:list', projectPath),
+    add: (projectPath: string, text: string, key?: string) =>
+      ipcRenderer.invoke('memories:add', projectPath, text, key),
+    forget: (projectPath: string, key: string) =>
+      ipcRenderer.invoke('memories:forget', projectPath, key),
+  },
+
   // ── Beads (via bd CLI) ───────────────────────────────────────────────
   beads: {
     check: (projectPath: string) => ipcRenderer.invoke('beads:check', projectPath),
@@ -62,6 +71,10 @@ contextBridge.exposeInMainWorld('slashbot', {
       ipcRenderer.invoke('beads:rollback', projectPath, id, agentId),
     ready: (projectPath: string) => ipcRenderer.invoke('beads:ready', projectPath),
     stats: (projectPath: string) => ipcRenderer.invoke('beads:stats', projectPath),
+    comments: (projectPath: string, id: string) =>
+      ipcRenderer.invoke('comments:list', projectPath, id),
+    addComment: (projectPath: string, id: string, text: string) =>
+      ipcRenderer.invoke('comments:add', projectPath, id, text),
   },
 
   // ── Swarm orchestrator ───────────────────────────────────────────────
