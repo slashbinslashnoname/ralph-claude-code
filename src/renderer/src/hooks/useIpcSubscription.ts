@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, type DependencyList } from 'react'
 
 type Unsubscribe = () => void
 
@@ -9,7 +9,7 @@ type Unsubscribe = () => void
  */
 export function useIpcSubscription(
   subscribe: () => Unsubscribe | Unsubscribe[],
-  deps: React.DependencyList = [],
+  deps: DependencyList = [],
 ): void {
   useEffect(() => {
     const result = subscribe()
