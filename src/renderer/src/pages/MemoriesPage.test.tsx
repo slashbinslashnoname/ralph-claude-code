@@ -215,6 +215,65 @@ describe('MemoriesPage', () => {
     document.body.removeChild(container)
   })
 
+  test('displays creation timestamp on memory cards with createdAt', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      memories: [
+        { key: 'timestamped', text: 'has a timestamp', createdAt: '2026-04-10T14:30:00Z' },
+        { key: 'no-timestamp', text: 'no timestamp' },
+      ],
+    })
+
+    await act(async () => {
+      createRoot(container).render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    // Memory with createdAt should show formatted timestamp
+    const createdAtSpan = container.querySelector('.memory-created-at')
+    expect(createdAtSpan).not.toBeNull()
+    expect(createdAtSpan!.textContent).toContain('Apr')
+
+    // Memory without createdAt should not show timestamp
+    const cards = container.querySelectorAll('.memory-card')
+    expect(cards.length).toBe(2)
+    const secondCard = cards[1]
+    expect(secondCard.querySelector('.memory-created-at')).toBeNull()
+
+    document.body.removeChild(container)
+  })
+
+  test('renders MemoryTimeline inside memory cards with createdAt', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      memories: [
+        { key: 'with-timeline', text: 'timeline visible', createdAt: '2026-04-10T10:00:00Z' },
+      ],
+    })
+
+    await act(async () => {
+      createRoot(container).render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    // Should render the memory-timeline inside the card
+    const timeline = container.querySelector('.memory-timeline')
+    expect(timeline).not.toBeNull()
+    expect(timeline!.textContent).toContain('created')
+
+    document.body.removeChild(container)
+  })
+
   test('cancel button clears form state via DOM', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)

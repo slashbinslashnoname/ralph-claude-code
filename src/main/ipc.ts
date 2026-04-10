@@ -63,6 +63,21 @@ const telegramBots = new Map<string, TelegramBot>()
 const telegramBridges = new Map<string, TelegramBridge>()
 let autoUpdaterInstance: AutoUpdater | null = null
 
+/** Read the memory timestamps sidecar file (key → ISO timestamp). */
+function readMemoryTimestamps(filePath: string): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+/** Write the memory timestamps sidecar file. */
+function writeMemoryTimestamps(filePath: string, map: Record<string, string>): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  fs.writeFileSync(filePath, JSON.stringify(map, null, 2))
+}
+
 /**
  * Gracefully shut down all active swarms, stop watchers,
  * and clean up orphaned git worktrees.
@@ -649,8 +664,15 @@ export function registerIpc(
   ipcMain.handle('memories:list', async (_e, projectPath: string) => {
     try {
       const p = validateProjectPath(projectPath)
-      const bd = new BdClient(getProjectPaths(p).beadsCwd)
-      return { ok: true, memories: await bd.memoriesAsync() }
+      const paths = getProjectPaths(p)
+      const bd = new BdClient(paths.beadsCwd)
+      const memories = await bd.memoriesAsync()
+      // Merge stored timestamps into memory entries
+      const tsMap = readMemoryTimestamps(paths.memoryTimestamps)
+      for (const m of memories) {
+        if (tsMap[m.key]) m.createdAt = tsMap[m.key]
+      }
+      return { ok: true, memories }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), memories: [] }
     }
@@ -665,8 +687,16 @@ export function registerIpc(
       if (key !== undefined && (typeof key !== 'string' || key.length === 0)) {
         throw new Error('key must be a non-empty string when provided')
       }
-      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      const paths = getProjectPaths(p)
+      const bd = new BdClient(paths.beadsCwd)
       const result = await bd.rememberAsync(text, key)
+      // Record creation timestamp
+      const tsMap = readMemoryTimestamps(paths.memoryTimestamps)
+      const memKey = result.key || key || ''
+      if (memKey && !tsMap[memKey]) {
+        tsMap[memKey] = new Date().toISOString()
+        writeMemoryTimestamps(paths.memoryTimestamps, tsMap)
+      }
       return { ok: true, result }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -679,8 +709,15 @@ export function registerIpc(
       if (typeof key !== 'string' || key.length === 0) {
         throw new Error('key must be a non-empty string')
       }
-      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      const paths = getProjectPaths(p)
+      const bd = new BdClient(paths.beadsCwd)
       const result = await bd.forgetAsync(key)
+      // Remove timestamp entry
+      const tsMap = readMemoryTimestamps(paths.memoryTimestamps)
+      if (tsMap[key]) {
+        delete tsMap[key]
+        writeMemoryTimestamps(paths.memoryTimestamps, tsMap)
+      }
       return { ok: true, result }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }

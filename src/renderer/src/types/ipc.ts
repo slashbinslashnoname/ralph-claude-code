@@ -248,6 +248,8 @@ export type BdMemoriesMap = Record<string, string>
 export interface BdMemory {
   key: string
   text: string
+  /** ISO timestamp of when this memory was created (tracked by the app). */
+  createdAt?: string
 }
 
 /** Result of `bd remember --json`. */

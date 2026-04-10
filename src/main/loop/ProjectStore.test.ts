@@ -51,6 +51,7 @@ describe('ProjectStore', () => {
       expect(paths.fileLocks).toBe(path.join(STORE_DIR, 'file_locks.json'))
       expect(paths.mail).toBe(path.join(STORE_DIR, 'mail.jsonl'))
       expect(paths.configDir).toBe(path.join(STORE_DIR, 'config'))
+      expect(paths.memoryTimestamps).toBe(path.join(STORE_DIR, 'memory_timestamps.json'))
       expect(paths.worktreesDir).toBe(path.join(PROJECT_PATH, '.worktrees'))
       // beadsRoot falls back to storeDir/.beads when projectRoot/.beads doesn't exist
       expect(paths.beadsRoot).toBe(path.join(STORE_DIR, '.beads'))

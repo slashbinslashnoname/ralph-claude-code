@@ -40,6 +40,8 @@ export interface ProjectPaths {
   agentMd: string
   /** ~/.slashbot/projects/<id>/config/PROMPT.md */
   promptMd: string
+  /** ~/.slashbot/projects/<id>/memory_timestamps.json */
+  memoryTimestamps: string
 }
 
 let _storeRootOverride: string | null = null
@@ -82,6 +84,7 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     beadsCwd: path.dirname(beadsRoot),
     agentMd: path.join(storeDir, 'config', 'AGENT.md'),
     promptMd: path.join(storeDir, 'config', 'PROMPT.md'),
+    memoryTimestamps: path.join(storeDir, 'memory_timestamps.json'),
   }
 }
 

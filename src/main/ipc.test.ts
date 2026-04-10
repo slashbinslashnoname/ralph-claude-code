@@ -572,6 +572,27 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       const result = await invoke('memories:list', '/test/project')
       expect(result).toEqual({ ok: false, error: 'bd failed', memories: [] })
     })
+
+    it('merges stored timestamps into memory entries', async () => {
+      // Write a timestamp sidecar file
+      const tsPath = path.join(computeStoreDir('/test/project'), 'memory_timestamps.json')
+      realFs.mkdirSync(path.dirname(tsPath), { recursive: true })
+      realFs.writeFileSync(tsPath, JSON.stringify({ 'k1': '2026-04-10T10:00:00Z' }))
+
+      const memoriesAsync = vi.fn().mockResolvedValue([
+        { key: 'k1', text: 'v1' },
+        { key: 'k2', text: 'v2' },
+      ])
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ memoriesAsync }) as any)
+      const result = await invoke('memories:list', '/test/project')
+
+      expect(result.ok).toBe(true)
+      expect(result.memories[0].createdAt).toBe('2026-04-10T10:00:00Z')
+      expect(result.memories[1].createdAt).toBeUndefined()
+
+      // Cleanup
+      realFs.rmSync(tsPath, { force: true })
+    })
   })
 
   describe('memories:add', () => {
@@ -589,6 +610,22 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       const result = await invoke('memories:add', '/test/project', 'my note')
       expect(result.ok).toBe(true)
       expect(rememberAsync).toHaveBeenCalledWith('my note', undefined)
+    })
+
+    it('records creation timestamp on add', async () => {
+      const rememberAsync = vi.fn().mockResolvedValue({ action: 'added', key: 'ts-key', value: 'v' })
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ rememberAsync }) as any)
+      const result = await invoke('memories:add', '/test/project', 'note', 'ts-key')
+      expect(result.ok).toBe(true)
+
+      // Read the sidecar and verify timestamp was recorded
+      const tsPath = path.join(computeStoreDir('/test/project'), 'memory_timestamps.json')
+      const tsMap = JSON.parse(realFs.readFileSync(tsPath, 'utf-8'))
+      expect(tsMap['ts-key']).toBeDefined()
+      expect(new Date(tsMap['ts-key']).getTime()).not.toBeNaN()
+
+      // Cleanup
+      realFs.rmSync(tsPath, { force: true })
     })
 
     it('rejects empty text', async () => {
@@ -609,6 +646,25 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       const result = await invoke('memories:forget', '/test/project', 'k1')
       expect(result).toEqual({ ok: true, result: { deleted: 'k1', key: 'k1' } })
       expect(forgetAsync).toHaveBeenCalledWith('k1')
+    })
+
+    it('removes timestamp entry on forget', async () => {
+      // Pre-populate the sidecar with a timestamp
+      const tsPath = path.join(computeStoreDir('/test/project'), 'memory_timestamps.json')
+      realFs.mkdirSync(path.dirname(tsPath), { recursive: true })
+      realFs.writeFileSync(tsPath, JSON.stringify({ 'del-key': '2026-01-01T00:00:00Z', 'keep': '2026-02-01T00:00:00Z' }))
+
+      const forgetAsync = vi.fn().mockResolvedValue({ deleted: 'del-key', key: 'del-key' })
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ forgetAsync }) as any)
+      const result = await invoke('memories:forget', '/test/project', 'del-key')
+      expect(result.ok).toBe(true)
+
+      const tsMap = JSON.parse(realFs.readFileSync(tsPath, 'utf-8'))
+      expect(tsMap['del-key']).toBeUndefined()
+      expect(tsMap['keep']).toBe('2026-02-01T00:00:00Z')
+
+      // Cleanup
+      realFs.rmSync(tsPath, { force: true })
     })
 
     it('rejects empty key', async () => {

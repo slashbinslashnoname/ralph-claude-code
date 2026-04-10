@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../components/Toast'
+import { formatTime } from '../utils/formatTime'
+import MemoryTimeline from '../components/MemoryTimeline'
 import type { BdMemory } from '../types/ipc'
 
 const sb = window.slashbot
@@ -11,9 +13,17 @@ function MemoryCard({ memory, onDelete }: { memory: BdMemory; onDelete: (key: st
     <div className="memory-card">
       <div className="memory-card-header">
         <span className="memory-key" title={memory.key}>{memory.key}</span>
-        <button className="btn btn-sm btn-danger" onClick={() => onDelete(memory.key)}>Delete</button>
+        <div className="memory-card-meta">
+          {memory.createdAt && (
+            <span className="memory-created-at" title={memory.createdAt}>
+              {formatTime(memory.createdAt)}
+            </span>
+          )}
+          <button className="btn btn-sm btn-danger" onClick={() => onDelete(memory.key)}>Delete</button>
+        </div>
       </div>
       <div className="memory-text">{memory.text}</div>
+      <MemoryTimeline memory={memory} />
     </div>
   )
 }
