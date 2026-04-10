@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { spawnSync } from 'child_process'
 
 import * as fs from 'fs'
 import * as os from 'os'
@@ -94,12 +95,6 @@ describe('HealthCheck', () => {
     expect(checks).toContain('slashbot-files')
   })
 
-  it('does not warn about sm CLI (removed)', () => {
-    tmpDir = makeProject()
-    const result = runHealthCheck(tmpDir, 'node')
-    expect(result.ok).toBe(true)
-    expect(result.warnings.find(w => w.check === 'sm')).toBeUndefined()
-  })
 })
 
 describe('formatHealthErrors', () => {
@@ -130,5 +125,25 @@ describe('formatHealthWarnings', () => {
 
   it('returns empty string for no warnings', () => {
     expect(formatHealthWarnings([])).toBe('')
+  })
+})
+
+describe('Anti-regression: sm CLI removed', () => {
+  it('no source file under src/ references removed sm symbols', () => {
+    const projectRoot = path.resolve(import.meta.dirname, '..', '..', '..')
+    const result = spawnSync(
+      'grep',
+      [
+        '-r', '-l',
+        '--include=*.ts', '--include=*.tsx',
+        '--exclude=HealthCheck.test.ts',
+        '-e', 'slash' + 'mem',
+        '-e', 'run' + 'Sm',
+        'src',
+      ],
+      { cwd: projectRoot, encoding: 'utf-8' },
+    )
+    const matches = (result.stdout ?? '').trim()
+    expect(matches, `Found sm-related references in:\n${matches}`).toBe('')
   })
 })
