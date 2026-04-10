@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('slashbot', {
   // ── Circuit breaker & session ────────────────────────────────────────
   resetCircuit: (projectPath: string, agentId?: string) =>
     ipcRenderer.invoke('circuit:reset', projectPath, agentId ? { agentId } : undefined),
+  clearStaleCircuits: (projectPath: string) =>
+    ipcRenderer.invoke('circuit:clear-stale', projectPath),
+  onCircuitRemove: (cb: (...a: unknown[]) => void) => listen('circuit:remove', cb),
   resetSession: (projectPath: string) => ipcRenderer.invoke('session:reset', projectPath),
 
   // ── Beads (via bd CLI) ───────────────────────────────────────────────

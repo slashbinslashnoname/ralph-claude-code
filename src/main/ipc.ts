@@ -420,6 +420,34 @@ export function registerIpc(
     }
   })
 
+  ipcMain.handle('circuit:clear-stale', (_e, projectPath: string) => {
+    try {
+      const paths = getProjectPaths(projectPath)
+      const storeDir = paths.storeDir
+      // Read registered agent IDs
+      const agentsFile = path.join(storeDir, 'agents.json')
+      let registeredIds: string[] = []
+      try {
+        const agents = JSON.parse(fs.readFileSync(agentsFile, 'utf8'))
+        if (Array.isArray(agents)) registeredIds = agents.map((a: { id: string }) => a.id)
+      } catch { /* no agents file = no registered agents */ }
+      // Find circuit state files with no matching registered agent
+      const files = fs.readdirSync(storeDir).filter(f => f.startsWith('.circuit_breaker_state_'))
+      const removed: string[] = []
+      for (const file of files) {
+        const agentId = file.slice('.circuit_breaker_state_'.length)
+        if (!registeredIds.includes(agentId)) {
+          fs.unlinkSync(path.join(storeDir, file))
+          removed.push(agentId)
+          broadcast('circuit:remove', projectPath, agentId)
+        }
+      }
+      return { ok: true, removed }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   ipcMain.handle('session:reset', (_e, projectPath: string) => {
     const f = path.join(getProjectPaths(projectPath).storeDir, '.claude_session_id')
     try {

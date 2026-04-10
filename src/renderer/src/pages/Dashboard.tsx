@@ -26,6 +26,7 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
   const [circuitsExpanded, setCircuitsExpanded] = useState(false)
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('idle')
   const [stopElapsed, setStopElapsed] = useState(0)
+  const [clearingStale, setClearingStale] = useState(false)
 
   // Sync local count from actual running count
   useEffect(() => {
@@ -236,6 +237,25 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
               if (states.includes('OPEN')) return <span className="pill pill-red" data-testid="circuit-warning-pill">OPEN</span>
               if (states.includes('HALF_OPEN')) return <span className="pill pill-amber" data-testid="circuit-warning-pill">HALF_OPEN</span>
               return null
+            })()}
+            {(() => {
+              const agentIds = new Set(agents.map(a => a.id))
+              const staleCount = Object.keys(circuits).filter(id => !agentIds.has(id)).length
+              if (staleCount === 0) return null
+              return (
+                <button
+                  className="btn btn-xs btn-ghost"
+                  data-testid="clear-stale-circuits"
+                  disabled={clearingStale}
+                  onClick={async () => {
+                    setClearingStale(true)
+                    try { await sb.clearStaleCircuits(projectPath) } catch { /* handled */ }
+                    setClearingStale(false)
+                  }}
+                >
+                  {clearingStale ? 'Clearing\u2026' : `Clear ${staleCount} stale`}
+                </button>
+              )
             })()}
           </h3>
           <div className="card-body">

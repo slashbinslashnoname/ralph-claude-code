@@ -557,6 +557,37 @@ describe('AgentCoordinator — agent registration', () => {
     expect(locks.length).toBe(1)
     expect(locks[0].agentId).toBe('agent-1')
   })
+
+  it('deregisterAgent deletes circuit breaker state file for the agent', () => {
+    coord.registerAgent(makeAgent({ id: 'agent-0' }))
+    // Create a circuit breaker state file
+    const stateFile = path.join(tmpPaths.storeDir, '.circuit_breaker_state_agent-0')
+    fs.writeFileSync(stateFile, JSON.stringify({ state: 'OPEN', reason: 'test' }))
+    expect(fs.existsSync(stateFile)).toBe(true)
+
+    coord.deregisterAgent('agent-0')
+    expect(fs.existsSync(stateFile)).toBe(false)
+  })
+
+  it('deregisterAgent does not fail when no circuit breaker state file exists', () => {
+    coord.registerAgent(makeAgent({ id: 'agent-0' }))
+    // No circuit breaker state file created
+    expect(() => coord.deregisterAgent('agent-0')).not.toThrow()
+    expect(coord.getAgents().length).toBe(0)
+  })
+
+  it('deregisterAgent only deletes circuit breaker state for the target agent', () => {
+    coord.registerAgent(makeAgent({ id: 'agent-0' }))
+    coord.registerAgent(makeAgent({ id: 'agent-1', index: 1 }))
+    const stateFile0 = path.join(tmpPaths.storeDir, '.circuit_breaker_state_agent-0')
+    const stateFile1 = path.join(tmpPaths.storeDir, '.circuit_breaker_state_agent-1')
+    fs.writeFileSync(stateFile0, JSON.stringify({ state: 'OPEN' }))
+    fs.writeFileSync(stateFile1, JSON.stringify({ state: 'CLOSED' }))
+
+    coord.deregisterAgent('agent-0')
+    expect(fs.existsSync(stateFile0)).toBe(false)
+    expect(fs.existsSync(stateFile1)).toBe(true)
+  })
 })
 
 describe('AgentCoordinator — activity log', () => {

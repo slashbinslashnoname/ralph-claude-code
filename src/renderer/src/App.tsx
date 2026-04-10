@@ -146,6 +146,13 @@ export default function App() {
           t.path === proj ? { ...t, circuits: { ...t.circuits, [c.agentId!]: c } } : t
         ))
       }),
+      sb.onCircuitRemove((proj: string, agentId: string) => {
+        setTabs(prev => prev.map(t => {
+          if (t.path !== proj) return t
+          const { [agentId]: _, ...rest } = t.circuits
+          return { ...t, circuits: rest }
+        }))
+      }),
       sb.swarm.onOutput((_p: string, agentId: string, chunk: string) => {
         globalAgentOutputs[agentId] = (globalAgentOutputs[agentId] ?? '').slice(-50000) + chunk
         outputDirty.current = true

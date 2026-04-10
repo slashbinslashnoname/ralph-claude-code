@@ -208,6 +208,20 @@ export class AgentCoordinator {
   deregisterAgent(id: string): void {
     this.writeAgents(this.readAgents().filter(a => a.id !== id))
     this.releaseAllForAgent(id)
+    this._cleanCircuitBreakerState(id)
+  }
+
+  /** Remove the circuit breaker state file for a deregistered agent. */
+  private _cleanCircuitBreakerState(agentId: string): void {
+    const stateFile = path.join(this.paths.storeDir, `.circuit_breaker_state_${agentId}`)
+    try {
+      if (fs.existsSync(stateFile)) {
+        fs.unlinkSync(stateFile)
+        this._log('info', `Cleaned circuit breaker state for agent ${agentId}`)
+      }
+    } catch (e) {
+      this._log('warn', `Failed to clean circuit breaker state for ${agentId}: ${e}`)
+    }
   }
 
   getAgents(): AgentInfo[] {
