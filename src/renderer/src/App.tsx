@@ -319,7 +319,7 @@ export default function App() {
       {current && (
         <main className="main-content">
           {current.page === 'setup' && (
-            <SetupWizard projectPath={current.path} onComplete={() => { setTabEnabled(true); setTabPage('dashboard') }} />
+            <SetupWizard projectPath={current.path} onComplete={() => { setTabEnabled(true); setTabPage('dashboard') }} isReEnable={current.isEnabled} />
           )}
           {current.page === 'dashboard' && current.isEnabled && (
             <Dashboard projectPath={current.path} circuits={current.circuits} onNavigate={(p) => setTabPage(p as Page)} />

@@ -19,9 +19,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 interface Props {
   projectPath: string
   onComplete: () => void
+  isReEnable?: boolean
 }
 
-export default function SetupWizard({ projectPath, onComplete }: Props) {
+export default function SetupWizard({ projectPath, onComplete, isReEnable }: Props) {
   const [step, setStep] = useState(0)
   const [maxCalls, setMaxCalls] = useState(100)
   const [useBeads, setUseBeads] = useState(true)
@@ -173,6 +174,15 @@ export default function SetupWizard({ projectPath, onComplete }: Props) {
               <li><code>AGENT.md</code> - Build commands</li>
               {useBeads && <li><code>.beads/</code> - Beads task tracking</li>}
             </ul>
+            {isReEnable && (
+              <div className="alert alert-warning animate-fade-in mt-1">
+                <p>
+                  <strong>Note:</strong> Your existing PROMPT.md may contain outdated
+                  sm/slashmem instructions. Initialization will regenerate it with
+                  current instructions.
+                </p>
+              </div>
+            )}
             <div className="setup-actions">
               <button className="btn btn-ghost" onClick={() => setStep(0)}>Back</button>
               <button className="btn btn-primary btn-lg" onClick={run} disabled={running}>

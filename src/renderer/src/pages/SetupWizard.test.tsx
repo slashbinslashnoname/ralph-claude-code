@@ -98,6 +98,20 @@ describe('SetupWizard bd check error recovery', () => {
   })
 })
 
+describe('SetupWizard PROMPT.md staleness warning', () => {
+  test('contains staleness warning text for sm/slashmem', () => {
+    expect(src).toContain('sm/slashmem')
+  })
+
+  test('warning is gated on isReEnable prop', () => {
+    expect(src).toMatch(/isReEnable[\s\S]*?sm\/slashmem/)
+  })
+
+  test('warns that PROMPT.md will be regenerated', () => {
+    expect(src).toContain('Initialization will regenerate it')
+  })
+})
+
 describe('SetupWizard enable error recovery', () => {
   test('tracks enableError state', () => {
     expect(src).toContain('enableError')
@@ -271,6 +285,44 @@ describe('SetupWizard — DOM interaction', () => {
     ) as HTMLButtonElement
     expect(initBtn).not.toBeUndefined()
     expect(initBtn.disabled).toBe(false)
+  })
+
+  test('re-enable flow shows PROMPT.md staleness warning on step 1', async () => {
+    await act(async () => {
+      root.render(<SetupWizard projectPath="/tmp/test" onComplete={vi.fn()} isReEnable={true} />)
+    })
+    await act(async () => {})
+
+    // Navigate to step 1
+    const continueBtn = Array.from(container.querySelectorAll('button')).find(
+      b => b.textContent === 'Continue',
+    ) as HTMLButtonElement
+    await act(async () => { continueBtn.click() })
+    await act(async () => {})
+
+    const warning = container.querySelector('.alert-warning')
+    expect(warning).not.toBeNull()
+    expect(warning!.textContent).toContain('sm/slashmem')
+    expect(warning!.textContent).toContain('PROMPT.md')
+  })
+
+  test('fresh setup does not show PROMPT.md staleness warning on step 1', async () => {
+    await act(async () => {
+      root.render(<SetupWizard projectPath="/tmp/test" onComplete={vi.fn()} />)
+    })
+    await act(async () => {})
+
+    // Navigate to step 1
+    const continueBtn = Array.from(container.querySelectorAll('button')).find(
+      b => b.textContent === 'Continue',
+    ) as HTMLButtonElement
+    await act(async () => { continueBtn.click() })
+    await act(async () => {})
+
+    // No warning should appear (isReEnable defaults to undefined/false)
+    const warnings = container.querySelectorAll('.alert-warning')
+    const stalenessWarning = Array.from(warnings).find(w => w.textContent?.includes('sm/slashmem'))
+    expect(stalenessWarning).toBeUndefined()
   })
 
   test('enable failure shows Setup failed with Back and Retry buttons', async () => {
