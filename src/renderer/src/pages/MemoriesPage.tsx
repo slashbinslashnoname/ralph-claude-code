@@ -4,7 +4,9 @@ import { formatTime } from '../utils/formatTime'
 import MemoryTimeline from '../components/MemoryTimeline'
 import type { BdMemory } from '../types/ipc'
 
-const sb = window.slashbot
+function getMemoriesApi() {
+  return window.slashbot?.memories
+}
 
 interface Props { projectPath: string }
 
@@ -40,7 +42,9 @@ export default function MemoriesPage({ projectPath }: Props) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await sb.memories.list(projectPath)
+      const api = getMemoriesApi()
+      if (!api) { showToast('Memories API not available', 'error'); setLoading(false); return }
+      const r = await api.list(projectPath)
       if (r.ok) setMemories(r.memories)
       else showToast(`Failed to load memories: ${r.error}`, 'error')
     } catch (e) {
@@ -54,7 +58,9 @@ export default function MemoriesPage({ projectPath }: Props) {
   const handleAdd = useCallback(async () => {
     if (!newText.trim()) return
     try {
-      const r = await sb.memories.add(projectPath, newText.trim(), newKey.trim() || undefined)
+      const api = getMemoriesApi()
+      if (!api) { showToast('Memories API not available', 'error'); return }
+      const r = await api.add(projectPath, newText.trim(), newKey.trim() || undefined)
       if (r.ok) {
         showToast('Memory added', 'success')
         setNewText('')
@@ -71,7 +77,9 @@ export default function MemoriesPage({ projectPath }: Props) {
 
   const handleDelete = useCallback(async (key: string) => {
     try {
-      const r = await sb.memories.forget(projectPath, key)
+      const api = getMemoriesApi()
+      if (!api) { showToast('Memories API not available', 'error'); return }
+      const r = await api.forget(projectPath, key)
       if (r.ok) {
         showToast('Memory deleted', 'success')
         refresh()

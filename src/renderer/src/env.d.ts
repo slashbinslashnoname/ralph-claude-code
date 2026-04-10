@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
-  Bead, BeadType, ActivityEvent, KnowledgeEntry, FileLock,
+  Bead, BeadType, ActivityEvent, KnowledgeEntry, FileLock, BdMemory,
   CircuitBreakerSnapshot, SwarmStatus, ProgressStats, PlanQueueItem,
   RalphConfig, UpdateState, UpdateInfo, UpdateProgress,
 } from './types/ipc'
@@ -71,6 +71,11 @@ interface SlashbotAPI {
   clearStaleCircuits: (p: string) => Promise<{ ok: boolean; removed?: string[] }>
   onCircuitRemove: (cb: (proj: string, agentId: string) => void) => () => void
   resetSession: (p: string) => Promise<{ ok: boolean }>
+  memories: {
+    list: (p: string) => Promise<{ ok: boolean; memories: BdMemory[]; error?: string }>
+    add: (p: string, text: string, key?: string) => Promise<{ ok: boolean; error?: string }>
+    forget: (p: string, key: string) => Promise<{ ok: boolean; error?: string }>
+  }
   beads: {
     check: (p: string) => Promise<{ available: boolean; reason?: string }>
     installCheck: () => Promise<{ installed: boolean }>
