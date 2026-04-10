@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -111,8 +111,8 @@ describe('LogViewer', () => {
     sessionStore['logviewer-levels'] = JSON.stringify(['ERROR'])
     const html = renderLogViewer()
     // ERROR chip should be active, ALL should not
-    // Check that the ERROR chip has the active class
-    expect(html).toContain('level-error')
+    expect(html).toMatch(/active[^"]*level-error|level-error[^"]*active/)
+    expect(html).not.toMatch(/active[^"]*level-all|level-all[^"]*active/)
   })
 
   test('handles invalid sessionStorage levels gracefully', () => {
