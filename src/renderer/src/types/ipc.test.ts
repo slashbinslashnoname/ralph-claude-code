@@ -20,7 +20,11 @@ import type {
   UpdateState,
   UpdateInfo,
   UpdateProgress,
-  UpdateEvent
+  UpdateEvent,
+  BdMemory,
+  BdRememberResult,
+  BdForgetResult,
+  BdComment
 } from './ipc'
 
 describe('IPC types', () => {
@@ -264,6 +268,48 @@ describe('IPC types', () => {
     expect(events).toHaveLength(6)
     expect(events[0].type).toBe('checking')
     expect(events[5].type).toBe('error')
+  })
+
+  it('BdMemory accepts key-value pair', () => {
+    const mem: BdMemory = {
+      key: 'always-run-tests',
+      text: 'Always run tests with -race flag'
+    }
+    expect(mem.key).toBe('always-run-tests')
+    expect(mem.text).toBe('Always run tests with -race flag')
+  })
+
+  it('BdRememberResult matches bd remember --json output', () => {
+    const result: BdRememberResult = {
+      action: 'remembered',
+      key: 'auth-jwt',
+      value: 'auth module uses JWT not sessions'
+    }
+    expect(result.action).toBe('remembered')
+    expect(result.key).toBe('auth-jwt')
+  })
+
+  it('BdForgetResult matches bd forget --json output', () => {
+    const result: BdForgetResult = {
+      deleted: 'true',
+      key: 'auth-jwt'
+    }
+    expect(result.deleted).toBe('true')
+    expect(result.key).toBe('auth-jwt')
+  })
+
+  it('BdComment matches bd comments --json output', () => {
+    const comment: BdComment = {
+      id: '019d762b-f2b9-7566-aa13-c2863155984e',
+      issueId: 'slashbot-cos.1',
+      author: 'slashbin',
+      text: 'Test comment',
+      createdAt: '2026-04-10T06:54:44.920721Z'
+    }
+    expect(comment.id).toBe('019d762b-f2b9-7566-aa13-c2863155984e')
+    expect(comment.issueId).toBe('slashbot-cos.1')
+    expect(comment.author).toBe('slashbin')
+    expect(comment.createdAt).toBe('2026-04-10T06:54:44.920721Z')
   })
 
   it('UpdateEvent narrowing works via type discriminant', () => {

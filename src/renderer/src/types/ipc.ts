@@ -235,6 +235,38 @@ export type UpdateEvent =
   | { type: 'error'; error: string }
 
 // ---------------------------------------------------------------------------
+// bd memories & comments
+// ---------------------------------------------------------------------------
+
+/** A single memory entry as stored by `bd remember` / returned by `bd memories --json`. */
+export interface BdMemory {
+  key: string
+  text: string
+}
+
+/** Result of `bd remember --json`. */
+export interface BdRememberResult {
+  action: string
+  key: string
+  value: string
+}
+
+/** Result of `bd forget --json`. */
+export interface BdForgetResult {
+  deleted: string
+  key: string
+}
+
+/** A comment on a bead, as returned by `bd comments <id> --json`. */
+export interface BdComment {
+  id: string
+  issueId: string
+  author: string
+  text: string
+  createdAt: string
+}
+
+// ---------------------------------------------------------------------------
 // Config types (structured .slashbotrc)
 // ---------------------------------------------------------------------------
 
