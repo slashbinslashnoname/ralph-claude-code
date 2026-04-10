@@ -93,6 +93,17 @@ interface Props {
 
 export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, activity, setActivity }: Props) {
   const { showToast } = useToast()
+  // Track per-poll error state to avoid spamming toasts on every interval tick
+  const pollErrorRef = useRef<Record<string, boolean>>({})
+  const toastOnce = useCallback((key: string, msg: string) => {
+    if (!pollErrorRef.current[key]) {
+      pollErrorRef.current[key] = true
+      showToast(msg, { variant: 'error' })
+    }
+  }, [showToast])
+  const clearPollError = useCallback((key: string) => {
+    pollErrorRef.current[key] = false
+  }, [])
   const [swarmStatus, setSwarmStatus] = useState<SwarmStatus | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [stats, setStats] = useState<ProgressStats | null>(null)
@@ -128,9 +139,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
   // Poll Telegram status every 5s
   useEffect(() => {
-    const poll = () => sb.telegram.status(projectPath).then(setTelegramStatus).catch((err: unknown) => {
-      showToast(err instanceof Error ? err.message : 'Failed to fetch Telegram status', { variant: 'error' })
-    })
+    const poll = () => sb.telegram.status(projectPath)
+      .then(s => { clearPollError('telegram'); setTelegramStatus(s) })
+      .catch((err: unknown) => {
+        toastOnce('telegram', err instanceof Error ? err.message : 'Failed to fetch Telegram status')
+      })
     poll()
     const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
@@ -150,10 +163,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     const poll = () =>
       sb.swarm.buildMonitor.status(projectPath)
         .then((s: { enabled: boolean; running: boolean; error?: string }) => {
+          clearPollError('buildMonitor')
           if (s && !s.error) setBuildMonitor(prev => ({ ...prev, enabled: s.enabled, running: s.running }))
         })
         .catch((err: unknown) => {
-          showToast(err instanceof Error ? err.message : 'Failed to fetch build monitor status', { variant: 'error' })
+          toastOnce('buildMonitor', err instanceof Error ? err.message : 'Failed to fetch build monitor status')
         })
     poll()
     const interval = setInterval(poll, 5000)
@@ -180,9 +194,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
   // Poll knowledge entries
   useEffect(() => {
-    const load = () => sb.swarm.knowledge(projectPath, 100).then(setKnowledge).catch((err: unknown) => {
-      showToast(err instanceof Error ? err.message : 'Failed to load knowledge entries', { variant: 'error' })
-    })
+    const load = () => sb.swarm.knowledge(projectPath, 100)
+      .then(k => { clearPollError('knowledge'); setKnowledge(k) })
+      .catch((err: unknown) => {
+        toastOnce('knowledge', err instanceof Error ? err.message : 'Failed to load knowledge entries')
+      })
     load()
     const interval = setInterval(load, 5000)
     return () => clearInterval(interval)

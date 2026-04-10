@@ -90,7 +90,8 @@ beforeEach(() => {
 describe('SwarmPage', () => {
   test('renders page header', () => {
     const html = renderSwarmPage()
-    expect(html).toContain('Slashbot Swarm')
+    expect(html).toContain('swarm-page')
+    expect(html).toContain('Swarm')
   })
 
   test('renders start swarm button when not running', () => {
@@ -100,7 +101,7 @@ describe('SwarmPage', () => {
 
   test('renders overview tab with empty state', () => {
     const html = renderSwarmPage()
-    expect(html).toContain('overview-grid')
+    expect(html).toContain('swarm-content')
     expect(html).toContain('No agents running')
   })
 })
@@ -176,12 +177,16 @@ describe('Activity tab with activity events', () => {
     ]
     const html = renderSwarmPage({ activity: events })
     // Knowledge is fetched async (empty during SSR), so merged feed = activity count
-    expect(html).toContain('Activity (2)')
+    // Count badge uses swarm-tab-count span, not "(N)" text format
+    expect(html).toContain('swarm-tab-count')
+    expect(html).toContain('>2<')
   })
 
-  test('tab label shows 0 when no activity or knowledge', () => {
+  test('tab label shows no count badge when no activity or knowledge', () => {
     const html = renderSwarmPage()
-    expect(html).toContain('Activity (0)')
+    // When count is 0, badge is not rendered — only the label text appears
+    expect(html).toContain('Activity')
+    expect(html).not.toContain('swarm-tab-count')
   })
 })
 
