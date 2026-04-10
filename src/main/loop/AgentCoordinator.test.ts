@@ -1232,6 +1232,7 @@ describe('AgentCoordinator — completeBead and failBead', () => {
   it('failBead calls bd.addLabel + bd.close, releases files, and logs activity', async () => {
     const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
     const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'rememberAsync').mockResolvedValue({ action: 'remembered', key: 'failure-b1', value: '' })
 
     coord.reserveFiles('agent-0', 'b1', ['a.ts'])
     await coord.failBead('agent-0', 'b1', 'merge conflict')
@@ -1815,6 +1816,7 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     })
     const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
     const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'rememberAsync').mockResolvedValue({ action: 'remembered', key: 'failure-b1', value: '' })
 
     await coord.failBead('agent-0', 'b1', 'timeout')
 
@@ -1826,11 +1828,86 @@ describe('AgentCoordinator — idempotent bead operations', () => {
     vi.spyOn(coord.bd, 'showAsync').mockRejectedValue(new Error('not found'))
     const addLabelSpy = vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
     const closeSpy = vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'rememberAsync').mockResolvedValue({ action: 'remembered', key: 'failure-b1', value: '' })
 
     await coord.failBead('agent-0', 'b1', 'timeout')
 
     expect(addLabelSpy).toHaveBeenCalled()
     expect(closeSpy).toHaveBeenCalled()
+  })
+})
+
+describe('AgentCoordinator — failBead remembers failures', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('failBead calls bd.rememberAsync with failure summary and bead key', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
+      id: 'b1', title: 'Fix login bug', description: '', type: 'task',
+      status: 'claimed', deps: [], files: [], priority: 2, tags: []
+    })
+    vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
+    const rememberSpy = vi.spyOn(coord.bd, 'rememberAsync').mockResolvedValue({
+      action: 'remembered', key: 'failure-b1', value: ''
+    })
+
+    await coord.failBead('agent-0', 'b1', 'merge_failed after 3 attempts')
+
+    expect(rememberSpy).toHaveBeenCalledWith(
+      'Bead [b1] Fix login bug failed: merge_failed after 3 attempts',
+      'failure-b1'
+    )
+  })
+
+  it('failBead remembers without title when showAsync throws', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockRejectedValue(new Error('not found'))
+    vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
+    const rememberSpy = vi.spyOn(coord.bd, 'rememberAsync').mockResolvedValue({
+      action: 'remembered', key: 'failure-b1', value: ''
+    })
+
+    await coord.failBead('agent-0', 'b1', 'execute_failed after 3 attempts')
+
+    expect(rememberSpy).toHaveBeenCalledWith(
+      'Bead [b1] failed: execute_failed after 3 attempts',
+      'failure-b1'
+    )
+  })
+
+  it('failBead does not throw when bd.rememberAsync fails', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'claimed', deps: [], files: [], priority: 2, tags: []
+    })
+    vi.spyOn(coord.bd, 'addLabelAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'closeAsync').mockResolvedValue(undefined)
+    vi.spyOn(coord.bd, 'rememberAsync').mockRejectedValue(new Error('bd crashed'))
+
+    await expect(coord.failBead('agent-0', 'b1', 'timeout')).resolves.toBeUndefined()
+  })
+
+  it('failBead does not record memory when bead is already failed', async () => {
+    vi.spyOn(coord.bd, 'showAsync').mockResolvedValue({
+      id: 'b1', title: 'Test', description: '', type: 'task',
+      status: 'failed', deps: [], files: [], priority: 2, tags: ['failed']
+    })
+    const rememberSpy = vi.spyOn(coord.bd, 'rememberAsync').mockResolvedValue({
+      action: 'remembered', key: 'failure-b1', value: ''
+    })
+
+    coord.reserveFiles('agent-0', 'b1', ['a.ts'])
+    await coord.failBead('agent-0', 'b1', 'timeout')
+
+    expect(rememberSpy).not.toHaveBeenCalled()
   })
 })
 

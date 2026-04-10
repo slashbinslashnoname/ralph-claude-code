@@ -1516,8 +1516,10 @@ export class AgentCoordinator {
 
   async failBead(agentId: string, beadId: string, reason: string): Promise<void> {
     // Idempotency: skip if bead is already failed
+    let beadTitle: string | undefined
     try {
       const current = await this.bd.showAsync(beadId)
+      beadTitle = current?.title
       if (current?.status === 'failed') {
         this.releaseFiles(agentId, beadId)
         this.postActivity({ agentId, type: 'failed', beadId, summary: `${reason} (already failed)` })
@@ -1529,6 +1531,24 @@ export class AgentCoordinator {
     await this._bdRetry(() => this.bd.closeAsync(beadId, `Failed: ${reason}`), `failBead:close(${beadId})`)
     this.releaseFiles(agentId, beadId)
     this.postActivity({ agentId, type: 'failed', beadId, summary: reason })
+
+    // Record failure as a bd memory so future agents can learn from it
+    await this._rememberFailure(beadId, beadTitle, reason)
+  }
+
+  /**
+   * Record a bead failure as a bd memory for institutional learning.
+   * Best-effort: failures to remember are logged but do not block the caller.
+   */
+  private async _rememberFailure(beadId: string, beadTitle: string | undefined, reason: string): Promise<void> {
+    const label = beadTitle ? `[${beadId}] ${beadTitle}` : `[${beadId}]`
+    const memoryText = `Bead ${label} failed: ${reason}`
+    const memoryKey = `failure-${beadId}`
+    try {
+      await this.bd.rememberAsync(memoryText, memoryKey)
+    } catch (err) {
+      this._log('WARN', `Failed to record failure memory for bead [${beadId}]: ${err}`)
+    }
   }
 
   /** Remove worktree directories not owned by any registered agent. */
