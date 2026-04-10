@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import * as cp from 'child_process'
 import { RalphConfig, Bead } from '../types'
@@ -776,6 +777,16 @@ export class WorkerLoop extends EventEmitter {
     return parts.join('\n')
   }
 
+  /**
+   * Compute the Claude Code memory directory for the main project (not the worktree).
+   * Claude Code encodes paths by replacing '/' with '-', so /Users/foo/project → -Users-foo-project.
+   * Returns the absolute path to the memory directory.
+   */
+  _getClaudeMemoryPath(): string {
+    const encoded = this.projectPath.replace(/\//g, '-')
+    return path.join(os.homedir(), '.claude', 'projects', encoded, 'memory')
+  }
+
   private _buildKnowledgeContext(beadId: string): string {
     try {
       const entries = this.coordinator.readKnowledge()
@@ -806,6 +817,19 @@ export class WorkerLoop extends EventEmitter {
       }
     } catch { /* ignore — memories are optional context */ }
 
+    // Load shared Claude Code memory from the main project (not the worktree)
+    let claudeMemoryCtx = ''
+    try {
+      const memDir = this._getClaudeMemoryPath()
+      const memIndex = path.join(memDir, 'MEMORY.md')
+      if (fs.existsSync(memIndex)) {
+        const content = fs.readFileSync(memIndex, 'utf8').trim()
+        if (content) {
+          claudeMemoryCtx = `\n### Shared Project Memory\nThe following memory index was saved by previous agents. Review it for project context:\n\n${content}`
+        }
+      }
+    } catch { /* ignore — memory is optional context */ }
+
     let commentsCtx = ''
     try {
       const comments = this.coordinator.bd.comments(bead.id)
@@ -833,6 +857,7 @@ export class WorkerLoop extends EventEmitter {
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       parentCtx,
       memoriesCtx,
+      claudeMemoryCtx,
       commentsCtx,
       siblingBeadsCtx,
       knowledgeCtx,
@@ -842,7 +867,7 @@ export class WorkerLoop extends EventEmitter {
       `1. Run \`bd show ${bead.id}\` to read the full bead details`,
       `2. Read relevant source files and understand the project's conventions`,
       `3. Identify which files need to change and what risks exist`,
-      `4. Note any relevant memory context or coordination concerns`,
+      `4. Check the shared project memory at \`${this._getClaudeMemoryPath()}/MEMORY.md\` for context from previous agents`,
       `\n**Output a brief structured summary (3-5 bullet points per section):**`,
       `- ### Understanding — what this bead should accomplish`,
       `- ### Files — which files to create or modify`,
@@ -911,6 +936,32 @@ export class WorkerLoop extends EventEmitter {
       `Implement this bead completely.`,
       `Verify your changes work as expected. Commit all changes when done with a descriptive commit message.`,
       ``,
+      `\n### Memory — save context for future agents`,
+      `After completing your work, save important discoveries to the shared project memory so future agents have context.`,
+      `The memory directory is: \`${this._getClaudeMemoryPath()}\``,
+      ``,
+      `1. Create the directory if it doesn't exist: \`mkdir -p "${this._getClaudeMemoryPath()}"\``,
+      `2. Write a \`MEMORY.md\` index file and individual memory files using this format:`,
+      ``,
+      `**Individual memory file** (e.g. \`project_architecture.md\`):`,
+      '```markdown',
+      `---`,
+      `name: <memory name>`,
+      `description: <one-line description>`,
+      `type: <user|feedback|project|reference>`,
+      `---`,
+      ``,
+      `<memory content>`,
+      '```',
+      ``,
+      `**MEMORY.md** (index file — one line per memory, under 150 chars each):`,
+      '```markdown',
+      `- [Title](file.md) — one-line hook`,
+      '```',
+      ``,
+      `**What to save**: architectural patterns, gotchas, conventions, environment details, or coordination concerns you discovered.`,
+      `**What NOT to save**: code patterns derivable from reading the code, git history, or ephemeral task details.`,
+      `If no new discoveries worth persisting, skip this step.`,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
   }

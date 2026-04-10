@@ -677,6 +677,39 @@ describe('WorkerLoop', () => {
       expect(prompt).toContain('Do NOT run `bd close`')
       expect(prompt).toContain('bd show sb-rev')
     })
+
+    it('_getClaudeMemoryPath computes correct path from project root', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/Users/dev/myproject', makeConfig(), makeCoordinator(), makePaths())
+      const memPath = (worker as any)._getClaudeMemoryPath()
+      expect(memPath).toContain('.claude/projects/-Users-dev-myproject/memory')
+    })
+
+    it('_buildThinkingPrompt includes shared memory path', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('.claude/projects/-project/memory/MEMORY.md')
+    })
+
+    it('_buildThinkingPrompt includes shared memory content when MEMORY.md exists', () => {
+      ;(fs.existsSync as any).mockImplementation((p: unknown) => {
+        const s = String(p)
+        return s.includes('MEMORY.md') && s.includes('.claude/projects')
+      })
+      ;(fs.readFileSync as any).mockReturnValue('- [Arch](arch.md) — project uses electron-vite')
+
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+      const prompt = (worker as any)._buildThinkingPrompt(makeBead())
+      expect(prompt).toContain('Shared Project Memory')
+      expect(prompt).toContain('electron-vite')
+    })
+
+    it('_buildExecutePrompt includes memory writing instructions', () => {
+      const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
+      const prompt = (worker as any)._buildExecutePrompt(makeBead(), '')
+      expect(prompt).toContain('Memory — save context for future agents')
+      expect(prompt).toContain('.claude/projects/-project/memory')
+      expect(prompt).toContain('MEMORY.md')
+    })
   })
 
   describe('_buildParentContext', () => {
