@@ -535,13 +535,13 @@ describe('WorkerLoop', () => {
       expect(prompt).toContain('"dependsOn"')
     })
 
-    it('Split Analysis section appears after Test strategy', () => {
+    it('Split Analysis section appears after Risks', () => {
       const worker = new WorkerLoop('agent-0', 0, '/project', makeConfig(), makeCoordinator(), makePaths())
       const prompt = (worker as any)._buildThinkingPrompt(makeBead())
-      const testIdx = prompt.indexOf('### Test strategy')
+      const risksIdx = prompt.indexOf('### Risks')
       const splitIdx = prompt.indexOf('### Split Analysis')
-      expect(testIdx).toBeGreaterThan(-1)
-      expect(splitIdx).toBeGreaterThan(testIdx)
+      expect(risksIdx).toBeGreaterThan(-1)
+      expect(splitIdx).toBeGreaterThan(risksIdx)
     })
 
     it('Split Analysis schema includes title, description, files, dependsOn for children', () => {
