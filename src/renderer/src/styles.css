@@ -998,6 +998,9 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .activity-summary { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .activity-files { font-size: 11px; color: var(--text-2); padding: 1px 6px; background: var(--bg-3); border-radius: 3px; }
 .activity-branch { font-family: var(--font); font-size: 10px; color: var(--accent); padding: 1px 6px; background: var(--accent-glow); border-radius: 3px; }
+.activity-controls .input-sm { padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-2); color: var(--text-1); }
+.activity-item.activity-older { opacity: 0.6; }
+.activity-older-section { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
 
 /* ── Agent Thinking ──────────────────────────────────────────────────────── */
 .agent-thinking {

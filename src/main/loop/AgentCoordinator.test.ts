@@ -1871,7 +1871,10 @@ describe('AgentCoordinator — activity log rotation', () => {
   })
 
   const activityFile = () => tmpPaths.activity
-  const rotatedFile = () => activityFile() + '.1'
+  const datedArchive = () => {
+    const date = new Date().toISOString().slice(0, 10)
+    return path.join(path.dirname(activityFile()), `activity-${date}.jsonl`)
+  }
   const event = (i: number) => ({ agentId: 'a0', type: 'started' as const, beadId: `b${i}` })
 
   it('does not rotate before 50 writes', () => {
@@ -1883,18 +1886,20 @@ describe('AgentCoordinator — activity log rotation', () => {
     }
     // File should still exist (not rotated), no .1 backup
     expect(fs.existsSync(activityFile())).toBe(true)
-    expect(fs.existsSync(rotatedFile())).toBe(false)
+    expect(fs.existsSync(datedArchive())).toBe(false)
   })
 
-  it('rotates at 50 writes when file > 1 MB', () => {
+  it('archives to dated JSONL at 50 writes when file > 1 MB', () => {
     // Seed the file with > 1 MB of data
     fs.writeFileSync(activityFile(), 'x'.repeat(2_000_000))
-    // 50 writes should trigger rotation
+    // 50 writes should trigger archival
     for (let i = 0; i < 50; i++) {
       coord.postActivity(event(i))
     }
-    expect(fs.existsSync(rotatedFile())).toBe(true)
-    // The original file is gone (renamed), but new writes will recreate it
+    expect(fs.existsSync(datedArchive())).toBe(true)
+    // The original file is truncated (not deleted)
+    expect(fs.existsSync(activityFile())).toBe(true)
+    expect(fs.readFileSync(activityFile(), 'utf8')).toBe('')
   })
 
   it('does not rotate at 50 writes when file <= 1 MB', () => {
@@ -1902,7 +1907,7 @@ describe('AgentCoordinator — activity log rotation', () => {
     for (let i = 0; i < 50; i++) {
       coord.postActivity(event(i))
     }
-    expect(fs.existsSync(rotatedFile())).toBe(false)
+    expect(fs.existsSync(datedArchive())).toBe(false)
     expect(fs.existsSync(activityFile())).toBe(true)
   })
 
@@ -1911,7 +1916,7 @@ describe('AgentCoordinator — activity log rotation', () => {
     for (let i = 0; i < 50; i++) {
       coord.postActivity(event(i))
     }
-    expect(fs.existsSync(rotatedFile())).toBe(false)
+    expect(fs.existsSync(datedArchive())).toBe(false)
 
     // Now inflate the file to > 1 MB
     fs.writeFileSync(activityFile(), 'x'.repeat(2_000_000))
@@ -1920,7 +1925,7 @@ describe('AgentCoordinator — activity log rotation', () => {
     for (let i = 50; i < 100; i++) {
       coord.postActivity(event(i))
     }
-    expect(fs.existsSync(rotatedFile())).toBe(true)
+    expect(fs.existsSync(datedArchive())).toBe(true)
   })
 
   it('in-memory cache is unaffected by rotation', () => {
@@ -1929,10 +1934,120 @@ describe('AgentCoordinator — activity log rotation', () => {
       coord.postActivity(event(i))
     }
     // Rotation happened
-    expect(fs.existsSync(rotatedFile())).toBe(true)
+    expect(fs.existsSync(datedArchive())).toBe(true)
     // But in-memory cache still has all events
     const activity = coord.readActivity(100)
     expect(activity.length).toBe(50)
+  })
+})
+
+describe('AgentCoordinator — activity archival and history', () => {
+  beforeEach(() => {
+    tmpDir = makeTmpGitProject()
+    tmpPaths = makeTmpPaths(tmpDir)
+    coord = new AgentCoordinator(tmpPaths)
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('listActivityArchives returns dated files sorted newest-first', () => {
+    const dir = path.dirname(tmpPaths.activity)
+    fs.writeFileSync(path.join(dir, 'activity-2026-04-08.jsonl'), '')
+    fs.writeFileSync(path.join(dir, 'activity-2026-04-10.jsonl'), '')
+    fs.writeFileSync(path.join(dir, 'activity-2026-04-09.jsonl'), '')
+    fs.writeFileSync(path.join(dir, 'unrelated.jsonl'), '')
+    const archives = coord.listActivityArchives()
+    expect(archives).toEqual([
+      'activity-2026-04-10.jsonl',
+      'activity-2026-04-09.jsonl',
+      'activity-2026-04-08.jsonl',
+    ])
+  })
+
+  it('listActivityArchives returns empty when no archives exist', () => {
+    expect(coord.listActivityArchives()).toEqual([])
+  })
+
+  it('readActivityHistory reads from archive files newest-first', () => {
+    const dir = path.dirname(tmpPaths.activity)
+    const events = [
+      { ts: '2026-04-08T10:00:00Z', agentId: 'a0', type: 'started', summary: 'old' },
+      { ts: '2026-04-08T11:00:00Z', agentId: 'a0', type: 'completed', summary: 'old-done' },
+    ]
+    fs.writeFileSync(
+      path.join(dir, 'activity-2026-04-08.jsonl'),
+      events.map(e => JSON.stringify(e)).join('\n') + '\n'
+    )
+    const result = coord.readActivityHistory(undefined, 10)
+    expect(result.length).toBe(2)
+    // newest first within the archive
+    expect(result[0].summary).toBe('old-done')
+    expect(result[1].summary).toBe('old')
+  })
+
+  it('readActivityHistory respects the before parameter', () => {
+    const dir = path.dirname(tmpPaths.activity)
+    const events = [
+      { ts: '2026-04-08T10:00:00Z', agentId: 'a0', type: 'started', summary: 'before' },
+      { ts: '2026-04-08T14:00:00Z', agentId: 'a0', type: 'completed', summary: 'after' },
+    ]
+    fs.writeFileSync(
+      path.join(dir, 'activity-2026-04-08.jsonl'),
+      events.map(e => JSON.stringify(e)).join('\n') + '\n'
+    )
+    const result = coord.readActivityHistory('2026-04-08T12:00:00Z', 10)
+    expect(result.length).toBe(1)
+    expect(result[0].summary).toBe('before')
+  })
+
+  it('readActivityHistory respects the limit parameter', () => {
+    const dir = path.dirname(tmpPaths.activity)
+    const events = Array.from({ length: 10 }, (_, i) => ({
+      ts: `2026-04-08T${String(i).padStart(2, '0')}:00:00Z`,
+      agentId: 'a0',
+      type: 'started',
+      summary: `event-${i}`,
+    }))
+    fs.writeFileSync(
+      path.join(dir, 'activity-2026-04-08.jsonl'),
+      events.map(e => JSON.stringify(e)).join('\n') + '\n'
+    )
+    const result = coord.readActivityHistory(undefined, 3)
+    expect(result.length).toBe(3)
+  })
+
+  it('readActivityHistory skips corrupt lines', () => {
+    const dir = path.dirname(tmpPaths.activity)
+    const content = [
+      JSON.stringify({ ts: '2026-04-08T10:00:00Z', agentId: 'a0', type: 'started', summary: 'good' }),
+      'not-json',
+      JSON.stringify({ ts: '2026-04-08T11:00:00Z', agentId: 'a0', type: 'completed', summary: 'also-good' }),
+    ].join('\n') + '\n'
+    fs.writeFileSync(path.join(dir, 'activity-2026-04-08.jsonl'), content)
+    const result = coord.readActivityHistory(undefined, 10)
+    expect(result.length).toBe(2)
+  })
+
+  it('readActivityHistory reads across multiple archive files', () => {
+    const dir = path.dirname(tmpPaths.activity)
+    fs.writeFileSync(
+      path.join(dir, 'activity-2026-04-09.jsonl'),
+      JSON.stringify({ ts: '2026-04-09T10:00:00Z', agentId: 'a0', type: 'started', summary: 'newer' }) + '\n'
+    )
+    fs.writeFileSync(
+      path.join(dir, 'activity-2026-04-08.jsonl'),
+      JSON.stringify({ ts: '2026-04-08T10:00:00Z', agentId: 'a0', type: 'started', summary: 'older' }) + '\n'
+    )
+    const result = coord.readActivityHistory(undefined, 10)
+    expect(result.length).toBe(2)
+    expect(result[0].summary).toBe('newer')
+    expect(result[1].summary).toBe('older')
+  })
+
+  it('readActivityHistory returns empty when no archives exist', () => {
+    expect(coord.readActivityHistory(undefined, 10)).toEqual([])
   })
 })
 

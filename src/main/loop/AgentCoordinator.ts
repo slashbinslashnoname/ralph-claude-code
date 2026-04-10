@@ -251,16 +251,21 @@ export class AgentCoordinator {
         try { fs.closeSync(fd) } catch { /* avoid fd leak */ }
       }
     }
-    // Rotate activity log when it exceeds 1 MB (checked every 50 writes)
+    // Archive activity to dated JSONL when file exceeds 1 MB (checked every 50 writes)
     this._activityWriteCount++
     if (this._activityWriteCount >= AgentCoordinator.ROTATION_CHECK_INTERVAL) {
       this._activityWriteCount = 0
       try {
         const stat = fs.statSync(this.activityFile)
         if (stat.size > AgentCoordinator.ROTATION_SIZE) {
-          fs.renameSync(this.activityFile, this.activityFile + '.1')
+          const date = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+          const archivePath = path.join(path.dirname(this.activityFile), `activity-${date}.jsonl`)
+          // Append current activity to the dated archive, then truncate
+          const content = fs.readFileSync(this.activityFile, 'utf8')
+          fs.appendFileSync(archivePath, content)
+          fs.writeFileSync(this.activityFile, '')
         }
-      } catch { /* best-effort rotation */ }
+      } catch { /* best-effort archival */ }
     }
   }
 
@@ -278,6 +283,39 @@ export class AgentCoordinator {
     const list = this._activityByAgent.get(agentId)
     if (!list) return []
     return list.slice(-limit)
+  }
+
+  /** List available dated archive files, newest first. */
+  listActivityArchives(): string[] {
+    const dir = path.dirname(this.activityFile)
+    try {
+      return fs.readdirSync(dir)
+        .filter(f => /^activity-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
+        .sort()
+        .reverse()
+    } catch { return [] }
+  }
+
+  /** Read events from archived dated JSONL files. Returns events newest-first. */
+  readActivityHistory(before: string | undefined, limit: number): ActivityEvent[] {
+    const archives = this.listActivityArchives()
+    const results: ActivityEvent[] = []
+    for (const archive of archives) {
+      if (results.length >= limit) break
+      const filePath = path.join(path.dirname(this.activityFile), archive)
+      try {
+        const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(Boolean)
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const event: ActivityEvent = JSON.parse(lines[i])
+            if (before && event.ts >= before) continue
+            results.push(event)
+            if (results.length >= limit) break
+          } catch { /* skip corrupt */ }
+        }
+      } catch { /* skip unreadable */ }
+    }
+    return results
   }
 
   // ── Knowledge log ─────────────────────────────────────────────────────────

@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('slashbot', {
       ipcRenderer.invoke('swarm:activity-for-bead', projectPath, beadId, limit ?? 50),
     activityForAgent: (projectPath: string, agentId: string, limit?: number) =>
       ipcRenderer.invoke('swarm:activity-for-agent', projectPath, agentId, limit ?? 50),
+    activityHistory: (projectPath: string, before?: string, limit?: number) =>
+      ipcRenderer.invoke('swarm:activity-history', projectPath, before, limit ?? 50),
     knowledge: (projectPath: string, limit?: number) =>
       ipcRenderer.invoke('swarm:knowledge', projectPath, limit ?? 50),
     agentOutput: (projectPath: string, agentId: string) =>

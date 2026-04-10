@@ -40,6 +40,7 @@ import {
   validateSwarmBeadStats,
   validateSwarmAgentLogs,
   validateSwarmActivity,
+  validateSwarmActivityHistory,
   validateSwarmAgentOutput,
   validateSwarmAgentLogContent,
   validateSwarmPauseResume,
@@ -894,6 +895,16 @@ export function registerIpc(
       const v = validateSwarmActivityForAgent(projectPath, agentId, limit)
       const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
       return swarm.getActivityForAgent(v.agentId, v.limit)
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('swarm:activity-history', (_e, projectPath: unknown, before: unknown, limit: unknown) => {
+    try {
+      const v = validateSwarmActivityHistory(projectPath, before, limit)
+      const swarm = swarms.get(v.projectPath) ?? getOrCreateSwarm(v.projectPath)
+      return swarm.getActivityHistory(v.before, v.limit)
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }

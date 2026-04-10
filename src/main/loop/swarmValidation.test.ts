@@ -25,6 +25,7 @@ import {
   validateSwarmBuildMonitorStatus,
   validateSwarmActivityForBead,
   validateSwarmActivityForAgent,
+  validateSwarmActivityHistory,
 } from './swarmValidation'
 
 // ── validateWorkerCount ────────────────────────────────────────────────────
@@ -545,6 +546,46 @@ describe('validateSwarmActivityForAgent', () => {
   it('rejects invalid limit', () => {
     expect(() => validateSwarmActivityForAgent('/path', 'worker-0', 0)).toThrow(/between 1 and 1000/)
     expect(() => validateSwarmActivityForAgent('/path', 'worker-0', 1001)).toThrow(/between 1 and 1000/)
+  })
+})
+
+// ── validateSwarmActivityHistory ─────────────────────────────────────────
+
+describe('validateSwarmActivityHistory', () => {
+  it('validates projectPath, before, and limit', () => {
+    const result = validateSwarmActivityHistory('/path', '2026-04-08T10:00:00Z', 100)
+    expect(result).toEqual({ projectPath: '/path', before: '2026-04-08T10:00:00Z', limit: 100 })
+  })
+
+  it('allows undefined before', () => {
+    const result = validateSwarmActivityHistory('/path', undefined, 50)
+    expect(result).toEqual({ projectPath: '/path', before: undefined, limit: 50 })
+  })
+
+  it('allows null before (treated as undefined)', () => {
+    const result = validateSwarmActivityHistory('/path', null, 50)
+    expect(result).toEqual({ projectPath: '/path', before: undefined, limit: 50 })
+  })
+
+  it('uses default limit when undefined', () => {
+    const result = validateSwarmActivityHistory('/path', undefined, undefined)
+    expect(result.limit).toBe(50)
+  })
+
+  it('rejects invalid projectPath', () => {
+    expect(() => validateSwarmActivityHistory('', undefined, 50)).toThrow(/projectPath/)
+  })
+
+  it('rejects empty string before', () => {
+    expect(() => validateSwarmActivityHistory('/path', '', 50)).toThrow(/non-empty ISO timestamp/)
+  })
+
+  it('rejects non-string before', () => {
+    expect(() => validateSwarmActivityHistory('/path', 123, 50)).toThrow(/non-empty ISO timestamp/)
+  })
+
+  it('rejects invalid limit', () => {
+    expect(() => validateSwarmActivityHistory('/path', undefined, 0)).toThrow(/between 1 and 1000/)
   })
 })
 

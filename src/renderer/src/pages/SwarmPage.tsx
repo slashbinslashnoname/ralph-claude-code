@@ -134,6 +134,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
   const [buildMonitor, setBuildMonitor] = useState<BuildMonitorStatus>({ enabled: false, running: false })
   const [swarmPhase, setSwarmPhase] = useState<SwarmPhase>('idle')
   const [stopElapsed, setStopElapsed] = useState(0)
+  const [activitySearch, setActivitySearch] = useState('')
+  const [activityAgentFilter, setActivityAgentFilter] = useState<string>('all')
+  const [showOlderEvents, setShowOlderEvents] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [historyExhausted, setHistoryExhausted] = useState(false)
 
   // Initial load + polling (status/agents/stats only — not activity)
   useEffect(() => {
@@ -387,6 +392,16 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     | { kind: 'activity'; ts: string; data: ActivityEvent }
     | { kind: 'knowledge'; ts: string; data: KnowledgeEntry }
 
+  const twentyFourHoursAgo = useMemo(() => new Date(Date.now() - 86_400_000).toISOString(), [])
+
+  /** All unique agent IDs from current activity for the filter dropdown. */
+  const activityAgentIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const e of activity) ids.add(e.agentId)
+    for (const k of knowledge) ids.add(k.agentId)
+    return Array.from(ids).sort()
+  }, [activity, knowledge])
+
   const mergedFeed = useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [
       ...activity.map(e => ({ kind: 'activity' as const, ts: e.ts, data: e })),
@@ -395,6 +410,68 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     items.sort((a, b) => b.ts.localeCompare(a.ts)) // newest first
     return items.slice(0, 200)
   }, [activity, knowledge])
+
+  /** Feed after applying search, agent filter, and 24h collapse. */
+  const filteredFeed = useMemo(() => {
+    const searchLower = activitySearch.toLowerCase().trim()
+    let items = mergedFeed
+
+    // Agent filter
+    if (activityAgentFilter !== 'all') {
+      items = items.filter(item => item.data.agentId === activityAgentFilter)
+    }
+
+    // Text search
+    if (searchLower) {
+      items = items.filter(item => {
+        if (item.kind === 'activity') {
+          const e = item.data as ActivityEvent
+          return (
+            e.type.includes(searchLower) ||
+            (e.agentId && e.agentId.toLowerCase().includes(searchLower)) ||
+            (e.beadId && e.beadId.toLowerCase().includes(searchLower)) ||
+            (e.beadTitle && e.beadTitle.toLowerCase().includes(searchLower)) ||
+            (e.summary && e.summary.toLowerCase().includes(searchLower)) ||
+            (e.branch && e.branch.toLowerCase().includes(searchLower))
+          )
+        }
+        const k = item.data as KnowledgeEntry
+        return (
+          k.category.includes(searchLower) ||
+          (k.agentId && k.agentId.toLowerCase().includes(searchLower)) ||
+          (k.summary && k.summary.toLowerCase().includes(searchLower)) ||
+          (k.detail && k.detail.toLowerCase().includes(searchLower))
+        )
+      })
+    }
+
+    // 24h collapse: split into recent and older
+    const recent = items.filter(i => i.ts >= twentyFourHoursAgo)
+    const older = items.filter(i => i.ts < twentyFourHoursAgo)
+    return { recent, older }
+  }, [mergedFeed, activitySearch, activityAgentFilter, twentyFourHoursAgo])
+
+  const loadMoreHistory = useCallback(async () => {
+    if (loadingHistory || historyExhausted) return
+    setLoadingHistory(true)
+    try {
+      const oldest = activity.length > 0 ? activity[0].ts : undefined
+      const older: ActivityEvent[] = await sb.swarm.activityHistory(projectPath, oldest, 100)
+      if (older.length === 0) {
+        setHistoryExhausted(true)
+      } else {
+        setActivity(prev => {
+          const existing = new Set(prev.map(e => `${e.ts}:${e.agentId}:${e.type}`))
+          const deduped = older.filter(e => !existing.has(`${e.ts}:${e.agentId}:${e.type}`))
+          return [...deduped, ...prev]
+        })
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to load activity history', { variant: 'error' })
+    } finally {
+      setLoadingHistory(false)
+    }
+  }, [projectPath, activity, loadingHistory, historyExhausted, setActivity, showToast])
 
   const activityIcon = (type: string) => {
     switch (type) {
@@ -703,7 +780,28 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
 
         {activeTab === 'activity' && (
           <div className="activity-list" ref={activityRef}>
-            {mergedFeed.map((item, i) => {
+            <div className="activity-controls" style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <input
+                type="text"
+                className="input input-sm"
+                placeholder="Search activity\u2026"
+                value={activitySearch}
+                onChange={e => setActivitySearch(e.target.value)}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              <select
+                className="input input-sm"
+                value={activityAgentFilter}
+                onChange={e => setActivityAgentFilter(e.target.value)}
+                style={{ width: 'auto', minWidth: 120 }}
+              >
+                <option value="all">All agents</option>
+                {activityAgentIds.map(id => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+            </div>
+            {filteredFeed.recent.map((item, i) => {
               if (item.kind === 'knowledge') {
                 const k = item.data as KnowledgeEntry
                 return (
@@ -740,11 +838,64 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                 </div>
               )
             })}
-            {mergedFeed.length === 0 && (
+            {filteredFeed.older.length > 0 && (
+              <div className="activity-older-section">
+                <button
+                  className="btn btn-xs btn-ghost"
+                  onClick={() => setShowOlderEvents(prev => !prev)}
+                  style={{ width: '100%', textAlign: 'center', margin: '4px 0' }}
+                >
+                  {showOlderEvents ? 'Hide' : 'Show'} {filteredFeed.older.length} older event{filteredFeed.older.length !== 1 ? 's' : ''} (&gt;24h)
+                </button>
+                {showOlderEvents && filteredFeed.older.map((item, i) => {
+                  if (item.kind === 'knowledge') {
+                    const k = item.data as KnowledgeEntry
+                    return (
+                      <div key={`ok-${k.ts}-${k.agentId}-${i}`} className="activity-item activity-knowledge activity-older">
+                        <span className="activity-icon" title="Knowledge">{'\uD83D\uDCA1'}</span>
+                        <span className="activity-time">{new Date(k.ts).toLocaleString()}</span>
+                        <span className="activity-agent">{k.agentId}</span>
+                        <span className={`badge badge-${knowledgeCategoryColor(k.category)}`}>{k.category}</span>
+                        {k.beadId && <span className="activity-bead">{k.beadId}</span>}
+                        <span className="activity-summary">{k.summary}</span>
+                      </div>
+                    )
+                  }
+                  const e = item.data as ActivityEvent
+                  return (
+                    <div key={`oa-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type} activity-older`}>
+                      <span className="activity-icon">{activityIcon(e.type)}</span>
+                      <span className="activity-time">{new Date(e.ts).toLocaleString()}</span>
+                      <span className="activity-agent">{e.agentId}</span>
+                      <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
+                        {e.type}
+                      </span>
+                      {e.beadId && <span className="activity-bead">{e.beadId}</span>}
+                      {e.summary && <span className="activity-summary">{e.summary}</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {filteredFeed.recent.length === 0 && filteredFeed.older.length === 0 && !activitySearch && activityAgentFilter === 'all' && (
               <div className="empty-state-sm">
                 <p>No activity yet. Start the swarm to see agent work here.</p>
               </div>
             )}
+            {filteredFeed.recent.length === 0 && filteredFeed.older.length === 0 && (activitySearch || activityAgentFilter !== 'all') && (
+              <div className="empty-state-sm">
+                <p>No matching events found.</p>
+              </div>
+            )}
+            <div style={{ textAlign: 'center', margin: '8px 0' }}>
+              <button
+                className="btn btn-xs btn-outline"
+                onClick={loadMoreHistory}
+                disabled={loadingHistory || historyExhausted}
+              >
+                {loadingHistory ? 'Loading\u2026' : historyExhausted ? 'No more history' : 'Load older events'}
+              </button>
+            </div>
           </div>
         )}
 

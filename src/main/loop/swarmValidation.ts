@@ -165,6 +165,23 @@ export function validateSwarmActivityForAgent(projectPath: unknown, agentId: unk
   }
 }
 
+export function validateSwarmActivityHistory(projectPath: unknown, before: unknown, limit: unknown): {
+  projectPath: string; before: string | undefined; limit: number
+} {
+  let b: string | undefined
+  if (before !== undefined && before !== null) {
+    if (typeof before !== 'string' || before.length === 0) {
+      throw new Error('before must be a non-empty ISO timestamp string')
+    }
+    b = before
+  }
+  return {
+    projectPath: validateProjectPath(projectPath),
+    before: b,
+    limit: validateActivityLimit(limit),
+  }
+}
+
 export function validateSwarmAgentOutput(projectPath: unknown, agentId: unknown): {
   projectPath: string; agentId: string
 } {
