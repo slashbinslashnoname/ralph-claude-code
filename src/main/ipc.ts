@@ -644,6 +644,77 @@ export function registerIpc(
     }
   })
 
+  // ── Memories ───────────────────────────────────────────────────────────
+
+  ipcMain.handle('memories:list', async (_e, projectPath: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      return { ok: true, memories: await bd.memoriesAsync() }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), memories: [] }
+    }
+  })
+
+  ipcMain.handle('memories:add', async (_e, projectPath: string, text: string, key?: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('text must be a non-empty string')
+      }
+      if (key !== undefined && (typeof key !== 'string' || key.length === 0)) {
+        throw new Error('key must be a non-empty string when provided')
+      }
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      const result = await bd.rememberAsync(text, key)
+      return { ok: true, result }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('memories:forget', async (_e, projectPath: string, key: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      if (typeof key !== 'string' || key.length === 0) {
+        throw new Error('key must be a non-empty string')
+      }
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      const result = await bd.forgetAsync(key)
+      return { ok: true, result }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // ── Comments ──────────────────────────────────────────────────────────
+
+  ipcMain.handle('comments:list', async (_e, projectPath: string, beadId: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const id = validateBeadId(beadId)
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      return { ok: true, comments: await bd.commentsAsync(id) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), comments: [] }
+    }
+  })
+
+  ipcMain.handle('comments:add', async (_e, projectPath: string, beadId: string, text: string) => {
+    try {
+      const p = validateProjectPath(projectPath)
+      const id = validateBeadId(beadId)
+      if (typeof text !== 'string' || text.length === 0) {
+        throw new Error('text must be a non-empty string')
+      }
+      const bd = new BdClient(getProjectPaths(p).beadsCwd)
+      const comment = await bd.addCommentAsync(id, text)
+      return { ok: true, comment }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   // ── Shell ──────────────────────────────────────────────────────────────
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))

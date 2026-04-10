@@ -106,12 +106,23 @@ vi.mock('./loop/RalphEnabler', () => ({
   enableRalph: mockEnableRalph,
 }))
 
+const mockMemoriesAsync = vi.fn().mockResolvedValue([{ key: 'k1', text: 'v1' }])
+const mockRememberAsync = vi.fn().mockResolvedValue({ action: 'added', key: 'k1', value: 'v1' })
+const mockForgetAsync = vi.fn().mockResolvedValue({ deleted: 'k1', key: 'k1' })
+const mockCommentsAsync = vi.fn().mockResolvedValue([{ id: 'c1', issueId: 'b1', author: 'me', text: 'hello', createdAt: '2026-01-01' }])
+const mockAddCommentAsync = vi.fn().mockResolvedValue({ id: 'c2', issueId: 'b1', author: 'me', text: 'new', createdAt: '2026-01-01' })
+
 vi.mock('./loop/BdClient', () => ({
   BdClient: vi.fn().mockImplementation(() => ({
     check: vi.fn(), listByStatus: vi.fn().mockReturnValue([]),
     listAll: vi.fn().mockReturnValue([]), show: vi.fn(),
     create: vi.fn(), ready: vi.fn().mockReturnValue([]),
     stats: vi.fn().mockReturnValue({}),
+    memoriesAsync: mockMemoriesAsync,
+    rememberAsync: mockRememberAsync,
+    forgetAsync: mockForgetAsync,
+    commentsAsync: mockCommentsAsync,
+    addCommentAsync: mockAddCommentAsync,
   })),
 }))
 
@@ -550,6 +561,91 @@ describe('ipc handlers use centralized ProjectPaths', () => {
       const result = invoke('config:write', '/test/project', { maxCallsPerHour: 100 })
 
       expect(result).toEqual({ ok: false, error: 'no rc' })
+    })
+  })
+
+  // ── Memories IPC handlers ───────────────────────────────────────────────
+
+  describe('memories:list', () => {
+    it('returns memories from BdClient', async () => {
+      const result = await invoke('memories:list', '/test/project')
+      expect(result).toEqual({ ok: true, memories: [{ key: 'k1', text: 'v1' }] })
+      expect(mockMemoriesAsync).toHaveBeenCalled()
+    })
+
+    it('returns error with empty array on failure', async () => {
+      mockMemoriesAsync.mockRejectedValueOnce(new Error('bd failed'))
+      const result = await invoke('memories:list', '/test/project')
+      expect(result).toEqual({ ok: false, error: 'bd failed', memories: [] })
+    })
+  })
+
+  describe('memories:add', () => {
+    it('calls rememberAsync with text and optional key', async () => {
+      const result = await invoke('memories:add', '/test/project', 'my note', 'mykey')
+      expect(result).toEqual({ ok: true, result: { action: 'added', key: 'k1', value: 'v1' } })
+      expect(mockRememberAsync).toHaveBeenCalledWith('my note', 'mykey')
+    })
+
+    it('calls rememberAsync without key when not provided', async () => {
+      const result = await invoke('memories:add', '/test/project', 'my note')
+      expect(result.ok).toBe(true)
+      expect(mockRememberAsync).toHaveBeenCalledWith('my note', undefined)
+    })
+
+    it('rejects empty text', async () => {
+      const result = await invoke('memories:add', '/test/project', '')
+      expect(result).toEqual({ ok: false, error: 'text must be a non-empty string' })
+    })
+
+    it('rejects empty key string', async () => {
+      const result = await invoke('memories:add', '/test/project', 'note', '')
+      expect(result).toEqual({ ok: false, error: 'key must be a non-empty string when provided' })
+    })
+  })
+
+  describe('memories:forget', () => {
+    it('calls forgetAsync with key', async () => {
+      const result = await invoke('memories:forget', '/test/project', 'k1')
+      expect(result).toEqual({ ok: true, result: { deleted: 'k1', key: 'k1' } })
+      expect(mockForgetAsync).toHaveBeenCalledWith('k1')
+    })
+
+    it('rejects empty key', async () => {
+      const result = await invoke('memories:forget', '/test/project', '')
+      expect(result).toEqual({ ok: false, error: 'key must be a non-empty string' })
+    })
+  })
+
+  // ── Comments IPC handlers ──────────────────────────────────────────────
+
+  describe('comments:list', () => {
+    it('returns comments for a bead', async () => {
+      const result = await invoke('comments:list', '/test/project', 'bead-1')
+      expect(result.ok).toBe(true)
+      expect(result.comments).toHaveLength(1)
+      expect(result.comments[0].id).toBe('c1')
+      expect(mockCommentsAsync).toHaveBeenCalledWith('bead-1')
+    })
+
+    it('returns error with empty array on failure', async () => {
+      mockCommentsAsync.mockRejectedValueOnce(new Error('not found'))
+      const result = await invoke('comments:list', '/test/project', 'bead-1')
+      expect(result).toEqual({ ok: false, error: 'not found', comments: [] })
+    })
+  })
+
+  describe('comments:add', () => {
+    it('adds a comment to a bead', async () => {
+      const result = await invoke('comments:add', '/test/project', 'bead-1', 'hello world')
+      expect(result.ok).toBe(true)
+      expect(result.comment.id).toBe('c2')
+      expect(mockAddCommentAsync).toHaveBeenCalledWith('bead-1', 'hello world')
+    })
+
+    it('rejects empty text', async () => {
+      const result = await invoke('comments:add', '/test/project', 'bead-1', '')
+      expect(result).toEqual({ ok: false, error: 'text must be a non-empty string' })
     })
   })
 })
