@@ -958,6 +958,237 @@ describe('BdClient', () => {
     })
   })
 
+  // ── memories ──────────────────────────────────────────────────────────
+
+  describe('memories', () => {
+    it('returns normalized BdMemory array from flat map', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify({
+        'auth-jwt': 'auth module uses JWT not sessions',
+        'dolt-phantoms': 'Dolt phantom DBs hide in three places',
+      }))
+
+      const result = client.memories()
+      expect(result).toHaveLength(2)
+      expect(result).toContainEqual({ key: 'auth-jwt', text: 'auth module uses JWT not sessions' })
+      expect(result).toContainEqual({ key: 'dolt-phantoms', text: 'Dolt phantom DBs hide in three places' })
+
+      const args = syncArgs()
+      expect(args).toContain('memories')
+      expect(args).toContain('--json')
+    })
+
+    it('returns empty array when no memories exist', () => {
+      mockExecFileSync.mockReturnValue('{}')
+      expect(client.memories()).toEqual([])
+    })
+
+    it('returns empty array on error', () => {
+      mockExecFileSync.mockImplementation(() => { throw new Error('fail') })
+      expect(client.memories()).toEqual([])
+    })
+
+    it('returns empty array for non-object response', () => {
+      mockExecFileSync.mockReturnValue('null')
+      expect(client.memories()).toEqual([])
+    })
+  })
+
+  describe('memoriesAsync', () => {
+    it('returns normalized BdMemory array', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify({ 'key-1': 'value-1' }), '')
+        return {} as any
+      })
+
+      const result = await client.memoriesAsync()
+      expect(result).toEqual([{ key: 'key-1', text: 'value-1' }])
+    })
+
+    it('returns empty array on error', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('fail'), '', 'fail')
+        return {} as any
+      })
+
+      expect(await client.memoriesAsync()).toEqual([])
+    })
+  })
+
+  // ── remember ────────────────────────────────────────────────────────
+
+  describe('remember', () => {
+    it('stores a memory without key', () => {
+      const response = { action: 'remembered', key: 'auto-key', value: 'test insight' }
+      mockExecFileSync.mockReturnValue(JSON.stringify(response))
+
+      const result = client.remember('test insight')
+      expect(result).toEqual(response)
+
+      const args = syncArgs()
+      expect(args).toEqual(['remember', 'test insight', '--json'])
+    })
+
+    it('stores a memory with explicit key', () => {
+      const response = { action: 'remembered', key: 'my-key', value: 'test insight' }
+      mockExecFileSync.mockReturnValue(JSON.stringify(response))
+
+      const result = client.remember('test insight', 'my-key')
+      expect(result).toEqual(response)
+
+      const args = syncArgs()
+      expect(args).toEqual(['remember', 'test insight', '--key', 'my-key', '--json'])
+    })
+  })
+
+  describe('rememberAsync', () => {
+    it('stores a memory asynchronously', async () => {
+      const response = { action: 'remembered', key: 'k', value: 'v' }
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify(response), '')
+        return {} as any
+      })
+
+      const result = await client.rememberAsync('v', 'k')
+      expect(result).toEqual(response)
+
+      const args = asyncArgs()
+      expect(args).toEqual(['remember', 'v', '--key', 'k', '--json'])
+    })
+  })
+
+  // ── forget ──────────────────────────────────────────────────────────
+
+  describe('forget', () => {
+    it('removes a memory by key', () => {
+      const response = { deleted: 'true', key: 'old-key' }
+      mockExecFileSync.mockReturnValue(JSON.stringify(response))
+
+      const result = client.forget('old-key')
+      expect(result).toEqual(response)
+
+      const args = syncArgs()
+      expect(args).toEqual(['forget', 'old-key', '--json'])
+    })
+  })
+
+  describe('forgetAsync', () => {
+    it('removes a memory asynchronously', async () => {
+      const response = { deleted: 'true', key: 'old-key' }
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify(response), '')
+        return {} as any
+      })
+
+      const result = await client.forgetAsync('old-key')
+      expect(result).toEqual(response)
+    })
+  })
+
+  // ── comments ────────────────────────────────────────────────────────
+
+  describe('comments', () => {
+    it('returns normalized BdComment array', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([
+        {
+          id: 'c1',
+          issue_id: 'bead-1',
+          author: 'slashbin',
+          text: 'Working on this',
+          created_at: '2026-04-10T07:00:00Z',
+        },
+      ]))
+
+      const result = client.comments('bead-1')
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual({
+        id: 'c1',
+        issueId: 'bead-1',
+        author: 'slashbin',
+        text: 'Working on this',
+        createdAt: '2026-04-10T07:00:00Z',
+      })
+
+      const args = syncArgs()
+      expect(args).toContain('comments')
+      expect(args).toContain('bead-1')
+      expect(args).toContain('--json')
+    })
+
+    it('returns empty array when no comments', () => {
+      mockExecFileSync.mockReturnValue('[]')
+      expect(client.comments('bead-1')).toEqual([])
+    })
+
+    it('returns empty array on error', () => {
+      mockExecFileSync.mockImplementation(() => { throw new Error('fail') })
+      expect(client.comments('bead-1')).toEqual([])
+    })
+  })
+
+  describe('commentsAsync', () => {
+    it('returns normalized BdComment array', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify([{ id: 'c1', issue_id: 'b1', author: 'a', text: 't', created_at: '2026-01-01' }]), '')
+        return {} as any
+      })
+
+      const result = await client.commentsAsync('b1')
+      expect(result).toHaveLength(1)
+      expect(result[0].issueId).toBe('b1')
+    })
+
+    it('returns empty array on error', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(new Error('fail'), '', 'fail')
+        return {} as any
+      })
+
+      expect(await client.commentsAsync('b1')).toEqual([])
+    })
+  })
+
+  // ── addComment ──────────────────────────────────────────────────────
+
+  describe('addComment', () => {
+    it('adds a comment and returns normalized BdComment', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify({
+        id: 'c-new',
+        issue_id: 'bead-1',
+        author: 'slashbin',
+        text: 'New comment',
+        created_at: '2026-04-10T08:00:00Z',
+      }))
+
+      const result = client.addComment('bead-1', 'New comment')
+      expect(result).toEqual({
+        id: 'c-new',
+        issueId: 'bead-1',
+        author: 'slashbin',
+        text: 'New comment',
+        createdAt: '2026-04-10T08:00:00Z',
+      })
+
+      const args = syncArgs()
+      expect(args).toEqual(['comment', 'bead-1', 'New comment', '--json'])
+    })
+  })
+
+  describe('addCommentAsync', () => {
+    it('adds a comment asynchronously', async () => {
+      mockExecFile.mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+        cb(null, JSON.stringify({ id: 'c2', issue_id: 'b1', author: 'a', text: 'async comment', created_at: '2026-01-01' }), '')
+        return {} as any
+      })
+
+      const result = await client.addCommentAsync('b1', 'async comment')
+      expect(result.id).toBe('c2')
+      expect(result.text).toBe('async comment')
+
+      const args = asyncArgs()
+      expect(args).toEqual(['comment', 'b1', 'async comment', '--json'])
+    })
+  })
+
   // ── Dolt restart failure propagation ─────────────────────────────────
 
   describe('Dolt restart failure propagation', () => {

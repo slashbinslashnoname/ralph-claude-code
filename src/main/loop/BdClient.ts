@@ -1,5 +1,5 @@
 import * as cp from 'child_process'
-import { Bead, BeadStats, BeadType, CreateBeadOpts, CreateManyResult } from '../types'
+import { Bead, BeadStats, BeadType, BdComment, BdForgetResult, BdMemoriesMap, BdMemory, BdRememberResult, CreateBeadOpts, CreateManyResult } from '../types'
 import { buildEnv } from './utils'
 
 
@@ -495,6 +495,97 @@ export class BdClient {
   hasOpenWork(): boolean {
     const all = this.list({ status: 'open' })
     return all.length > 0
+  }
+
+  // ── Memories ───────────────────────────────────────────────────────────
+
+  /** List all memories as normalized BdMemory[]. */
+  memories(): BdMemory[] {
+    try {
+      const raw = this.runJson<BdMemoriesMap>(['memories'])
+      return this.normalizeMemories(raw)
+    } catch {
+      return []
+    }
+  }
+
+  async memoriesAsync(): Promise<BdMemory[]> {
+    try {
+      const raw = await this.runJsonAsync<BdMemoriesMap>(['memories'])
+      return this.normalizeMemories(raw)
+    } catch {
+      return []
+    }
+  }
+
+  /** Store a memory. If key is provided, upserts that key. */
+  remember(text: string, key?: string): BdRememberResult {
+    const args = ['remember', text]
+    if (key) args.push('--key', key)
+    return this.runJson<BdRememberResult>(args)
+  }
+
+  async rememberAsync(text: string, key?: string): Promise<BdRememberResult> {
+    const args = ['remember', text]
+    if (key) args.push('--key', key)
+    return this.runJsonAsync<BdRememberResult>(args)
+  }
+
+  /** Remove a memory by key. */
+  forget(key: string): BdForgetResult {
+    return this.runJson<BdForgetResult>(['forget', key])
+  }
+
+  async forgetAsync(key: string): Promise<BdForgetResult> {
+    return this.runJsonAsync<BdForgetResult>(['forget', key])
+  }
+
+  private normalizeMemories(raw: BdMemoriesMap): BdMemory[] {
+    if (!raw || typeof raw !== 'object') return []
+    return Object.entries(raw).map(([key, text]) => ({ key, text: String(text) }))
+  }
+
+  // ── Comments ──────────────────────────────────────────────────────────
+
+  /** List comments on a bead. */
+  comments(beadId: string): BdComment[] {
+    try {
+      const raw = this.runJson<unknown[]>(['comments', beadId])
+      return Array.isArray(raw) ? raw.map(c => this.normalizeComment(c)) : []
+    } catch {
+      return []
+    }
+  }
+
+  async commentsAsync(beadId: string): Promise<BdComment[]> {
+    try {
+      const raw = await this.runJsonAsync<unknown[]>(['comments', beadId])
+      return Array.isArray(raw) ? raw.map(c => this.normalizeComment(c)) : []
+    } catch {
+      return []
+    }
+  }
+
+  /** Add a comment to a bead. */
+  addComment(beadId: string, text: string): BdComment {
+    const raw = this.runJson<unknown>(['comment', beadId, text])
+    return this.normalizeComment(raw)
+  }
+
+  async addCommentAsync(beadId: string, text: string): Promise<BdComment> {
+    const raw = await this.runJsonAsync<unknown>(['comment', beadId, text])
+    return this.normalizeComment(raw)
+  }
+
+  private normalizeComment(raw: unknown): BdComment {
+    const r = (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown>
+    return {
+      id: String(r.id ?? ''),
+      issueId: String(r.issue_id ?? r.issueId ?? ''),
+      author: String(r.author ?? ''),
+      text: String(r.text ?? ''),
+      createdAt: String(r.created_at ?? r.createdAt ?? ''),
+    }
   }
 
   // ── Normalize bd JSON output to our Bead type ────────────────────────
