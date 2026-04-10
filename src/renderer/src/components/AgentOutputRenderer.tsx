@@ -265,7 +265,7 @@ function truncateInput(input: string, max = 120): string {
   return oneLine.length > max ? oneLine.slice(0, max) + '\u2026' : oneLine
 }
 
-function ToolUseBlock({ name, input }: { name: string; input: string }) {
+const ToolUseBlock = React.memo(function ToolUseBlock({ name, input }: { name: string; input: string }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -283,9 +283,9 @@ function ToolUseBlock({ name, input }: { name: string; input: string }) {
       )}
     </div>
   )
-}
+})
 
-function ToolResultBlock({ content, is_error }: { content: string; is_error?: boolean }) {
+const ToolResultBlock = React.memo(function ToolResultBlock({ content, is_error }: { content: string; is_error?: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const lines = content.split('\n').length
 
@@ -303,9 +303,9 @@ function ToolResultBlock({ content, is_error }: { content: string; is_error?: bo
       )}
     </div>
   )
-}
+})
 
-function ClaudeResultCard({ data }: { data: ClaudeResult }) {
+const ClaudeResultCard = React.memo(function ClaudeResultCard({ data }: { data: ClaudeResult }) {
   const [expanded, setExpanded] = useState(false)
   const isSuccess = data.subtype === 'success' && !data.is_error
 
@@ -359,7 +359,12 @@ function ClaudeResultCard({ data }: { data: ClaudeResult }) {
       )}
     </div>
   )
-}
+})
+
+const AssistantBlock = React.memo(function AssistantBlock({ text }: { text: string }) {
+  const rendered = useMemo(() => renderMarkdown(text), [text])
+  return <div className="sj-assistant">{rendered}</div>
+})
 
 export default function AgentOutputRenderer({ output }: { output: string }) {
   const segments = useMemo(() => parseOutputSegments(output), [output])
@@ -371,11 +376,7 @@ export default function AgentOutputRenderer({ output }: { output: string }) {
           case 'result':
             return <ClaudeResultCard key={`cr-${i}`} data={seg.data} />
           case 'assistant':
-            return (
-              <div key={`ast-${i}`} className="sj-assistant">
-                {renderMarkdown(seg.text)}
-              </div>
-            )
+            return <AssistantBlock key={`ast-${i}`} text={seg.text} />
           case 'tool_use':
             return <ToolUseBlock key={`tu-${i}`} name={seg.name} input={seg.input} />
           case 'tool_result':

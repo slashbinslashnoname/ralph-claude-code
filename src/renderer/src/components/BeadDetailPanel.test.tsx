@@ -114,3 +114,107 @@ describe('BeadDetailPanel', () => {
     expect(html).toContain('Rolled back due to merge conflict')
   })
 })
+
+describe('BeadDetailPanel — pagination', () => {
+  function makeEvents(count: number, beadId = 'sb-abc.1') {
+    return Array.from({ length: count }, (_, i) => ({
+      ts: new Date(Date.now() + i * 1000).toISOString(),
+      agentId: 'agent-0',
+      type: i % 3 === 0 ? 'thinking' : i % 3 === 1 ? 'executing' : 'completed',
+      beadId,
+      summary: `Event ${i}`,
+    }))
+  }
+
+  test('shows all events when count is under page size', async () => {
+    const events = makeEvents(10)
+    mockActivity.mockResolvedValue(events)
+    mockAgentLogs.mockResolvedValue([])
+
+    await act(async () => {
+      const root = createRoot(domContainer!)
+      root.render(
+        <BeadDetailPanel beadId="sb-abc.1" beadStatus="in-progress" projectPath="/tmp/test" />
+      )
+    })
+
+    const html = domContainer!.innerHTML
+    // All 10 events should render
+    for (let i = 0; i < 10; i++) {
+      expect(html).toContain(`Event ${i}`)
+    }
+    // No "Show more" button
+    expect(html).not.toContain('Show more')
+  })
+
+  test('paginates events when count exceeds page size', async () => {
+    const events = makeEvents(80)
+    mockActivity.mockResolvedValue(events)
+    mockAgentLogs.mockResolvedValue([])
+
+    await act(async () => {
+      const root = createRoot(domContainer!)
+      root.render(
+        <BeadDetailPanel beadId="sb-abc.1" beadStatus="in-progress" projectPath="/tmp/test" />
+      )
+    })
+
+    const html = domContainer!.innerHTML
+    // First page (50 events) should be visible
+    expect(html).toContain('Event 0')
+    expect(html).toContain('Event 49')
+    // Events beyond page size should not render
+    expect(html).not.toContain('Event 50')
+    // Show more button present
+    expect(html).toContain('Show more')
+    expect(html).toContain('30 remaining')
+  })
+
+  test('clicking Show more reveals next page of events', async () => {
+    const events = makeEvents(80)
+    mockActivity.mockResolvedValue(events)
+    mockAgentLogs.mockResolvedValue([])
+
+    let root: ReturnType<typeof createRoot>
+
+    await act(async () => {
+      root = createRoot(domContainer!)
+      root.render(
+        <BeadDetailPanel beadId="sb-abc.1" beadStatus="in-progress" projectPath="/tmp/test" />
+      )
+    })
+
+    // Click "Show more"
+    const showMoreBtn = domContainer!.querySelector('.bead-timeline-show-more') as HTMLButtonElement
+    expect(showMoreBtn).not.toBeNull()
+
+    await act(async () => {
+      showMoreBtn.click()
+    })
+
+    const html = domContainer!.innerHTML
+    // All 80 events should now be visible
+    expect(html).toContain('Event 50')
+    expect(html).toContain('Event 79')
+    // No more "Show more" since all events are shown
+    expect(html).not.toContain('Show more')
+  })
+
+  test('uses composite key instead of array index', async () => {
+    const events = makeEvents(3)
+    mockActivity.mockResolvedValue(events)
+    mockAgentLogs.mockResolvedValue([])
+
+    await act(async () => {
+      const root = createRoot(domContainer!)
+      root.render(
+        <BeadDetailPanel beadId="sb-abc.1" beadStatus="done" projectPath="/tmp/test" />
+      )
+    })
+
+    // Verify events render (composite key is internal React behavior,
+    // we verify the component renders correctly with the new key scheme)
+    const timelineEvents = domContainer!.querySelectorAll('.bead-timeline-event')
+    expect(timelineEvents.length).toBe(3)
+  })
+})

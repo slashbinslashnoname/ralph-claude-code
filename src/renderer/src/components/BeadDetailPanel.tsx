@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import AgentOutputRenderer from './AgentOutputRenderer'
 
 interface ActivityEvent {
@@ -65,6 +65,8 @@ function formatTime(ts: string): string {
   } catch { return ts }
 }
 
+const EVENTS_PAGE_SIZE = 50
+
 export default function BeadDetailPanel({ beadId, beadStatus, projectPath }: Props) {
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -72,6 +74,7 @@ export default function BeadDetailPanel({ beadId, beadStatus, projectPath }: Pro
   const [logFile, setLogFile] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'timeline' | 'logs'>('timeline')
+  const [visibleCount, setVisibleCount] = useState(EVENTS_PAGE_SIZE)
 
   useEffect(() => {
     let cancelled = false
@@ -147,12 +150,25 @@ export default function BeadDetailPanel({ beadId, beadStatus, projectPath }: Pro
     setLogFile(null)
   }, [])
 
+  // Reset pagination when bead changes
+  useEffect(() => { setVisibleCount(EVENTS_PAGE_SIZE) }, [beadId])
+
+  const visibleEvents = useMemo(
+    () => events.slice(0, visibleCount),
+    [events, visibleCount]
+  )
+  const hasMore = visibleCount < events.length
+
+  const showMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + EVENTS_PAGE_SIZE, events.length))
+  }, [events.length])
+
   // Extract think summary from events
-  const thinkEvent = events.find((e) => e.type === 'thinking' && e.summary)
+  const thinkEvent = useMemo(() => events.find((e) => e.type === 'thinking' && e.summary), [events])
   // Extract failure info
-  const failEvent = events.find((e) => e.type === 'failed')
+  const failEvent = useMemo(() => events.find((e) => e.type === 'failed'), [events])
   // Agent assignment
-  const claimEvent = events.find((e) => e.type === 'claimed')
+  const claimEvent = useMemo(() => events.find((e) => e.type === 'claimed'), [events])
 
   if (loading) {
     return (
@@ -222,36 +238,43 @@ export default function BeadDetailPanel({ beadId, beadStatus, projectPath }: Pro
           {events.length === 0 ? (
             <p className="bead-detail-empty">No activity yet</p>
           ) : (
-            events.map((evt, i) => (
-              <div key={i} className="bead-timeline-event">
-                <span className="bead-timeline-icon">
-                  {EVENT_ICONS[evt.type] || '\u25CB'}
-                </span>
-                <div className="bead-timeline-line" />
-                <div className="bead-timeline-content">
-                  <div className="bead-timeline-header">
-                    <span className={`badge badge-${EVENT_BADGE[evt.type] || 'idle'}`}>
-                      {evt.type}
-                    </span>
-                    <span className="bead-timeline-agent">{evt.agentId}</span>
-                    <span className="bead-timeline-time">{formatTime(evt.ts)}</span>
-                  </div>
-                  {evt.summary && (
-                    <p className="bead-timeline-summary">{evt.summary}</p>
-                  )}
-                  {evt.filesChanged && evt.filesChanged.length > 0 && (
-                    <div className="bead-timeline-files">
-                      {evt.filesChanged.map((f) => (
-                        <span key={f} className="tag">{f}</span>
-                      ))}
+            <>
+              {visibleEvents.map((evt, i) => (
+                <div key={`${evt.ts}-${evt.agentId}-${i}`} className="bead-timeline-event">
+                  <span className="bead-timeline-icon">
+                    {EVENT_ICONS[evt.type] || '\u25CB'}
+                  </span>
+                  <div className="bead-timeline-line" />
+                  <div className="bead-timeline-content">
+                    <div className="bead-timeline-header">
+                      <span className={`badge badge-${EVENT_BADGE[evt.type] || 'idle'}`}>
+                        {evt.type}
+                      </span>
+                      <span className="bead-timeline-agent">{evt.agentId}</span>
+                      <span className="bead-timeline-time">{formatTime(evt.ts)}</span>
                     </div>
-                  )}
-                  {evt.branch && (
-                    <span className="tag tag-branch">{evt.branch}</span>
-                  )}
+                    {evt.summary && (
+                      <p className="bead-timeline-summary">{evt.summary}</p>
+                    )}
+                    {evt.filesChanged && evt.filesChanged.length > 0 && (
+                      <div className="bead-timeline-files">
+                        {evt.filesChanged.map((f) => (
+                          <span key={f} className="tag">{f}</span>
+                        ))}
+                      </div>
+                    )}
+                    {evt.branch && (
+                      <span className="tag tag-branch">{evt.branch}</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+              {hasMore && (
+                <button className="btn btn-sm btn-ghost bead-timeline-show-more" onClick={showMore}>
+                  Show more ({events.length - visibleCount} remaining)
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
