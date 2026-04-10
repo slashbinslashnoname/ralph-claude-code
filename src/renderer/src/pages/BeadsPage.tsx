@@ -112,7 +112,8 @@ export default function BeadsPage({ projectPath }: Props) {
   }, [projectPath, refresh])
 
   const rollbackBead = useCallback(async (id: string) => {
-    await sb.beads.rollback(projectPath, id)
+    const r = await sb.beads.rollback(projectPath, id)
+    if (!r.ok) throw new Error(r.error ?? `Failed to rollback ${id}`)
     refresh()
   }, [projectPath, refresh])
 
