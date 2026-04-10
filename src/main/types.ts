@@ -82,6 +82,7 @@ export interface Bead {
   failedAt?: string
   epicId?: string
   taskId?: string
+  commentCount?: number
 }
 
 export interface CreateBeadOpts {

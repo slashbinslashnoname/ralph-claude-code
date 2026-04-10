@@ -800,6 +800,26 @@ describe('BdClient', () => {
       expect(bead.taskId).toBe('task-99')
       expect(bead.files).toEqual(['a.ts', 'b.ts'])
     })
+
+    it('maps comment_count to commentCount', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ comment_count: 7 })]))
+      expect(client.list()[0].commentCount).toBe(7)
+    })
+
+    it('maps comment_count of 0', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ comment_count: 0 })]))
+      expect(client.list()[0].commentCount).toBe(0)
+    })
+
+    it('leaves commentCount undefined when comment_count is not a number', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead({ comment_count: 'many' })]))
+      expect(client.list()[0].commentCount).toBeUndefined()
+    })
+
+    it('leaves commentCount undefined when comment_count is missing', () => {
+      mockExecFileSync.mockReturnValue(JSON.stringify([rawBead()]))
+      expect(client.list()[0].commentCount).toBeUndefined()
+    })
   })
 
   // ── error handling ─────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
     ;(globalThis as any).window = {}
   }
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  const mockComments = vi.fn().mockResolvedValue([])
   ;(globalThis as any).window.slashbot = {
     beads: {
       check: mockCheck,
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => {
       close: mockClose,
       update: mockUpdate,
       create: mockCreate,
+      comments: mockComments,
     },
     swarm: {
       status: mockStatus,
@@ -42,7 +44,7 @@ const mocks = vi.hoisted(() => {
     },
   }
 
-  return { mockCheck, mockList, mockRollback, mockReopen, mockClose, mockUpdate, mockCreate, mockStatus, mockQueue }
+  return { mockCheck, mockList, mockRollback, mockReopen, mockClose, mockUpdate, mockCreate, mockStatus, mockQueue, mockComments }
 })
 
 import BeadsPage from './BeadsPage'
@@ -286,6 +288,25 @@ describe('BeadsPage — async operations (DOM)', () => {
 
     // AsyncButton enters error state (thrown error from closeBead callback)
     expect(closeBtn.className).toContain('async-btn-error')
+  })
+
+  test('refresh uses bead.commentCount instead of per-bead comments calls', async () => {
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      tasks: [
+        { id: 'b-1', title: 'Bead 1', status: 'ready', type: 'task', priority: 2, tags: [], commentCount: 3 },
+        { id: 'b-2', title: 'Bead 2', status: 'ready', type: 'task', priority: 2, tags: [], commentCount: 0 },
+        { id: 'b-3', title: 'Bead 3', status: 'ready', type: 'task', priority: 2, tags: [], commentCount: 5 },
+      ],
+    })
+
+    await act(async () => {
+      root.render(<ToastProvider><BeadsPage projectPath="/tmp/test" /></ToastProvider>)
+    })
+    await act(async () => {})
+
+    // No per-bead comments calls should be made — commentCount comes from list
+    expect(mocks.mockComments).not.toHaveBeenCalled()
   })
 
   test('Claim button disables with spinner while pending', async () => {

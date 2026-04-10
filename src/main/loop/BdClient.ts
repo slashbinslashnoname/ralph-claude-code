@@ -638,6 +638,7 @@ export class BdClient {
       completedAt: r.closed_at ? String(r.closed_at) : undefined,
       epicId: r.parent_id ? String(r.parent_id) : r.parent ? String(r.parent) : undefined,
       taskId: r.task_id ? String(r.task_id) : undefined,
+      commentCount: typeof r.comment_count === 'number' ? r.comment_count : undefined,
     }
   }
 }

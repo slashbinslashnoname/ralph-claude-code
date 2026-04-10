@@ -41,8 +41,6 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [locksByBead, setLocksByBead] = useState<Map<string, FileLock[]>>(new Map())
-  const [commentCounts, setCommentCounts] = useState<Map<string, number>>(new Map())
-
   const refreshLocks = useCallback(async () => {
     const r = await sb.locks.list(projectPath)
     if (r.ok) {
@@ -64,16 +62,6 @@ export default function BeadsPage({ projectPath }: Props) {
       const r = await sb.beads.list(projectPath, filter)
       if (r.ok) {
         setBeads(r.tasks)
-        // Fetch comment counts in parallel
-        const counts = new Map<string, number>()
-        await Promise.all(r.tasks.map(async (bead: { id: string }) => {
-          try {
-            const comments = await sb.beads.comments(projectPath, bead.id)
-            const count = Array.isArray(comments) ? comments.length : 0
-            if (count > 0) counts.set(bead.id, count)
-          } catch { /* ignore */ }
-        }))
-        setCommentCounts(counts)
       }
     }
     setLoading(false)
@@ -456,7 +444,7 @@ export default function BeadsPage({ projectPath }: Props) {
                 projectPath={projectPath}
                 expanded={expandedBead === bead.id}
                 onToggleExpand={toggleDetail}
-                commentCount={commentCounts.get(bead.id) ?? 0}
+                commentCount={bead.commentCount ?? 0}
                 locks={locksByBead.get(bead.id) ?? []}
                 onClaim={claimBead}
                 onClose={closeBead}
