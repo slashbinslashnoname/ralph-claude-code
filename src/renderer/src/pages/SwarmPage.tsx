@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { globalAgentOutputs } from '../App'
 import AgentOutputRenderer from '../components/AgentOutputRenderer'
 import { useToast } from '../components/Toast'
+import { formatRelativeTime, formatElapsed } from '../utils/formatTime'
 import type { SwarmStatus, SwarmPhase, AgentInfo, ActivityEvent, ProgressStats, KnowledgeEntry } from '../types/ipc'
 
 export function knowledgeCategoryColor(cat: string): string {
@@ -367,20 +368,11 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     }
   }
 
-  const relativeTime = (ts: string) => {
-    const diff = Date.now() - new Date(ts).getTime()
-    if (diff < 60_000) return 'just now'
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-    return `${Math.floor(diff / 86_400_000)}d ago`
-  }
+  const relativeTime = (ts: string) => formatRelativeTime(ts)
 
   const phaseElapsed = (agent: AgentInfo): string => {
     if (!agent.lastActivity) return ''
-    const diff = Date.now() - new Date(agent.lastActivity).getTime()
-    if (diff < 60_000) return '<1m'
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`
-    return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m`
+    return formatElapsed(agent.lastActivity)
   }
 
   const phaseTimelineIndex = (phase: string): number => {
@@ -807,7 +799,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                 return (
                   <div key={`k-${k.ts}-${k.agentId}-${i}`} className="activity-item activity-knowledge">
                     <span className="activity-icon" title="Knowledge">{'\uD83D\uDCA1'}</span>
-                    <span className="activity-time">{new Date(k.ts).toLocaleTimeString()}</span>
+                    <span className="activity-time">{formatRelativeTime(k.ts)}</span>
                     <span className="activity-agent">{k.agentId}</span>
                     <span className={`badge badge-${knowledgeCategoryColor(k.category)}`}>
                       {k.category}
@@ -824,7 +816,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
               return (
                 <div key={`a-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type}`}>
                   <span className="activity-icon">{activityIcon(e.type)}</span>
-                  <span className="activity-time">{new Date(e.ts).toLocaleTimeString()}</span>
+                  <span className="activity-time">{formatRelativeTime(e.ts)}</span>
                   <span className="activity-agent">{e.agentId}</span>
                   <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
                     {e.type}
@@ -853,7 +845,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                     return (
                       <div key={`ok-${k.ts}-${k.agentId}-${i}`} className="activity-item activity-knowledge activity-older">
                         <span className="activity-icon" title="Knowledge">{'\uD83D\uDCA1'}</span>
-                        <span className="activity-time">{new Date(k.ts).toLocaleString()}</span>
+                        <span className="activity-time">{formatRelativeTime(k.ts)}</span>
                         <span className="activity-agent">{k.agentId}</span>
                         <span className={`badge badge-${knowledgeCategoryColor(k.category)}`}>{k.category}</span>
                         {k.beadId && <span className="activity-bead">{k.beadId}</span>}
@@ -865,7 +857,7 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
                   return (
                     <div key={`oa-${e.ts}-${e.agentId}-${i}`} className={`activity-item activity-${e.type} activity-older`}>
                       <span className="activity-icon">{activityIcon(e.type)}</span>
-                      <span className="activity-time">{new Date(e.ts).toLocaleString()}</span>
+                      <span className="activity-time">{formatRelativeTime(e.ts)}</span>
                       <span className="activity-agent">{e.agentId}</span>
                       <span className={`badge badge-${e.type === 'completed' || e.type === 'merged' ? 'success' : e.type === 'failed' ? 'danger' : e.type === 'thinking' ? 'accent' : 'info'}`}>
                         {e.type}

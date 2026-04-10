@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
+import { formatRelativeTime } from '../utils/formatTime'
 import type { SwarmStatus, SwarmPhase, ProgressStats, AgentInfo, CircuitBreakerSnapshot } from '../types/ipc'
 
 const sb = window.slashbot
@@ -289,12 +290,7 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
                           <div className="circuit-context" data-testid="circuit-context">
                             {cb.opened_at && (
                               <span className="circuit-context-item">
-                                Opened {(() => {
-                                  const diff = Date.now() - new Date(cb.opened_at).getTime()
-                                  if (diff < 60_000) return 'just now'
-                                  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-                                  return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m ago`
-                                })()}
+                                Opened {formatRelativeTime(cb.opened_at)}
                               </span>
                             )}
                             {cb.total_opens > 1 && (
