@@ -744,6 +744,55 @@ export class WorkerLoop extends EventEmitter {
     return raw
   }
 
+  private _buildParentContext(bead: Bead): string {
+    const parts: string[] = []
+
+    // Parent epic context
+    if (bead.epicId) {
+      try {
+        const parent = this.coordinator.bd.show(bead.epicId)
+        if (parent) {
+          let ctx = `\n### Parent epic: [${parent.id}] ${parent.title}`
+          if (parent.description) ctx += `\n${parent.description}`
+          parts.push(ctx)
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Dependencies context
+    if (bead.deps.length > 0) {
+      const depDetails: string[] = []
+      for (const depId of bead.deps) {
+        try {
+          const dep = this.coordinator.bd.show(depId)
+          if (dep) depDetails.push(`- [${dep.id}] ${dep.title} (${dep.status})`)
+        } catch { /* ignore */ }
+      }
+      if (depDetails.length > 0) {
+        parts.push(`\n### Dependencies\n${depDetails.join('\n')}`)
+      }
+    }
+
+    return parts.join('\n')
+  }
+
+  private _buildKnowledgeContext(beadId: string): string {
+    try {
+      const entries = this.coordinator.readKnowledge()
+      const relevant = entries
+        .filter(e => !(e.agentId === this.agentId && e.beadId === beadId))
+        .slice(-20)
+      if (relevant.length > 0) {
+        const lines = relevant.map(e => {
+          const conf = e.confidence === 'high' ? '' : ` [${e.confidence}]`
+          return `- **${e.category}**${conf}: ${e.summary}`
+        })
+        return `\n## Collective Knowledge\n${lines.join('\n')}`
+      }
+    } catch { /* ignore */ }
+    return ''
+  }
+
   private _buildThinkingPrompt(bead: Bead): string {
     const agentMd = this.paths.agentMd
     const agentContext = fs.existsSync(agentMd) ? fs.readFileSync(agentMd, 'utf8') : ''
@@ -774,47 +823,8 @@ export class WorkerLoop extends EventEmitter {
       }
     } catch { /* ignore */ }
 
-    // Parent epic context
-    let parentCtx = ''
-    if (bead.epicId) {
-      try {
-        const parent = this.coordinator.bd.show(bead.epicId)
-        if (parent) {
-          parentCtx = `\n### Parent epic: [${parent.id}] ${parent.title}`
-          if (parent.description) parentCtx += `\n${parent.description}`
-        }
-      } catch { /* ignore */ }
-    }
-
-    // Dependencies context
-    let depsCtx = ''
-    if (bead.deps.length > 0) {
-      const depDetails: string[] = []
-      for (const depId of bead.deps) {
-        try {
-          const dep = this.coordinator.bd.show(depId)
-          if (dep) depDetails.push(`- [${dep.id}] ${dep.title} (${dep.status})`)
-        } catch { /* ignore */ }
-      }
-      if (depDetails.length > 0) {
-        depsCtx = `\n### Dependencies\n${depDetails.join('\n')}`
-      }
-    }
-
-    // Collective knowledge from other agents
-    let knowledgeCtx = ''
-    try {
-      const entries = this.coordinator.readKnowledge()
-      // Filter out own entries for the current bead
-      const relevant = entries.filter(e => !(e.agentId === this.agentId && e.beadId === bead.id))
-      if (relevant.length > 0) {
-        const lines = relevant.map(e => {
-          const conf = e.confidence === 'high' ? '' : ` [${e.confidence}]`
-          return `- **${e.category}**${conf}: ${e.summary}`
-        })
-        knowledgeCtx = `\n## Collective Knowledge\n${lines.join('\n')}`
-      }
-    } catch { /* ignore */ }
+    const parentCtx = this._buildParentContext(bead)
+    const knowledgeCtx = this._buildKnowledgeContext(bead.id)
 
     return [
       `## ULTRATHINK: [${bead.id}] ${bead.title}`,
@@ -822,7 +832,6 @@ export class WorkerLoop extends EventEmitter {
       bead.description ? `\n### Description\n${bead.description}` : '',
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
       parentCtx,
-      depsCtx,
       memoriesCtx,
       commentsCtx,
       siblingBeadsCtx,
@@ -879,23 +888,28 @@ export class WorkerLoop extends EventEmitter {
       }).toString().trim()
     } catch { /* ignore */ }
 
+    const parentCtx = this._buildParentContext(bead)
+    const knowledgeCtx = this._buildKnowledgeContext(bead.id)
+
     return [
+      thinkingSummary ? `### Thinking Phase Summary\nThe following analysis was produced during the thinking phase. Use it to guide your implementation:\n\n${thinkingSummary}` : '',
       `## Agent: ${this.agentId} | Bead: [${bead.id}] ${bead.title}`,
       `Type: ${bead.type} | Priority: ${bead.priority}/4`,
       `\nBranch: \`${currentBranch}\`. Base all work on files currently on disk. Do not use git history.`,
       bead.description ? `\n### Description\n${bead.description}` : '',
       bead.files.length > 0 ? `\n### Files to modify\n${bead.files.map(f => `- ${f}`).join('\n')}` : '',
+      parentCtx,
+      knowledgeCtx,
       `\n### Before starting`,
       `1. Run \`bd show ${bead.id}\` to get full bead details, dependencies, and parent context`,
       bead.epicId ? `2. Run \`bd show ${bead.epicId}\` to understand the parent epic` : '',
       bead.deps.length > 0 ? `${bead.epicId ? '3' : '2'}. Check dependency status: ${bead.deps.map(d => `\`bd show ${d}\``).join(', ')}` : '',
-      thinkingSummary ? `\n### Thinking Phase Summary\nThe following analysis was produced during the thinking phase. Use it to guide your implementation:\n\n${thinkingSummary}` : '',
       BD_SYSTEM_PROMPT,
       agentContext ? `\n---\n${agentContext}` : '',
       promptContext ? `\n---\n${promptContext}` : '',
       `\n---\n## Task`,
       `Implement this bead completely.`,
-      `Write tests. Commit all changes when done with a descriptive commit message.`,
+      `Run the project test command only if you are changing logic and the test suite is fast. Commit all changes when done with a descriptive commit message.`,
       ``,
       `\nWhen finished, output:\nRALPH_STATUS: { "STATUS": "COMPLETE", "EXIT_SIGNAL": true, "FILES_MODIFIED": 0, "WORK_SUMMARY": "brief" }`
     ].filter(Boolean).join('\n')
