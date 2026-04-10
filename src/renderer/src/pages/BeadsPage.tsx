@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
 import BeadDetailPanel from '../components/BeadDetailPanel'
+import CommentThread from '../components/CommentThread'
 import { AsyncButton } from '../components/AsyncButton'
 import { useToast } from '../components/Toast'
 import type { Bead, BeadType, FileLock, PlanQueueItem } from '../types/ipc'
@@ -44,6 +45,7 @@ export default function BeadsPage({ projectPath }: Props) {
   const [planQueue, setPlanQueue] = useState<PlanQueueItem[]>([])
   const [expandedBead, setExpandedBead] = useState<string | null>(null)
   const [locksByBead, setLocksByBead] = useState<Map<string, FileLock[]>>(new Map())
+  const [commentCounts, setCommentCounts] = useState<Map<string, number>>(new Map())
 
   const refreshLocks = useCallback(async () => {
     const r = await sb.locks.list(projectPath)
@@ -64,7 +66,19 @@ export default function BeadsPage({ projectPath }: Props) {
     setBdAvailable(check.available)
     if (check.available) {
       const r = await sb.beads.list(projectPath, filter)
-      if (r.ok) setBeads(r.tasks)
+      if (r.ok) {
+        setBeads(r.tasks)
+        // Fetch comment counts in parallel
+        const counts = new Map<string, number>()
+        await Promise.all(r.tasks.map(async (bead: { id: string }) => {
+          try {
+            const comments = await sb.beads.comments(projectPath, bead.id)
+            const count = Array.isArray(comments) ? comments.length : 0
+            if (count > 0) counts.set(bead.id, count)
+          } catch { /* ignore */ }
+        }))
+        setCommentCounts(counts)
+      }
     }
     setLoading(false)
   }, [projectPath, filter])
@@ -481,6 +495,11 @@ export default function BeadsPage({ projectPath }: Props) {
                       {'\uD83D\uDD12'} {isStale ? 'stale lock' : 'locked'}
                     </span>
                   )}
+                  {(commentCounts.get(bead.id) ?? 0) > 0 && (
+                    <span className="badge badge-idle" title={`${commentCounts.get(bead.id)} comment(s)`}>
+                      {'\uD83D\uDCAC'} {commentCounts.get(bead.id)}
+                    </span>
+                  )}
                   <span className="bead-spacer" />
 
                   <select className={`select select-xs priority-select p${bead.priority}`}
@@ -553,11 +572,17 @@ export default function BeadsPage({ projectPath }: Props) {
 
                 {/* Bead detail panel with audit trail */}
                 {expandedBead === bead.id && (
-                  <BeadDetailPanel
-                    beadId={bead.id}
-                    beadStatus={bead.status}
-                    projectPath={projectPath}
-                  />
+                  <>
+                    <BeadDetailPanel
+                      beadId={bead.id}
+                      beadStatus={bead.status}
+                      projectPath={projectPath}
+                    />
+                    <CommentThread
+                      beadId={bead.id}
+                      projectPath={projectPath}
+                    />
+                  </>
                 )}
               </div>
               )

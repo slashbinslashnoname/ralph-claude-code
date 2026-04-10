@@ -649,6 +649,21 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .bead-log-item:hover { background: var(--bg-card-hover); }
 .bead-log-content { font-size: 11px; line-height: 1.5; max-height: 300px; overflow-y: auto; background: var(--bg-2); padding: 10px; border-radius: var(--radius); white-space: pre-wrap; word-break: break-all; }
 
+/* Comment thread */
+.comment-thread { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.comment-thread-loading { font-size: 12px; color: var(--text-2); padding: 8px 0; }
+.comment-thread-empty { font-size: 12px; color: var(--text-2); padding: 8px 0; }
+.comment-thread-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.comment-thread-title { font-size: 12px; font-weight: 600; color: var(--text-1); }
+.comment-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.comment-item { padding: 6px 8px; background: var(--bg-2); border-radius: var(--radius-sm); }
+.comment-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.comment-author { font-size: 11px; font-weight: 600; color: var(--accent); }
+.comment-time { font-size: 10px; color: var(--text-2); }
+.comment-text { font-size: 12px; color: var(--text-1); line-height: 1.4; margin: 0; white-space: pre-wrap; }
+.comment-input-area { display: flex; gap: 8px; align-items: flex-end; }
+.comment-textarea { flex: 1; font-size: 12px; min-height: 32px; resize: vertical; }
+
 .tag-branch { font-family: var(--font); font-size: 10px; }
 
 .btn-xs { padding: 3px 8px; font-size: 11px; }
