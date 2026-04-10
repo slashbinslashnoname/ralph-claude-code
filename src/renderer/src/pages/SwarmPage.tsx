@@ -16,6 +16,16 @@ export function knowledgeCategoryColor(cat: string): string {
 
 const sb = window.slashbot
 
+const WORKER_PHASES = ['routing', 'thinking', 'executing', 'reviewing', 'merging', 'closing'] as const
+const PHASE_LABELS: Record<string, string> = {
+  routing: 'Route',
+  thinking: 'Think',
+  executing: 'Execute',
+  reviewing: 'Review',
+  merging: 'Merge',
+  closing: 'Close',
+}
+
 export interface BuildMonitorStatus {
   enabled: boolean
   running: boolean
@@ -358,16 +368,6 @@ export default function SwarmPage({ projectPath, agentOutputs, setAgentOutputs, 
     if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
     if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
     return `${Math.floor(diff / 86_400_000)}d ago`
-  }
-
-  const WORKER_PHASES = ['routing', 'thinking', 'executing', 'reviewing', 'merging', 'closing'] as const
-  const PHASE_LABELS: Record<string, string> = {
-    routing: 'Route',
-    thinking: 'Think',
-    executing: 'Execute',
-    reviewing: 'Review',
-    merging: 'Merge',
-    closing: 'Close',
   }
 
   const phaseElapsed = (agent: AgentInfo): string => {

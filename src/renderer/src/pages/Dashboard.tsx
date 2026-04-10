@@ -256,7 +256,7 @@ export default function Dashboard({ projectPath, circuits, onNavigate }: Props) 
                       </div>
                       <div className="circuit-details">
                         <span>Errors: {cb.error_window_count ?? 0}</span>
-                        {cb.reopen_epoch > 0 && <span>Reopen: {cb.reopen_epoch}</span>}
+                        {cb.reopen_epoch > 0 && cb.state !== 'OPEN' && <span>Reopen: {cb.reopen_epoch}</span>}
                         {cb.rate_limit_until && <span>Rate-limit: {cb.rate_limit_until}</span>}
                       </div>
                       {cb.state === 'OPEN' && (
