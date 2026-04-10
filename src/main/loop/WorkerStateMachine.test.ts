@@ -320,6 +320,7 @@ describe('WorkerStateMachine', () => {
       const next = await thinking(ctx)
 
       expect(next).toBe('executing')
+      expect(ctx.capabilities.buildThinkingPrompt).toHaveBeenCalledWith(bead)
       expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('think prompt', 'think', ctx.paths.projectRoot, 'sonnet')
       expect(ctx.thinkingSummary).toBe('output')
       expect(ctx.coordinator.postActivity).toHaveBeenCalledWith(expect.objectContaining({
@@ -395,7 +396,17 @@ describe('WorkerStateMachine', () => {
       const next = await executing(ctx)
 
       expect(next).toBe('reviewing')
+      expect(ctx.capabilities.buildExecutePrompt).toHaveBeenCalledWith(bead, undefined)
       expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('exec prompt', 'execute', ctx.paths.projectRoot, 'opus')
+    })
+
+    it('passes thinkingSummary to buildExecutePrompt', async () => {
+      const bead = makeBead()
+      const ctx = makeCtx({ currentBead: bead, thinkingSummary: 'my analysis' })
+
+      await executing(ctx)
+
+      expect(ctx.capabilities.buildExecutePrompt).toHaveBeenCalledWith(bead, 'my analysis')
     })
 
     it('sets executeFailed and transitions to merging on error', async () => {
@@ -454,11 +465,13 @@ describe('WorkerStateMachine', () => {
 
   describe('reviewing', () => {
     it('runs review and transitions to merging', async () => {
-      const ctx = makeCtx({ currentBead: makeBead() })
+      const bead = makeBead()
+      const ctx = makeCtx({ currentBead: bead })
 
       const next = await reviewing(ctx)
 
       expect(next).toBe('merging')
+      expect(ctx.capabilities.buildReviewPrompt).toHaveBeenCalledWith(bead)
       expect(ctx.capabilities.runClaude).toHaveBeenCalledWith('review prompt', 'review', ctx.paths.projectRoot, 'sonnet')
     })
 
