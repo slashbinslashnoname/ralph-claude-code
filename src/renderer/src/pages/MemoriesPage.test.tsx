@@ -274,6 +274,32 @@ describe('MemoriesPage', () => {
     document.body.removeChild(container)
   })
 
+  test('shows error toast and does not crash when memories API is unavailable', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    // Remove the memories API to simulate the bug scenario
+    const original = (globalThis as any).window.slashbot.memories
+    delete (globalThis as any).window.slashbot.memories
+
+    try {
+      await act(async () => {
+        createRoot(container).render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+      })
+      await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+      // Should not crash, and should show an error toast
+      expect(container.innerHTML).toContain('Memories API not available')
+      // list should never be called
+      expect(mocks.mockList).not.toHaveBeenCalled()
+    } finally {
+      ;(globalThis as any).window.slashbot.memories = original
+      document.body.removeChild(container)
+    }
+  })
+
   test('cancel button clears form state via DOM', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
