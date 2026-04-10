@@ -3,6 +3,7 @@ import * as realFs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import * as crypto from 'crypto'
+import { BdClient } from './loop/BdClient'
 
 // ── fs mock ────────────────────────────────────────────────────────────────
 // We keep real fs for tmpdir operations but track calls via a recording layer.
@@ -106,23 +107,12 @@ vi.mock('./loop/RalphEnabler', () => ({
   enableRalph: mockEnableRalph,
 }))
 
-const mockMemoriesAsync = vi.fn().mockResolvedValue([{ key: 'k1', text: 'v1' }])
-const mockRememberAsync = vi.fn().mockResolvedValue({ action: 'added', key: 'k1', value: 'v1' })
-const mockForgetAsync = vi.fn().mockResolvedValue({ deleted: 'k1', key: 'k1' })
-const mockCommentsAsync = vi.fn().mockResolvedValue([{ id: 'c1', issueId: 'b1', author: 'me', text: 'hello', createdAt: '2026-01-01' }])
-const mockAddCommentAsync = vi.fn().mockResolvedValue({ id: 'c2', issueId: 'b1', author: 'me', text: 'new', createdAt: '2026-01-01' })
-
 vi.mock('./loop/BdClient', () => ({
   BdClient: vi.fn().mockImplementation(() => ({
     check: vi.fn(), listByStatus: vi.fn().mockReturnValue([]),
     listAll: vi.fn().mockReturnValue([]), show: vi.fn(),
     create: vi.fn(), ready: vi.fn().mockReturnValue([]),
     stats: vi.fn().mockReturnValue({}),
-    memoriesAsync: mockMemoriesAsync,
-    rememberAsync: mockRememberAsync,
-    forgetAsync: mockForgetAsync,
-    commentsAsync: mockCommentsAsync,
-    addCommentAsync: mockAddCommentAsync,
   })),
 }))
 
@@ -568,13 +558,17 @@ describe('ipc handlers use centralized ProjectPaths', () => {
 
   describe('memories:list', () => {
     it('returns memories from BdClient', async () => {
+      const memoriesAsync = vi.fn().mockResolvedValue([{ key: 'k1', text: 'v1' }])
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ memoriesAsync }) as any)
       const result = await invoke('memories:list', '/test/project')
       expect(result).toEqual({ ok: true, memories: [{ key: 'k1', text: 'v1' }] })
-      expect(mockMemoriesAsync).toHaveBeenCalled()
+      expect(memoriesAsync).toHaveBeenCalled()
     })
 
     it('returns error with empty array on failure', async () => {
-      mockMemoriesAsync.mockRejectedValueOnce(new Error('bd failed'))
+      vi.mocked(BdClient).mockImplementationOnce(() => ({
+        memoriesAsync: vi.fn().mockRejectedValue(new Error('bd failed')),
+      }) as any)
       const result = await invoke('memories:list', '/test/project')
       expect(result).toEqual({ ok: false, error: 'bd failed', memories: [] })
     })
@@ -582,15 +576,19 @@ describe('ipc handlers use centralized ProjectPaths', () => {
 
   describe('memories:add', () => {
     it('calls rememberAsync with text and optional key', async () => {
+      const rememberAsync = vi.fn().mockResolvedValue({ action: 'added', key: 'k1', value: 'v1' })
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ rememberAsync }) as any)
       const result = await invoke('memories:add', '/test/project', 'my note', 'mykey')
       expect(result).toEqual({ ok: true, result: { action: 'added', key: 'k1', value: 'v1' } })
-      expect(mockRememberAsync).toHaveBeenCalledWith('my note', 'mykey')
+      expect(rememberAsync).toHaveBeenCalledWith('my note', 'mykey')
     })
 
     it('calls rememberAsync without key when not provided', async () => {
+      const rememberAsync = vi.fn().mockResolvedValue({ action: 'added', key: 'auto', value: 'my note' })
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ rememberAsync }) as any)
       const result = await invoke('memories:add', '/test/project', 'my note')
       expect(result.ok).toBe(true)
-      expect(mockRememberAsync).toHaveBeenCalledWith('my note', undefined)
+      expect(rememberAsync).toHaveBeenCalledWith('my note', undefined)
     })
 
     it('rejects empty text', async () => {
@@ -606,9 +604,11 @@ describe('ipc handlers use centralized ProjectPaths', () => {
 
   describe('memories:forget', () => {
     it('calls forgetAsync with key', async () => {
+      const forgetAsync = vi.fn().mockResolvedValue({ deleted: 'k1', key: 'k1' })
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ forgetAsync }) as any)
       const result = await invoke('memories:forget', '/test/project', 'k1')
       expect(result).toEqual({ ok: true, result: { deleted: 'k1', key: 'k1' } })
-      expect(mockForgetAsync).toHaveBeenCalledWith('k1')
+      expect(forgetAsync).toHaveBeenCalledWith('k1')
     })
 
     it('rejects empty key', async () => {
@@ -621,15 +621,19 @@ describe('ipc handlers use centralized ProjectPaths', () => {
 
   describe('comments:list', () => {
     it('returns comments for a bead', async () => {
+      const commentsAsync = vi.fn().mockResolvedValue([{ id: 'c1', issueId: 'b1', author: 'me', text: 'hello', createdAt: '2026-01-01' }])
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ commentsAsync }) as any)
       const result = await invoke('comments:list', '/test/project', 'bead-1')
       expect(result.ok).toBe(true)
       expect(result.comments).toHaveLength(1)
       expect(result.comments[0].id).toBe('c1')
-      expect(mockCommentsAsync).toHaveBeenCalledWith('bead-1')
+      expect(commentsAsync).toHaveBeenCalledWith('bead-1')
     })
 
     it('returns error with empty array on failure', async () => {
-      mockCommentsAsync.mockRejectedValueOnce(new Error('not found'))
+      vi.mocked(BdClient).mockImplementationOnce(() => ({
+        commentsAsync: vi.fn().mockRejectedValue(new Error('not found')),
+      }) as any)
       const result = await invoke('comments:list', '/test/project', 'bead-1')
       expect(result).toEqual({ ok: false, error: 'not found', comments: [] })
     })
@@ -637,10 +641,12 @@ describe('ipc handlers use centralized ProjectPaths', () => {
 
   describe('comments:add', () => {
     it('adds a comment to a bead', async () => {
+      const addCommentAsync = vi.fn().mockResolvedValue({ id: 'c2', issueId: 'b1', author: 'me', text: 'new', createdAt: '2026-01-01' })
+      vi.mocked(BdClient).mockImplementationOnce(() => ({ addCommentAsync }) as any)
       const result = await invoke('comments:add', '/test/project', 'bead-1', 'hello world')
       expect(result.ok).toBe(true)
       expect(result.comment.id).toBe('c2')
-      expect(mockAddCommentAsync).toHaveBeenCalledWith('bead-1', 'hello world')
+      expect(addCommentAsync).toHaveBeenCalledWith('bead-1', 'hello world')
     })
 
     it('rejects empty text', async () => {
