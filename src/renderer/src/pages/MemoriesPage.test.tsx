@@ -88,6 +88,133 @@ describe('MemoriesPage', () => {
     expect(html).toContain('memory-list')
   })
 
+  test('add creates a memory card', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    // Start with empty list, then return new memory after add
+    mocks.mockList
+      .mockResolvedValueOnce({ ok: true, memories: [] })
+      .mockResolvedValueOnce({ ok: true, memories: [{ key: 'new-key', text: 'new memory' }] })
+    mocks.mockAdd.mockResolvedValue({ ok: true })
+
+    let root: ReturnType<typeof createRoot>
+    await act(async () => {
+      root = createRoot(container)
+      root!.render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+    })
+
+    // Open the add form
+    const addBtn = container.querySelector('button.btn-primary') as HTMLButtonElement
+    await act(async () => { addBtn.click() })
+
+    // Fill in text
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'new memory')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      textarea.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Click Save
+    const saveBtn = container.querySelector('.memory-add-form .btn-primary') as HTMLButtonElement
+    await act(async () => { saveBtn.click() })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    expect(mocks.mockAdd).toHaveBeenCalledWith('/tmp/proj', 'new memory', undefined)
+    expect(container.innerHTML).toContain('new-key')
+    expect(container.innerHTML).toContain('new memory')
+
+    document.body.removeChild(container)
+  })
+
+  test('forget removes a memory card', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    mocks.mockList
+      .mockResolvedValueOnce({
+        ok: true,
+        memories: [
+          { key: 'keep-me', text: 'keep this' },
+          { key: 'delete-me', text: 'delete this' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        memories: [{ key: 'keep-me', text: 'keep this' }],
+      })
+    mocks.mockForget.mockResolvedValue({ ok: true })
+
+    let root: ReturnType<typeof createRoot>
+    await act(async () => {
+      root = createRoot(container)
+      root!.render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    // Both cards should be present
+    expect(container.innerHTML).toContain('delete-me')
+    expect(container.innerHTML).toContain('keep-me')
+
+    // Click the Delete button on the second card
+    const deleteBtns = container.querySelectorAll('.btn-danger')
+    expect(deleteBtns.length).toBe(2)
+    await act(async () => { (deleteBtns[1] as HTMLButtonElement).click() })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    expect(mocks.mockForget).toHaveBeenCalledWith('/tmp/proj', 'delete-me')
+    expect(container.innerHTML).toContain('keep-me')
+    expect(container.innerHTML).not.toContain('delete-me')
+
+    document.body.removeChild(container)
+  })
+
+  test('search filters memories by key and text', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const { createRoot } = await import('react-dom/client')
+    const { act } = await import('react')
+
+    mocks.mockList.mockResolvedValue({
+      ok: true,
+      memories: [
+        { key: 'db-config', text: 'database connection string' },
+        { key: 'api-key', text: 'secret token' },
+        { key: 'deploy-notes', text: 'use database migrations' },
+      ],
+    })
+
+    await act(async () => {
+      createRoot(container).render(<ToastProvider><MemoriesPage projectPath="/tmp/proj" /></ToastProvider>)
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    // All three cards visible
+    expect(container.querySelectorAll('.memory-card').length).toBe(3)
+
+    // Type "database" into search
+    const searchInput = container.querySelector('.memory-search input') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(searchInput, 'database')
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }))
+      searchInput.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    // Should show only the two memories containing "database"
+    const cards = container.querySelectorAll('.memory-card')
+    expect(cards.length).toBe(2)
+    expect(container.innerHTML).toContain('db-config')
+    expect(container.innerHTML).toContain('deploy-notes')
+    expect(container.innerHTML).not.toContain('api-key')
+
+    document.body.removeChild(container)
+  })
+
   test('cancel button clears form state via DOM', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)

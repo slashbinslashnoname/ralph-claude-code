@@ -144,6 +144,42 @@ describe('CommentThread', () => {
     expect(btn.disabled).toBe(false)
   })
 
+  test('posting a comment calls addComment and refreshes the list', async () => {
+    mockComments
+      .mockResolvedValueOnce([])  // initial load
+      .mockResolvedValueOnce([    // after posting
+        { id: 'c1', issueId: 'sb-abc.1', author: 'me', text: 'Hello world', createdAt: '2026-04-10T14:00:00Z' },
+      ])
+
+    let root: ReturnType<typeof createRoot>
+    await act(async () => {
+      root = createRoot(domContainer!)
+      root.render(<CommentThread beadId="sb-abc.1" projectPath="/tmp/test" />)
+    })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    // Should start with no comments
+    expect(domContainer!.innerHTML).toContain('No comments yet')
+
+    // Type into the textarea
+    const textarea = domContainer!.querySelector('.comment-textarea') as HTMLTextAreaElement
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!
+      setter.call(textarea, 'Hello world')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    // Click the Comment button
+    const btn = domContainer!.querySelector('.comment-input-area .btn') as HTMLButtonElement
+    await act(async () => { btn.click() })
+    await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+    expect(mockAddComment).toHaveBeenCalledWith('/tmp/test', 'sb-abc.1', 'Hello world')
+    expect(domContainer!.innerHTML).toContain('Comments (1)')
+    expect(domContainer!.innerHTML).toContain('Hello world')
+    expect(domContainer!.innerHTML).not.toContain('No comments yet')
+  })
+
   test('handles API error gracefully', async () => {
     mockComments.mockRejectedValue(new Error('Network error'))
 
