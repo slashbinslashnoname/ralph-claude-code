@@ -99,16 +99,6 @@ describe('PlanApprovalModal — visible with pending plan', () => {
 
     const editor = container.querySelector('.plan-review-editor') as HTMLTextAreaElement
 
-    // Simulate editing
-    await act(async () => {
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype, 'value',
-      )!.set!
-      nativeInputValueSetter.call(editor, '# Modified Plan')
-      editor.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-
-    // Fallback: use React's onChange via a change event
     await act(async () => {
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype, 'value',

@@ -28,9 +28,7 @@ export default function PlanApprovalModal({
   const modified = editedPlan !== pendingPlan.planMd ? editedPlan : undefined
 
   return (
-    <div className="plan-modal-backdrop" onClick={(e) => {
-      if (e.target === e.currentTarget) { /* allow dismiss by clicking backdrop? no — require explicit action */ }
-    }}>
+    <div className="plan-modal-backdrop">
       <div className="plan-modal" role="dialog" aria-label="Plan approval">
         <div className="plan-modal-header">
           <h3>Plan awaiting approval</h3>
