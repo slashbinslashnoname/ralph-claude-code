@@ -1274,6 +1274,7 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .empty-icon { font-size: 48px; display: block; margin-bottom: 12px; opacity: 0.3; }
 .empty-state h3 { color: var(--text-1); margin-bottom: 8px; }
 .empty-state code { background: var(--bg-3); padding: 4px 8px; border-radius: 4px; font-family: var(--font); }
+.empty-state-action { margin-top: 12px; }
 
 /* ── Alerts ───────────────────────────────────────────────────────────────── */
 .alert {
