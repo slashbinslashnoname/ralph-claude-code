@@ -1,15 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sortBeads, SORT_OPTIONS, type SortField, type SortDirection } from '../utils/sortBeads'
-import BeadDetailPanel from '../components/BeadDetailPanel'
-import CommentThread from '../components/CommentThread'
+import BeadCard from '../components/BeadCard'
 import { AsyncButton } from '../components/AsyncButton'
 import { useToast } from '../components/Toast'
 import type { Bead, BeadType, FileLock, PlanQueueItem } from '../types/ipc'
 
 const sb = window.slashbot
-
-/** Locks older than 30 minutes are considered stale and eligible for force-unlock. */
-const STALE_LOCK_THRESHOLD_MS = 30 * 60_000
 
 interface Props { projectPath: string }
 
@@ -264,21 +260,6 @@ export default function BeadsPage({ projectPath }: Props) {
     )
   }
 
-  const statusColor = (s: string) => {
-    if (s === 'done') return 'success'
-    if (s === 'claimed') return 'warning'
-    if (s === 'ready') return 'info'
-    if (s === 'failed') return 'danger'
-    return 'idle'
-  }
-
-  const statusLabel = (s: string) => {
-    if (s === 'ready') return 'open'
-    if (s === 'claimed') return 'in progress'
-    if (s === 'done') return 'closed'
-    return s
-  }
-
   return (
     <div className="page">
       <header className="page-header">
@@ -468,125 +449,30 @@ export default function BeadsPage({ projectPath }: Props) {
                 <p>Create a bead or inject a plan via the Swarm page.</p>
               </div>
             )}
-            {sortedBeads.map((bead, idx) => {
-              const beadLocks = locksByBead.get(bead.id) ?? []
-              const isLocked = beadLocks.length > 0
-              const oldestLockAge = isLocked
-                ? Date.now() - Math.min(...beadLocks.map(l => new Date(l.reservedAt).getTime()))
-                : 0
-              const isStale = oldestLockAge > STALE_LOCK_THRESHOLD_MS
-
-              return (
-              <div key={bead.id}
-                className={`bead-card${dragIdx === idx ? ' bead-dragging' : ''}${dropIdx === idx ? ' bead-drop-target' : ''}`}
-                draggable
-                onDragStart={() => handleDragStart(idx)}
-                onDragOver={(e) => handleDragOver(e, idx)}
-                onDragEnd={handleDragEnd}>
-                <div className="bead-card-header">
-                  <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
-                  <span className="bead-id">{bead.id}</span>
-                  <span className="bead-type-tag">{bead.type}</span>
-                  {isLocked && (
-                    <span className={`badge ${isStale ? 'badge-danger' : 'badge-warning'}`} title={
-                      `Locked by ${beadLocks[0].agentId} — ${beadLocks.length} file(s)` +
-                      (isStale ? ` (stale: ${Math.round(oldestLockAge / 60_000)}m)` : '')
-                    }>
-                      {'\uD83D\uDD12'} {isStale ? 'stale lock' : 'locked'}
-                    </span>
-                  )}
-                  {(commentCounts.get(bead.id) ?? 0) > 0 && (
-                    <span className="badge badge-idle" title={`${commentCounts.get(bead.id)} comment(s)`}>
-                      {'\uD83D\uDCAC'} {commentCounts.get(bead.id)}
-                    </span>
-                  )}
-                  <span className="bead-spacer" />
-
-                  <select className={`select select-xs priority-select p${bead.priority}`}
-                    value={bead.priority}
-                    onChange={e => changePriority(bead.id, Number(e.target.value))}>
-                    <option value={0}>P0</option>
-                    <option value={1}>P1</option>
-                    <option value={2}>P2</option>
-                    <option value={3}>P3</option>
-                    <option value={4}>P4</option>
-                  </select>
-                </div>
-
-                <h4 className="bead-title">{bead.title}</h4>
-                {bead.description && <p className="bead-desc">{bead.description.slice(0, 200)}</p>}
-
-                {bead.tags?.length > 0 && (
-                  <div className="bead-meta">
-                    {bead.tags.map((t: string) => <span key={t} className="tag">{t}</span>)}
-                  </div>
-                )}
-
-                <div className="bead-actions">
-                  {bead.status === 'ready' && (
-                    <>
-                      <AsyncButton className="btn-xs btn-info" onClick={() => claimBead(bead.id)}
-                        pendingContent="Claiming\u2026">Claim</AsyncButton>
-                      <AsyncButton className="btn-xs btn-success" onClick={() => closeBead(bead.id)}
-                        pendingContent="Closing\u2026">Close</AsyncButton>
-                    </>
-                  )}
-                  {bead.status === 'claimed' && (
-                    <>
-                      <AsyncButton className="btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}
-                        pendingContent="Reopening\u2026">Back to Open</AsyncButton>
-                      <AsyncButton className="btn-xs btn-success" onClick={() => closeBead(bead.id)}
-                        pendingContent="Closing\u2026">Close</AsyncButton>
-                    </>
-                  )}
-                  {bead.status === 'done' && (
-                    <>
-                      <AsyncButton className="btn-xs btn-warning" onClick={() => reopenBead(bead.id)}
-                        pendingContent="Reopening\u2026">Reopen</AsyncButton>
-                      <AsyncButton className="btn-xs btn-danger" onClick={() => rollbackBead(bead.id)}
-                        pendingContent="Rolling back\u2026">Rollback</AsyncButton>
-                    </>
-                  )}
-                  {bead.status === 'failed' && (
-                    <AsyncButton className="btn-xs btn-warning" onClick={() => reopenBead(bead.id)}
-                      pendingContent="Retrying\u2026">Retry</AsyncButton>
-                  )}
-                  {bead.status === 'pending' && (
-                    <AsyncButton className="btn-xs btn-ghost" onClick={() => reopenBead(bead.id)}
-                      pendingContent="Unblocking\u2026">Unblock</AsyncButton>
-                  )}
-
-                  {isStale && (
-                    <AsyncButton className="btn-xs btn-danger" onClick={() => forceUnlock(bead.id)}
-                      pendingContent="Unlocking\u2026">Force Unlock</AsyncButton>
-                  )}
-
-                  <span className="bead-action-spacer" />
-                  <button className="btn btn-xs btn-ghost" onClick={() => startEdit(bead)} disabled={isLocked}
-                    title={isLocked ? 'Cannot edit while locked' : undefined}>Edit</button>
-                  <button className="btn btn-xs btn-ghost" onClick={() => toggleDetail(bead.id)}>
-                    {expandedBead === bead.id ? 'Hide Detail' : 'Detail'}
-                  </button>
-                  {bead.claimedBy && <span className="tag tag-agent">{bead.claimedBy}</span>}
-                </div>
-
-                {/* Bead detail panel with audit trail */}
-                {expandedBead === bead.id && (
-                  <>
-                    <BeadDetailPanel
-                      beadId={bead.id}
-                      beadStatus={bead.status}
-                      projectPath={projectPath}
-                    />
-                    <CommentThread
-                      beadId={bead.id}
-                      projectPath={projectPath}
-                    />
-                  </>
-                )}
-              </div>
-              )
-            })}
+            {sortedBeads.map((bead, idx) => (
+              <BeadCard
+                key={bead.id}
+                bead={bead}
+                projectPath={projectPath}
+                expanded={expandedBead === bead.id}
+                onToggleExpand={toggleDetail}
+                commentCount={commentCounts.get(bead.id) ?? 0}
+                locks={locksByBead.get(bead.id) ?? []}
+                onClaim={claimBead}
+                onClose={closeBead}
+                onReopen={reopenBead}
+                onRollback={rollbackBead}
+                onForceUnlock={forceUnlock}
+                onChangePriority={changePriority}
+                onStartEdit={startEdit}
+                index={idx}
+                isDragging={dragIdx === idx}
+                isDropTarget={dropIdx === idx}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+              />
+            ))}
           </div>
     </div>
   )

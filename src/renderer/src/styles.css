@@ -584,7 +584,22 @@ button, input, select, textarea { -webkit-app-region: no-drag; }
 .bead-card.bead-drop-target { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .bead-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-glow); }
 
-.bead-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.bead-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; cursor: pointer; user-select: none; }
+.bead-card-header:hover { opacity: 0.85; }
+
+/* Expand/collapse chevron */
+.bead-expand-chevron { font-size: 10px; color: var(--text-2); transition: transform 0.2s ease; display: inline-block; }
+.bead-expand-chevron-open { transform: rotate(90deg); }
+
+/* Expanded card styling */
+.bead-card.bead-card-expanded { border-color: rgba(255,255,255,0.15); box-shadow: 0 0 0 1px rgba(255,255,255,0.05); }
+
+/* Comment badge as clickable button */
+.bead-comment-badge { cursor: pointer; border: none; font-family: inherit; }
+.bead-comment-badge:hover { background: var(--bg-3); }
+
+/* Detail section animation */
+.bead-card-detail-section { animation: slideDown 0.15s ease-out; }
 .bead-id { font-family: var(--font); font-size: 11px; color: var(--text-2); }
 .bead-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
 .bead-desc { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
