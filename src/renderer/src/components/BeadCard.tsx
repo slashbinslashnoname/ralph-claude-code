@@ -65,6 +65,13 @@ export default function BeadCard({
     onToggleExpand(bead.id)
   }, [bead.id, onToggleExpand])
 
+  const handleHeaderKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onToggleExpand(bead.id)
+    }
+  }, [bead.id, onToggleExpand])
+
   const handleCommentBadgeClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     // Expand if collapsed, then scroll to comments
@@ -83,7 +90,7 @@ export default function BeadCard({
       onDragEnd={onDragEnd}
     >
       {/* Clickable header region */}
-      <div className="bead-card-header" onClick={handleHeaderClick} role="button" tabIndex={0}>
+      <div className="bead-card-header" onClick={handleHeaderClick} onKeyDown={handleHeaderKeyDown} role="button" tabIndex={0}>
         <span className={`bead-expand-chevron${expanded ? ' bead-expand-chevron-open' : ''}`}>{'\u25B6'}</span>
         <span className={`badge badge-${statusColor(bead.status)}`}>{statusLabel(bead.status)}</span>
         <span className="bead-id">{bead.id}</span>

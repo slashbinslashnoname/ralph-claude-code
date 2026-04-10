@@ -234,6 +234,34 @@ describe('BeadCard — interactions (DOM)', () => {
     expect(onToggle).not.toHaveBeenCalled()
   })
 
+  test('pressing Enter on header toggles expand (keyboard accessibility)', async () => {
+    const onToggle = vi.fn()
+    await act(async () => {
+      createRoot(container).render(<BeadCard {...makeProps({ onToggleExpand: onToggle })} />)
+    })
+
+    const header = container.querySelector('.bead-card-header') as HTMLElement
+    await act(async () => {
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+
+    expect(onToggle).toHaveBeenCalledWith('test-1')
+  })
+
+  test('pressing Space on header toggles expand (keyboard accessibility)', async () => {
+    const onToggle = vi.fn()
+    await act(async () => {
+      createRoot(container).render(<BeadCard {...makeProps({ onToggleExpand: onToggle })} />)
+    })
+
+    const header = container.querySelector('.bead-card-header') as HTMLElement
+    await act(async () => {
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    })
+
+    expect(onToggle).toHaveBeenCalledWith('test-1')
+  })
+
   test('clicking comment badge expands and calls toggle when collapsed', async () => {
     const onToggle = vi.fn()
     await act(async () => {
