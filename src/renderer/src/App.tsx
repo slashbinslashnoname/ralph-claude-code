@@ -9,6 +9,7 @@ import LogViewer from './pages/LogViewer'
 import ConfigEditor from './pages/ConfigEditor'
 import PlanPage from './pages/PlanPage'
 import SetupWizard from './pages/SetupWizard'
+import MemoriesPage from './pages/MemoriesPage'
 import SlashbotLogo from './components/SlashbotLogo'
 import UpdateBanner from './components/UpdateBanner'
 import { ToastProvider } from './components/Toast'
@@ -17,13 +18,14 @@ import PlanApprovalModal from './components/PlanApprovalModal'
 
 const sb = window.slashbot
 
-type Page = 'dashboard' | 'beads' | 'swarm' | 'plan' | 'logs' | 'config' | 'setup'
+type Page = 'dashboard' | 'beads' | 'swarm' | 'plan' | 'memories' | 'logs' | 'config' | 'setup'
 
 const NAV_ITEMS: { id: Page; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u25C9' },
   { id: 'plan', label: 'Plan', icon: '\u25B6' },
   { id: 'beads', label: 'Beads', icon: '\u29BE' },
   { id: 'swarm', label: 'Swarm', icon: '\u2B21' },
+  { id: 'memories', label: 'Memories', icon: '\u2BD1' },
   { id: 'logs', label: 'Logs', icon: '\u2630' },
   { id: 'config', label: 'Config', icon: '\u2699' },
 ]
@@ -339,6 +341,7 @@ export default function App() {
               setAgentOutputs={setAgentOutputs}
             />
           )}
+          {current.page === 'memories' && current.isEnabled && <MemoriesPage projectPath={current.path} />}
           {current.page === 'logs' && current.isEnabled && <LogViewer projectPath={current.path} />}
           {current.page === 'config' && current.isEnabled && <ConfigEditor projectPath={current.path} />}
         </main>
